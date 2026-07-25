@@ -53,16 +53,29 @@ const LOGTYPES = {
 // rep-based exercise) and forced it into time-tracking. "dead hang" alone
 // covers the actual isometric hold.
 const DURATION_NAMES = /plank|hold|wall sit|dead hang|l-sit|hollow/i;
+// Movements that are inherently reps-only (bodyweight). Used to infer the type
+// for exercises with none stored AND to correct a wrong 'weighted' default that
+// got baked into old/imported copies (e.g. an imported "Hanging Leg Raise").
+const BODYWEIGHT_NAMES = /leg raise|knee raise|toes[- ]?to[- ]?bar|hanging raise/i;
 // Infer a tracking type for a built-in / legacy exercise that has none stored.
 // Cardio defaults to time (matches "25min stairs/cycle"); distance+time ('cardio')
 // is only used when the user explicitly picks it for a new exercise.
 function exLogType(name, category) {
   if (category === 'Cardio') return 'duration';
   if (DURATION_NAMES.test(name || '')) return 'duration';
+  if (BODYWEIGHT_NAMES.test(name || '')) return 'bodyweight';
   return 'weighted';
 }
-const resolveLogType = ex => LOGTYPES[ex?.logType] ? ex.logType : exLogType(ex?.name, ex?.category);
-const fmtDuration = secs => { if (!secs) return ''; const m = Math.floor(secs/60), s = secs%60; return m + ':' + String(s).padStart(2,'0'); };
+// A stored logType normally wins — except a stale 'weighted' on an inherently
+// bodyweight movement (leg raises etc.), which we override to reps-only.
+const resolveLogType = ex => {
+  const stored = ex?.logType;
+  if (LOGTYPES[stored] && !(stored === 'weighted' && BODYWEIGHT_NAMES.test(ex?.name || '')))
+    return stored;
+  return exLogType(ex?.name, ex?.category);
+};
+// Always mm:ss with leading zeros (stopwatch style, e.g. 90s → "01:30", 45s → "00:45").
+const fmtDuration = secs => { if (!secs) return ''; const m = Math.floor(secs/60), s = secs%60; return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); };
 // Returns seconds. "m:ss" is always minutes:seconds. A bare number is minutes
 // for cardio (you did "25" → 25 min) but seconds for holds/planks ("45" → 45s).
 function parseTime(str, asMinutes = false) {
@@ -404,8 +417,8 @@ function setInputCell(col, set, ex, ei, prev) {
   if (col === 'distance')
     return `<td><input class="set-input" type="number" min="0" step="0.01" value="${set.distance || ''}" placeholder="${prev?.distance ?? 0}" inputmode="decimal" ${common} data-field="distance"></td>`;
   if (col === 'time') {
-    const ph = prev?.duration ? fmtDuration(prev.duration) : (isCardioEx(ex) ? 'min' : 'm:ss');
-    return `<td><input class="set-input" type="text" value="${set.duration ? fmtDuration(set.duration) : ''}" placeholder="${ph}" inputmode="numeric" ${common} data-field="time"></td>`;
+    const ph = prev?.duration ? fmtDuration(prev.duration) : '00:00';
+    return `<td><input class="set-input set-time" type="text" value="${set.duration ? fmtDuration(set.duration) : ''}" placeholder="${ph}" inputmode="numeric" ${common} data-field="time"></td>`;
   }
   return '<td></td>';
 }
@@ -529,6 +542,16 @@ awBody.addEventListener('input', e => {
     const ex = activeSession?.exercises[t.dataset.ei];
     if (ex) { ex.notes = t.value; saveSoon(); }
   }
+});
+
+// Reformat a time set to mm:ss once the user leaves the field, so "90" or "1:5"
+// becomes "01:30" / "01:05" — the 00:00 stopwatch format.
+awBody.addEventListener('focusout', e => {
+  const t = e.target;
+  if (!t.classList?.contains('set-time')) return;
+  const { ei, setId } = t.dataset;
+  const { set } = findSet(ei, setId);
+  t.value = set?.duration ? fmtDuration(set.duration) : '';
 });
 
 awBody.addEventListener('click', e => {
@@ -1295,22 +1318,81 @@ function cancelWorkout() {
   document.getElementById('miniBar').classList.remove('visible');
 }
 
-// ── Rest-end chime (Web Audio — no asset needed) ─────────────────────────────
-// NOTE: iOS mutes Web Audio when the ringer switch is on silent, and there is
-// no way to play sound while the PWA is backgrounded — the chime fires on
-// return if rest elapsed while hidden. Vibration is Android-only.
+// ── Rest-end chime ────────────────────────────────────────────────────────────
+// Primary path is an HTML5 <audio> element playing a generated WAV: on iOS this
+// routes through the media channel, so it rings even with the ringer switch on
+// SILENT (Web Audio is silenced by that switch — the old bug where the alarm
+// never sounded on a lifter's muted phone). Web Audio stays as a fallback for
+// browsers where the element fails. Neither can play while the PWA is fully
+// backgrounded; the chime then fires on return if rest elapsed while hidden.
 let audioCtx = null;
+let alarmEl  = null;
+let audioPrimed = false;
+
+// Synthesize the alarm as a PCM16 WAV data-URI (two urgent triads). Built once,
+// at unlock time, so nothing bloats the repo.
+function buildAlarmDataURI() {
+  const sr = 22050, dur = 1.12, n = Math.floor(sr * dur);
+  const data = new Float32Array(n);
+  const beeps = [0, 0.16, 0.32, 0.62, 0.78, 0.94];
+  const freqs = [988, 1319, 1568, 988, 1319, 1568];
+  for (let b = 0; b < beeps.length; b++) {
+    const start = Math.floor(beeps[b] * sr), len = Math.floor(0.15 * sr);
+    for (let i = 0; i < len; i++) {
+      const t = i / sr;
+      const env = Math.min(1, t / 0.008) * Math.exp(-t / 0.05);
+      const idx = start + i;
+      if (idx < n) data[idx] += Math.sin(2 * Math.PI * freqs[b] * t) * 0.8 * env;
+    }
+  }
+  const buf = new ArrayBuffer(44 + n * 2), view = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); w(8, 'WAVE');
+  w(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  w(36, 'data'); view.setUint32(40, n * 2, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, data[i])); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
+  const bytes = new Uint8Array(buf); let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
+
 function unlockAudio() {
+  // Always keep the Web Audio fallback resumed (cheap).
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state !== 'running') audioCtx.resume();
-    // Warm the hardware with a silent tick so the first real chime isn't eaten
+  } catch (_) {}
+  // Prime the <audio> element ONCE with a muted play/pause inside a user gesture
+  // (re-priming on every set would cut off a chime that's currently ringing).
+  if (audioPrimed) return;
+  audioPrimed = true;
+  try {
+    if (!alarmEl) { alarmEl = new Audio(); alarmEl.preload = 'auto'; alarmEl.src = buildAlarmDataURI(); }
+    alarmEl.muted = true;
+    const p = alarmEl.play();
+    if (p && p.then) p.then(() => { alarmEl.pause(); alarmEl.currentTime = 0; alarmEl.muted = false; }).catch(() => { alarmEl.muted = false; });
+  } catch (_) { audioPrimed = false; }
+  try {
     const buf = audioCtx.createBuffer(1, 1, 22050);
     const src = audioCtx.createBufferSource();
     src.buffer = buf; src.connect(audioCtx.destination); src.start(0);
   } catch (_) {}
 }
 function playChime() {
+  // Primary: the media-channel <audio> element (rings through the silent switch).
+  try {
+    if (alarmEl && alarmEl.src) {
+      alarmEl.muted = false; alarmEl.currentTime = 0;
+      const p = alarmEl.play();
+      if (p && p.catch) p.catch(() => playWebAudioChime());
+      return;
+    }
+  } catch (_) {}
+  playWebAudioChime();
+}
+function playWebAudioChime() {
   if (!audioCtx) return;
   const play = () => {
     try {
@@ -2103,8 +2185,9 @@ function openDayChooser(dateStr, list) {
 
 // ── History render ────────────────────────────────────────────────────────────
 async function renderHistory() {
-  let sessions = await loadSessions();
   const el = document.getElementById('historyList');
+  if (el && !el.children.length) el.innerHTML = skeletonCards(4);  // shimmer while IndexedDB loads
+  let sessions = await loadSessions();
   document.getElementById('buildRoutinesBtn').style.display = sessions.length ? '' : 'none';
   if (!sessions.length) {
     el.innerHTML = `<div class="empty-state">No history yet.<br>Restore from cloud, or import a backup, in Stats.</div>`;
@@ -2158,9 +2241,9 @@ function hdSetEditInputs(ex, ei, st, si) {
       type="${field === 'time' ? 'text' : 'number'}" ${field !== 'time' ? `min="0" step="${step}"` : ''}
       inputmode="${mode}" value="${val}" placeholder="${ph}">`;
   if (lt === 'bodyweight') return inp('reps', st.reps || '', 'reps', '1', 'numeric');
-  if (lt === 'duration')   return inp('time', st.duration ? fmtDuration(st.duration) : '', 'm:ss', '1', 'numeric');
+  if (lt === 'duration')   return inp('time', st.duration ? fmtDuration(st.duration) : '', '00:00', '1', 'numeric');
   if (lt === 'cardio')     return inp('distance', st.distance || '', 'km', '0.01', 'decimal') +
-                                  inp('time', st.duration ? fmtDuration(st.duration) : '', 'm:ss', '1', 'numeric');
+                                  inp('time', st.duration ? fmtDuration(st.duration) : '', '00:00', '1', 'numeric');
   return inp('weight', st.weight || '', 'kg', '0.5', 'decimal') + inp('reps', st.reps || '', 'reps', '1', 'numeric');
 }
 
@@ -2414,6 +2497,10 @@ document.getElementById('routineBuilderDone').onclick = () => {
 // ── Library render ────────────────────────────────────────────────────────────
 async function renderLibrary() {
   const q      = document.getElementById('libSearch').value.toLowerCase();
+  const libEl0 = document.getElementById('libraryList2');
+  if (libEl0 && !libEl0.children.length && !q)
+    libEl0.innerHTML = Array.from({ length: 8 }, () =>
+      `<div class="skeleton" style="height:44px;margin-bottom:8px;border-radius:10px"></div>`).join('');
   const all    = await getAllExercises();
   const filtered = all.filter(e => !q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q));
 
@@ -3092,7 +3179,7 @@ document.getElementById('coachKeySave').onclick = async () => {
 // cap, re-render then. A brief "restoring…" note reassures during the wait.
 if (document.getElementById('recentList')) {
   document.getElementById('recentList').innerHTML =
-    '<div class="empty-state" style="padding:24px 0">Restoring your data…</div>';
+    `<div style="display:flex;align-items:center;gap:6px;justify-content:center;color:var(--text-muted);font-size:0.8rem;padding:6px 0 12px">${icon('refresh-cw', { size: 13 })} Restoring your data…</div>` + skeletonCards(3);
 }
 try { await Promise.race([initialSync, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
