@@ -86,6 +86,16 @@ function parseTime(str, asMinutes = false) {
   return Math.round(asMinutes ? n * 60 : n);
 }
 const isCardioEx = ex => ex?.category === 'Cardio' || resolveLogType(ex) === 'cardio';
+// Live stopwatch mask for time entry: the digits fill mm:ss from the right, so
+// typing "2000" → "20:00" (20 min), "230" → "02:30", "45" → "00:45". Returns the
+// formatted text and the value in seconds.
+function maskTime(raw) {
+  const d = String(raw ?? '').replace(/\D/g, '').replace(/^0+(?=\d\d)/, '').slice(-4);
+  if (!d) return { text: '', secs: 0 };
+  const p = d.padStart(3, '0');           // ensure at least M + SS
+  const sec = p.slice(-2), min = p.slice(0, -2);
+  return { text: min.padStart(2, '0') + ':' + sec, secs: (parseInt(min, 10) || 0) * 60 + (parseInt(sec, 10) || 0) };
+}
 const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 // Milestone emoji (from achievements.js) → Lucide icon names.
 const MILESTONE_ICONS = { '🏋️': 'dumbbell', '🔥': 'flame', '⚡': 'zap' };
@@ -530,7 +540,7 @@ awBody.addEventListener('input', e => {
     if (!set) return;
     if (field === 'reps')          set.reps = parseInt(t.value) || 0;
     else if (field === 'distance') set.distance = parseFloat(t.value) || 0;
-    else if (field === 'time')     set.duration = parseTime(t.value, isCardioEx(ex));
+    else if (field === 'time')     { const m = maskTime(t.value); t.value = m.text; set.duration = m.secs; }
     else                           set[field] = parseFloat(t.value) || 0;   // weight
     (set.touched ||= {})[field] = true;
     if (field === 'weight') queueSanityCheck(ex, set, t.closest('.set-row'));
@@ -1318,81 +1328,27 @@ function cancelWorkout() {
   document.getElementById('miniBar').classList.remove('visible');
 }
 
-// ── Rest-end chime ────────────────────────────────────────────────────────────
-// Primary path is an HTML5 <audio> element playing a generated WAV: on iOS this
-// routes through the media channel, so it rings even with the ringer switch on
-// SILENT (Web Audio is silenced by that switch — the old bug where the alarm
-// never sounded on a lifter's muted phone). Web Audio stays as a fallback for
-// browsers where the element fails. Neither can play while the PWA is fully
-// backgrounded; the chime then fires on return if rest elapsed while hidden.
+// ── Rest-end chime (Web Audio — mixes with your music) ───────────────────────
+// Web Audio LAYERS the beep over whatever else is playing (Spotify/Apple Music
+// keep going) instead of taking over playback. Trade-off: iOS silences Web Audio
+// when the physical ringer switch is on SILENT. Since you train with music
+// playing, the phone isn't on silent — so the alarm both sounds and mixes. (An
+// <audio>-element alarm plays through the silent switch but PAUSES your music;
+// iOS gives web pages no way to make that session mix, so it's a hard either/or.
+// A settings toggle can offer both modes if wanted.) Neither can play while the
+// PWA is fully backgrounded; the chime then fires on return if rest elapsed hidden.
 let audioCtx = null;
-let alarmEl  = null;
-let audioPrimed = false;
-
-// Synthesize the alarm as a PCM16 WAV data-URI (two urgent triads). Built once,
-// at unlock time, so nothing bloats the repo.
-function buildAlarmDataURI() {
-  const sr = 22050, dur = 1.12, n = Math.floor(sr * dur);
-  const data = new Float32Array(n);
-  const beeps = [0, 0.16, 0.32, 0.62, 0.78, 0.94];
-  const freqs = [988, 1319, 1568, 988, 1319, 1568];
-  for (let b = 0; b < beeps.length; b++) {
-    const start = Math.floor(beeps[b] * sr), len = Math.floor(0.15 * sr);
-    for (let i = 0; i < len; i++) {
-      const t = i / sr;
-      const env = Math.min(1, t / 0.008) * Math.exp(-t / 0.05);
-      const idx = start + i;
-      if (idx < n) data[idx] += Math.sin(2 * Math.PI * freqs[b] * t) * 0.8 * env;
-    }
-  }
-  const buf = new ArrayBuffer(44 + n * 2), view = new DataView(buf);
-  const w = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
-  w(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); w(8, 'WAVE');
-  w(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  w(36, 'data'); view.setUint32(40, n * 2, true);
-  let off = 44;
-  for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, data[i])); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
-  const bytes = new Uint8Array(buf); let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return 'data:audio/wav;base64,' + btoa(bin);
-}
-
 function unlockAudio() {
-  // Always keep the Web Audio fallback resumed (cheap).
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state !== 'running') audioCtx.resume();
-  } catch (_) {}
-  // Prime the <audio> element ONCE with a muted play/pause inside a user gesture
-  // (re-priming on every set would cut off a chime that's currently ringing).
-  if (audioPrimed) return;
-  audioPrimed = true;
-  try {
-    if (!alarmEl) { alarmEl = new Audio(); alarmEl.preload = 'auto'; alarmEl.src = buildAlarmDataURI(); }
-    alarmEl.muted = true;
-    const p = alarmEl.play();
-    if (p && p.then) p.then(() => { alarmEl.pause(); alarmEl.currentTime = 0; alarmEl.muted = false; }).catch(() => { alarmEl.muted = false; });
-  } catch (_) { audioPrimed = false; }
-  try {
+    // Warm the hardware with a silent tick so the first real chime isn't eaten.
     const buf = audioCtx.createBuffer(1, 1, 22050);
     const src = audioCtx.createBufferSource();
     src.buffer = buf; src.connect(audioCtx.destination); src.start(0);
   } catch (_) {}
 }
 function playChime() {
-  // Primary: the media-channel <audio> element (rings through the silent switch).
-  try {
-    if (alarmEl && alarmEl.src) {
-      alarmEl.muted = false; alarmEl.currentTime = 0;
-      const p = alarmEl.play();
-      if (p && p.catch) p.catch(() => playWebAudioChime());
-      return;
-    }
-  } catch (_) {}
-  playWebAudioChime();
-}
-function playWebAudioChime() {
   if (!audioCtx) return;
   const play = () => {
     try {
@@ -1724,11 +1680,20 @@ async function ensureExercisesInRepo(exercises) {
 }
 
 // Most recent past performance of an exercise, from a preloaded session list.
+// Loose key for matching history to the current exercise: lowercase, drop
+// parenthetical qualifiers and punctuation, collapse spaces. Lets "Bench Press"
+// map to "Bench Press (Barbell)" etc. after the library expansion added
+// qualified variant names — so the previous-weight pre-fill still appears.
+const _histKey = s => String(s || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 function prevPerfFrom(sessions, exerciseName) {
+  const target = _histKey(exerciseName);
   for (const s of sessions) {
     if (s.id === activeSession?.id) continue;
-    const ex = s.exercises.find(e => e.name === exerciseName);
-    if (ex?.sets?.length) return ex;
+    // Exact name wins within a session; else fall back to the normalised match.
+    const exact = s.exercises.find(e => e.name === exerciseName && e.sets?.length);
+    if (exact) return exact;
+    const loose = target && s.exercises.find(e => e.sets?.length && _histKey(e.name) === target);
+    if (loose) return loose;
   }
   return null;
 }
@@ -2350,7 +2315,7 @@ async function saveHistoryEdits() {
     if (!st) return;
     if (field === 'reps')          st.reps = parseInt(inp.value) || 0;
     else if (field === 'distance') st.distance = parseFloat(inp.value) || 0;
-    else if (field === 'time')     st.duration = parseTime(inp.value, isCardioEx(ex));
+    else if (field === 'time')     st.duration = maskTime(inp.value).secs;
     else                           st.weight = parseFloat(inp.value) || 0;   // weight
   });
   // Any set that now carries data counts toward stats; fully-empty rows don't.
@@ -2429,6 +2394,15 @@ async function saveTemplate(name, exercises) {
   alert('Saved as routine!');
 }
 
+// Live mm:ss mask for the history-edit time fields (same behaviour as the
+// active-workout inputs). Delegated on the persistent #hdBody container.
+document.getElementById('hdBody').addEventListener('input', e => {
+  const t = e.target;
+  if (!t.classList?.contains('hd-edit-input') || t.dataset.field !== 'time') return;
+  const m = maskTime(t.value); t.value = m.text;
+  const st = hdSession?.exercises?.[+t.dataset.ei]?.sets?.[+t.dataset.si];
+  if (st) st.duration = m.secs;
+});
 document.getElementById('hdBack').onclick   = () => document.getElementById('historyDetail').classList.remove('visible');
 document.getElementById('hdDelete').onclick = async () => {
   const sid = document.getElementById('hdDelete').dataset.sid;
