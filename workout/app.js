@@ -8,7 +8,7 @@ import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML } from './stats.js';
-import { assembleContext, callCoach, validateRoutine } from './coach.js';
+import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
 
@@ -66,13 +66,14 @@ function exLogType(name, category) {
   if (BODYWEIGHT_NAMES.test(name || '')) return 'bodyweight';
   return 'weighted';
 }
-// A stored logType normally wins — except a stale 'weighted' on an inherently
-// bodyweight movement (leg raises etc.), which we override to reps-only.
+// A stored logType normally wins — EXCEPT for inherently reps-only movements
+// (leg raises etc.), which are always bodyweight. This overrides any stale type
+// baked into old/imported data — including a 'duration' left over from when a
+// bare "hang" match wrongly forced "Hanging Leg Raise" into time-tracking.
 const resolveLogType = ex => {
+  if (BODYWEIGHT_NAMES.test(ex?.name || '')) return 'bodyweight';
   const stored = ex?.logType;
-  if (LOGTYPES[stored] && !(stored === 'weighted' && BODYWEIGHT_NAMES.test(ex?.name || '')))
-    return stored;
-  return exLogType(ex?.name, ex?.category);
+  return LOGTYPES[stored] ? stored : exLogType(ex?.name, ex?.category);
 };
 // Always mm:ss with leading zeros (stopwatch style, e.g. 90s → "01:30", 45s → "00:45").
 const fmtDuration = secs => { if (!secs) return ''; const m = Math.floor(secs/60), s = secs%60; return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'); };
@@ -237,7 +238,10 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
   const exercises = (prefill?.exercises || []).map(e => {
     const prev = prevPerfFrom(past, e.name);
     const def = allEx.find(x => x.name === e.name);
-    const logType = e.logType || prev?.logType || def?.logType || exLogType(e.name, e.category);
+    // resolveLogType corrects a stale 'weighted' on inherently-bodyweight moves
+    // (leg raises etc.) so they're reps-only from the start, not just at render.
+    const logType = resolveLogType({ name: e.name, category: e.category,
+      logType: e.logType || prev?.logType || def?.logType || exLogType(e.name, e.category) });
     return {
       id: uid(), name: e.name, category: e.category, logType,
       restTime: e.restTime ?? prev?.restTime ?? 60,
@@ -1680,22 +1684,28 @@ async function ensureExercisesInRepo(exercises) {
 }
 
 // Most recent past performance of an exercise, from a preloaded session list.
-// Loose key for matching history to the current exercise: lowercase, drop
-// parenthetical qualifiers and punctuation, collapse spaces. Lets "Bench Press"
-// map to "Bench Press (Barbell)" etc. after the library expansion added
-// qualified variant names — so the previous-weight pre-fill still appears.
+// Match history to the current exercise across the naming differences the
+// library expansion introduced, so the previous-weight pre-fill still appears.
+// Three tiers, most-specific first:
+//   1. exact name                         ("Bench Press (Barbell)")
+//   2. parentheses stripped               ("Bench Press" ↔ "Bench Press (Barbell)")
+//   3. equipment-agnostic (normName)      ("Barbell Bench Press" ↔ "Bench Press (Barbell)")
+// Exact always wins; the looser tiers only fill in when nothing exact exists.
 const _histKey = s => String(s || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 function prevPerfFrom(sessions, exerciseName) {
-  const target = _histKey(exerciseName);
+  const paren = _histKey(exerciseName);
+  const equip = normName(exerciseName);
+  let looseParen = null, looseEquip = null;
   for (const s of sessions) {
     if (s.id === activeSession?.id) continue;
-    // Exact name wins within a session; else fall back to the normalised match.
-    const exact = s.exercises.find(e => e.name === exerciseName && e.sets?.length);
-    if (exact) return exact;
-    const loose = target && s.exercises.find(e => e.sets?.length && _histKey(e.name) === target);
-    if (loose) return loose;
+    for (const e of (s.exercises || [])) {
+      if (!e.sets?.length) continue;
+      if (e.name === exerciseName) return e;                                  // tier 1
+      if (!looseParen && paren && _histKey(e.name) === paren) looseParen = e; // tier 2
+      if (!looseEquip && equip && normName(e.name) === equip) looseEquip = e; // tier 3
+    }
   }
-  return null;
+  return looseParen || looseEquip;
 }
 
 // ── Custom exercise modal ─────────────────────────────────────────────────────
