@@ -7,10 +7,11 @@ import { MY_ROUTINES } from './myRoutines.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
-         exerciseFrequency, progressionHTML, monthlyViewHTML } from './stats.js';
+         exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
 import { assembleContext, callCoach, validateRoutine } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
+import { generateSuggestions } from '../shared/suggestions.js';
 
 // Paint any static/dynamic `<i data-lucide>` placeholders. Cheap + idempotent,
 // so it's safe to call after every render that may inject new icon markup.
@@ -201,8 +202,9 @@ document.querySelectorAll('.tab').forEach(btn => {
 });
 
 // ── Workout start / open ──────────────────────────────────────────────────────
-document.getElementById('startEmptyBtn').onclick = () => startEmptyWorkout();
-document.getElementById('newRoutineBtn').onclick = () => startNewRoutine();
+document.getElementById('startEmptyBtn').onclick = () => { closeRoutineChooser(); startEmptyWorkout(); };
+document.getElementById('newRoutineBtn').onclick = () => { closeRoutineChooser(); startNewRoutine(); };
+document.getElementById('dashAllHistory').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
 
 // Ghost targets: what the inputs *suggest* (placeholder), never pre-filled values.
 function ghostsFor(prevSets, templateSet, si) {
@@ -729,7 +731,12 @@ function computeExercisePBs(ei) {
   for (const set of ex.sets) {
     if (!set.done) continue;
     const found = detectPBs(ex.name, set, rec);
-    if (found.length) { pbs.push(...found); pbSetIds.add(set.id); pbBySet.set(set.id, found[0]); }
+    if (found.length) {
+      // Carry the achieving set's numbers so surfaces (e.g. the PB-first summary)
+      // can render {kg}×{reps} + est. 1RM without re-scanning the session.
+      for (const p of found) { p.weight = set.weight; p.reps = set.reps || 0; p.est = Math.round(e1RM(set.weight, set.reps || 1)); }
+      pbs.push(...found); pbSetIds.add(set.id); pbBySet.set(set.id, found[0]);
+    }
     absorbSet(ex.name, set, rec);
   }
   return { pbs, pbSetIds, pbBySet };
@@ -1240,7 +1247,7 @@ function finishWarnings() {
   return warnings;
 }
 
-function showWorkoutSummary() {
+async function showWorkoutSummary() {
   skipRest();
   refreshAllPBs();   // ensure the PB count reflects the final, corrected numbers
   const title = document.getElementById('awTitle').value.trim() || 'Workout';
@@ -1248,16 +1255,42 @@ function showWorkoutSummary() {
 
   const doneSets = activeSession.exercises.flatMap(e => e.sets.filter(s => s.done));
   const volume   = doneSets.reduce((s, set) => s + (set.weight || 0) * (set.reps || 1), 0);
-  const exCount  = activeSession.exercises.length;
-  const pbCount  = activeSession.pbs?.length || 0;
+  const durSecs  = sessionSecsNow();
+  const pbs      = activeSession.pbs || [];
+  const pbCount  = pbs.length;
 
-  document.getElementById('summaryTitle').textContent = title;
-  document.getElementById('summaryDate').textContent  = new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+  // ── Header: PBs lead; fall back to the routine name when there are none ──────
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const headTitle = pbCount ? `${pbCount} personal best${pbCount > 1 ? 's' : ''}` : esc(title);
+  const badge = pbCount
+    ? `<div class="summary-badge">${icon('trophy', { size: 24 })}</div>`
+    : `<div class="summary-badge ok">${icon('check', { size: 24 })}</div>`;
+  document.getElementById('summaryHeader').innerHTML = `
+    ${badge}
+    <div class="summary-htext">
+      <div class="summary-title">${headTitle}</div>
+      <div class="summary-date">${esc(title)} · ${dateStr}</div>
+    </div>`;
+
+  // ── PB list: one row per PB, {kg}×{reps} + est. 1RM / heaviest-ever delta ────
+  document.getElementById('summaryPBs').innerHTML = pbCount ? `
+    <div class="summary-pbs">
+      ${pbs.map(p => {
+        const baseMax = sessionRecords[p.exercise]?.maxWeight || 0;
+        const delta = p.type === 'weight' && baseMax > 0 ? Math.round(p.weight - baseMax) : 0;
+        const suffix = delta > 0 ? `+${delta} kg` : `est. 1RM ${p.est} kg`;
+        return `<div class="summary-pb-row">
+          <span class="summary-pb-name">${esc(p.exercise)}</span>
+          <span class="summary-pb-val">${fmtKg(p.weight)} × ${p.reps} <span class="sub">· ${suffix}</span></span>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  // ── Three stat boxes (PB box dropped — PBs now lead) ─────────────────────────
   document.getElementById('summaryStats').innerHTML = `
-    <div class="stat-box"><div class="stat-val">${fmtTime(sessionSecsNow())}</div><div class="stat-label">Duration</div></div>
+    <div class="stat-box"><div class="stat-val">${fmtTime(durSecs)}</div><div class="stat-label">Duration</div></div>
     <div class="stat-box"><div class="stat-val">${doneSets.length}</div><div class="stat-label">Sets</div></div>
     <div class="stat-box"><div class="stat-val">${Math.round(volume).toLocaleString()}</div><div class="stat-label">Volume kg</div></div>
-    <div class="stat-box"><div class="stat-val">${pbCount ? `<span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 17 })}</span> ` + pbCount : '—'}</div><div class="stat-label">PBs</div></div>
   `;
 
   const warnings = finishWarnings();
@@ -1266,12 +1299,55 @@ function showWorkoutSummary() {
     ? `<div class="summary-warn-box">${warnings.map(w => warnIcon + esc(w)).join('<br>')}<br><span>Check before saving, or save anyway.</span></div>`
     : '';
 
-  document.getElementById('summaryExercises').innerHTML =
-    activeSession.exercises.map(e =>
-      `${esc(e.name)} — ${e.sets.filter(s=>s.done).length} sets`
-    ).join('<br>');
+  // ── vs. your last {routine}: volume + duration deltas ────────────────────────
+  const sessions = await loadSessions();
+  const last = sessions.find(s => (s.title || '') === title);
+  let compareHTML = '';
+  if (last) {
+    const lastVol = (last.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done))
+      .reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
+    const volDelta = Math.round(volume - lastVol);
+    const durDelta = durSecs - (last.duration || 0);
+    const volStr = `${volDelta >= 0 ? '+' : '−'}${Math.abs(volDelta).toLocaleString()} kg`;
+    const durStr = last.duration ? `${durDelta >= 0 ? '+' : '−'}${fmtTime(Math.abs(durDelta))}` : '—';
+    compareHTML = `
+      <div class="summary-compare">
+        <div class="summary-compare-rule">vs. your last ${esc(title)}</div>
+        <div class="summary-compare-figs">
+          <div class="summary-compare-fig"><div class="cf-val${volDelta > 0 ? ' up' : ''}">${volStr}</div><div class="cf-lbl">Volume</div></div>
+          <div class="summary-compare-fig"><div class="cf-val">${durStr}</div><div class="cf-lbl">Duration</div></div>
+        </div>
+      </div>`;
+  }
+  document.getElementById('summaryCompare').innerHTML = compareHTML;
+
+  // ── Coach note: top-set-vs-rep-range check (skip if nothing to say) ──────────
+  const note = summaryCoachNote();
+  document.getElementById('summaryCoachNote').innerHTML = note
+    ? `<div class="summary-coach">${icon('bot', { size: 17 })}<div class="summary-coach-body">${esc(note)}</div></div>`
+    : '';
 
   document.getElementById('workoutSummary').classList.add('visible');
+}
+
+// Generate one actionable sentence from the top working set vs. its rep-range
+// target — reuses the ranges already resolved onto each exercise. Returns '' if
+// nothing stands out (so the card is dropped).
+function summaryCoachNote() {
+  for (const ex of activeSession.exercises) {
+    const range = ex.repRange || resolveRepRange(ex);
+    if (!range || !range.min || !range.max) continue;
+    const working = ex.sets.filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
+    if (!working.length) continue;
+    const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
+    if ((top.reps || 0) > range.max + 1) {
+      return `${ex.name}: your top set hit ${top.reps} reps, above the ${range.min}–${range.max} target — add weight next time to stay in range.`;
+    }
+    if ((top.reps || 0) > 0 && top.reps < range.min) {
+      return `${ex.name}: your top set landed at ${top.reps} reps, under the ${range.min}–${range.max} target — drop the load a touch next time.`;
+    }
+  }
+  return '';
 }
 
 function handleSummaryBgClick(e) {
@@ -1541,7 +1617,7 @@ function openExPicker(opts = {}) {
   epReplaceEi = opts.replaceEi ?? null;
   document.getElementById('epSearch').value = '';
   document.getElementById('epSearch').placeholder = epReplaceEi !== null
-    ? `Replace ${activeSession.exercises[epReplaceEi].name}…`
+    ? 'Search all exercises…'
     : 'Search exercises…';
   document.getElementById('exercisePicker').classList.add('visible');
   renderExPicker();
@@ -1550,66 +1626,55 @@ function openExPicker(opts = {}) {
 
 function closeExPicker() {
   epReplaceEi = null;
+  document.getElementById('epReplaceHead').style.display = 'none';
   document.getElementById('exercisePicker').classList.remove('visible');
 }
 
 document.getElementById('epSearch').oninput = renderExPicker;
 
-async function renderExPicker() {
-  const q    = document.getElementById('epSearch').value.toLowerCase();
-  const all  = await getAllExercises();
-  const cats = ['All', ...CATEGORIES];
+// Generic, honest per-category note for swap mode — a mechanical hint, not
+// fabricated per-exercise copy (the design flags swapNote as optional).
+const CATEGORY_SWAP_NOTE = {
+  Chest:      'Same pressing pattern at a different angle — expect a comparable load.',
+  Back:       'Same pulling pattern; grip and angle shift where you feel it.',
+  Shoulders:  'Delt-focused — lighter loads and higher reps suit it best.',
+  Biceps:     'Elbow flexion; the angle changes the long-vs-short-head bias.',
+  Triceps:    'Elbow extension — a different head bias at a similar fatigue cost.',
+  Quads:      'Knee-dominant — expect a similar load and fatigue cost.',
+  Hamstrings: 'Hip-hinge or knee-flexion; mind the stretch under load.',
+  Glutes:     'Hip extension — often heavier, with longer rest.',
+  Calves:     'High-rep, short rest; small range, big stretch.',
+  Core:       'Trunk work — reps and control over load.',
+  Cardio:     'Conditioning — tracked by time, not weight.',
+};
 
-  const filtersEl = document.getElementById('epFilters');
-  filtersEl.innerHTML = cats.map(c =>
-    `<button class="ep-filter ${c === epFilter ? 'active' : ''}" data-cat="${c}">${c}</button>`
-  ).join('');
-  filtersEl.querySelectorAll('.ep-filter').forEach(btn => {
-    btn.onclick = () => { epFilter = btn.dataset.cat; renderExPicker(); };
-  });
-
-  const filtered = all.filter(e =>
-    (epFilter === 'All' || e.category === epFilter) &&
-    (!q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
-  );
-
-  // "Often picked" replacements for the exercise being swapped out
-  let oftenHTML = '';
-  if (epReplaceEi !== null && !q && epFilter === 'All') {
-    const prefs = (await db.get(STORE, 'replacement-prefs')) || {};
-    const orig = activeSession.exercises[epReplaceEi]?.name;
-    const ranked = Object.entries(prefs[orig] || {}).sort((a,b) => b[1] - a[1]).slice(0, 5);
-    // Sensible fallback: same-category alternatives
-    const cat = activeSession.exercises[epReplaceEi]?.category;
-    const sameCat = ranked.length ? [] :
-      all.filter(e => e.category === cat && e.name !== orig).slice(0, 4).map(e => [e.name, 0]);
-    const picks = ranked.length ? ranked : sameCat;
-    if (picks.length) {
-      const lookup = Object.fromEntries(all.map(e => [e.name, e.category]));
-      oftenHTML = `
-        <div class="ep-often-head">${ranked.length ? 'Often picked instead' : 'Same muscle group'}</div>
-        ${picks.map(([name]) => `
-          <div class="ep-item ep-often" data-name="${esc(name)}" data-cat="${esc(lookup[name] || cat)}">
-            <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[lookup[name] || cat]||'#8e8e9a'}">${esc(lookup[name] || cat)}</span>
-            <span class="ep-ex-name">${esc(name)}</span>
-          </div>`).join('')}
-        <div class="ep-often-sep"></div>`;
-    }
-  }
-
-  const listEl = document.getElementById('epList');
-  listEl.innerHTML = oftenHTML + filtered.map(e => `
+function pickerRow(e) {
+  return `
     <div class="ep-item" data-name="${esc(e.name)}" data-cat="${esc(e.category)}">
       <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#8e8e9a'}">${esc(e.category)}</span>
       <span class="ep-ex-name">${esc(e.name)}</span>
       ${e.custom ? '<span style="font-size:0.65rem;color:var(--text-muted)">Custom</span>' : ''}
-    </div>
-  `).join('') + `
-    <div class="ep-custom-row">
-      <button class="ep-custom-btn" id="epAddCustom">+ Create custom exercise</button>
-    </div>
-  `;
+    </div>`;
+}
 
+function swapMatchCard(e, st, first) {
+  const why = CATEGORY_SWAP_NOTE[e.category] || 'Similar movement pattern.';
+  const hist = st
+    ? `<div class="ep-match-hist">Your last: <b>${fmtKg(st.lastWeight)} × ${st.lastReps}</b> · ${st.count} session${st.count > 1 ? 's' : ''}</div>`
+    : '';
+  return `
+    <div class="ep-match-card ep-item${first ? ' first' : ''}" data-name="${esc(e.name)}" data-cat="${esc(e.category)}">
+      <div class="ep-match-top">
+        <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#8e8e9a'}">${esc(e.category)}</span>
+        <span class="ep-match-name">${esc(e.name)}</span>
+        ${st ? '' : '<span class="ep-new-chip">New</span>'}
+      </div>
+      <div class="ep-match-why">${esc(why)}</div>
+      ${hist}
+    </div>`;
+}
+
+function bindPickerItems(listEl) {
   listEl.querySelectorAll('.ep-item').forEach(item => {
     item.onclick = async () => {
       if (epReplaceEi !== null) {
@@ -1624,11 +1689,79 @@ async function renderExPicker() {
       }
     };
   });
+  const custom = listEl.querySelector('#epAddCustom');
+  if (custom) custom.onclick = () => { closeExPicker(); openCustomExModal(); };
+}
 
-  document.getElementById('epAddCustom').onclick = () => {
-    closeExPicker();
-    openCustomExModal();
-  };
+async function renderExPicker() {
+  const q    = document.getElementById('epSearch').value.toLowerCase();
+  const all  = await getAllExercises();
+  const swap = epReplaceEi !== null;
+  const listEl   = document.getElementById('epList');
+  const headEl   = document.getElementById('epReplaceHead');
+  const filtersEl = document.getElementById('epFilters');
+
+  // Swap-mode header ("REPLACING / <name>"); category filters hidden.
+  if (swap) {
+    const cur = activeSession.exercises[epReplaceEi];
+    headEl.style.display = '';
+    headEl.innerHTML = `<div class="ep-replace-eyebrow">Replacing</div><div class="ep-replace-name">${esc(cur?.name || '')}</div>`;
+    filtersEl.style.display = 'none';
+  } else {
+    headEl.style.display = 'none';
+    filtersEl.style.display = '';
+    const cats = ['All', ...CATEGORIES];
+    filtersEl.innerHTML = cats.map(c =>
+      `<button class="ep-filter ${c === epFilter ? 'active' : ''}" data-cat="${c}">${c}</button>`
+    ).join('');
+    filtersEl.querySelectorAll('.ep-filter').forEach(btn => {
+      btn.onclick = () => { epFilter = btn.dataset.cat; renderExPicker(); };
+    });
+  }
+
+  // ── Swap mode, empty query: ranked closest matches + rest of the category ──
+  if (swap && !q) {
+    const orig = activeSession.exercises[epReplaceEi];
+    const origName = orig?.name, origCat = orig?.category;
+    const [prefs, sessions] = await Promise.all([db.get(STORE, 'replacement-prefs'), loadSessions()]);
+    const co = (prefs || {})[origName] || {};
+    const stats = buildExerciseStatsMap(sessions);
+    const sameCat = all.filter(e => e.category === origCat && e.name !== origName);
+    // same category first (already filtered), then co-occurrence, then frequency.
+    sameCat.sort((a, b) =>
+      (co[b.name] || 0) - (co[a.name] || 0) ||
+      (stats.get(b.name)?.count || 0) - (stats.get(a.name)?.count || 0) ||
+      a.name.localeCompare(b.name));
+    const matches = sameCat.slice(0, 4);
+    const rest    = sameCat.slice(4);
+
+    const matchHTML = matches.length
+      ? matches.map((e, i) => swapMatchCard(e, stats.get(e.name), i === 0)).join('')
+      : `<div class="routines-empty">No other ${esc(origCat)} exercises yet — search above.</div>`;
+    const restHTML = rest.length
+      ? `<div class="ep-else-head">Everything else in ${esc(origCat)}</div>${rest.map(pickerRow).join('')}`
+      : '';
+
+    listEl.innerHTML = `
+      <div class="ep-match-head">${icon('repeat', { size: 13 })} Closest match</div>
+      ${matchHTML}
+      ${restHTML}
+      <div class="ep-custom-row"><button class="ep-custom-btn" id="epAddCustom">+ Create custom exercise</button></div>`;
+    bindPickerItems(listEl);
+    return;
+  }
+
+  // ── Default: add mode, or swap-with-a-query — flat filtered list ──
+  const filtered = all.filter(e =>
+    (swap || epFilter === 'All' || e.category === epFilter) &&
+    (!q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
+  );
+
+  listEl.innerHTML = filtered.map(pickerRow).join('') + `
+    <div class="ep-custom-row">
+      <button class="ep-custom-btn" id="epAddCustom">+ Create custom exercise</button>
+    </div>`;
+  bindPickerItems(listEl);
 }
 
 async function addExerciseToSession(name, category) {
@@ -1870,21 +2003,84 @@ const libraryDetailEl = document.getElementById('libraryDetail');
 let openSplitId = null;
 
 document.getElementById('libraryBtn').onclick = () => {
+  closeRoutineChooser();
   renderLibraryList();
   libraryEl.classList.add('visible');
 };
 document.getElementById('libraryClose').onclick = () => libraryEl.classList.remove('visible');
 document.getElementById('libraryDetailBack').onclick = () => libraryDetailEl.classList.remove('visible');
 
-function renderLibraryList() {
-  document.getElementById('libraryList').innerHTML = ROUTINE_LIBRARY.map(split => `
-    <div class="split-card" data-split="${split.id}">
-      <div class="split-name">${esc(split.name)}</div>
-      <div class="split-tagline">${esc(split.tagline)}</div>
-      <div class="split-meta">${esc(split.meta)}</div>
-    </div>
-  `).join('');
-  document.querySelectorAll('.split-card').forEach(card => {
+let daysFilter = null; // null | 2 | 3 | 4 | 6 — "days a week you can train"
+
+// Weekly working sets per category for a library split (all sets are 'normal').
+function splitSetsByCategory(split) {
+  const cat = {};
+  for (const day of split.days) for (const e of day.exercises) {
+    if (e.category === 'Cardio') continue;
+    cat[e.category] = (cat[e.category] || 0) + (e.sets?.length || 0);
+  }
+  return cat;
+}
+
+// Fit tag: compares the split's total weekly set count against the user's own.
+// Returns null when there's no history to measure against.
+function splitFitTag(split, userTotal) {
+  if (!userTotal) return null;
+  const splitTotal = Object.values(splitSetsByCategory(split)).reduce((a, b) => a + b, 0);
+  const ratio = splitTotal / userTotal;
+  if (ratio > 1.15) return { cls: 'split-fit-more', label: 'More volume', border: 'var(--blue)' };
+  if (ratio < 0.85) return { cls: 'split-fit-less', label: 'Less volume', border: 'var(--orange)' };
+  return { cls: 'split-fit-best', label: 'Best fit', border: 'var(--green)' };
+}
+
+async function renderLibraryList() {
+  const sessions = await loadSessions();
+  const { rows } = weeklySetsByCategory(sessions);
+  const userTotal = rows.reduce((a, r) => a + r.perWk, 0);
+
+  const PILLS = [{ v: null, t: 'Any' }, { v: 2, t: '2 days' }, { v: 3, t: '3 days' }, { v: 4, t: '4 days' }, { v: 6, t: '6 days' }];
+  const pillsHTML = `
+    <div class="rl-filter-prompt">How many days a week can you train?</div>
+    <div class="rl-pills">
+      ${PILLS.map(p => `<button class="rl-pill${daysFilter === p.v ? ' active' : ''}" data-days="${p.v === null ? '' : p.v}">${p.t}</button>`).join('')}
+    </div>`;
+
+  const shown = ROUTINE_LIBRARY.filter(s => daysFilter == null || s.days.length === daysFilter);
+
+  const cardsHTML = shown.map(split => {
+    const fit = splitFitTag(split, userTotal);
+    const days = split.days.length;
+    const shape = Array.from({ length: 7 }, (_, i) => `<span class="week-sq${i < days ? ' on' : ''}"></span>`).join('');
+    return `
+      <div class="split-card" data-split="${split.id}"${fit ? ` style="border-left-color:${fit.border}"` : ''}>
+        <div class="split-card-head">
+          <span class="split-name">${esc(split.name)}</span>
+          ${fit ? `<span class="split-fit-tag ${fit.cls}">${fit.label}</span>` : ''}
+        </div>
+        <div class="split-tagline">${esc(split.tagline)}</div>
+        <div class="split-card-foot">
+          <div class="split-week-shape">${shape}</div>
+          <span class="split-meta">${esc(split.meta)}</span>
+        </div>
+      </div>`;
+  }).join('') || `<div class="routines-empty">No splits at that frequency.</div>`;
+
+  // Footnote: day-filter count, else what the fit is measured against.
+  let foot = '';
+  if (daysFilter != null) {
+    const n = ROUTINE_LIBRARY.filter(s => s.days.length === daysFilter).length;
+    foot = `${n} of ${ROUTINE_LIBRARY.length} splits fit ${daysFilter} days a week.`;
+  } else if (userTotal) {
+    const top = rows.slice(0, 3).map(r => `${Math.round(r.perWk)} sets/wk ${r.cat.toLowerCase()}`).join(', ');
+    foot = `Fit is measured against your current ${top}.`;
+  }
+
+  document.getElementById('libraryList').innerHTML = pillsHTML + cardsHTML + (foot ? `<div class="rl-foot">${esc(foot)}</div>` : '');
+
+  document.querySelectorAll('#libraryList .rl-pill').forEach(pill => {
+    pill.onclick = () => { daysFilter = pill.dataset.days ? +pill.dataset.days : null; renderLibraryList(); };
+  });
+  document.querySelectorAll('#libraryList .split-card').forEach(card => {
     card.onclick = () => openSplitDetail(card.dataset.split);
   });
 }
@@ -1984,18 +2180,108 @@ function statsSkeleton() {
 }
 
 // ── Dashboard render ──────────────────────────────────────────────────────────
-async function renderDashboard() {
-  const recentEl0 = document.getElementById('recentList');
-  if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(2);
-  const templates = await getTemplates();
+// ISO-8601 week number (Mon-based), for the "Week N · day N" header line.
+function isoWeek(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - day + 3);
+  const firstThu = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const fday = (firstThu.getUTCDay() + 6) % 7;
+  firstThu.setUTCDate(firstThu.getUTCDate() - fday + 3);
+  return 1 + Math.round((date - firstThu) / (7 * 86400000));
+}
+
+// The split day least-recently trained — never-trained days sort first.
+function computeNextTemplate(templates, sessions) {
+  if (!templates.length) return null;
+  const lastByName = {};
+  for (const s of sessions) { // newest-first: first hit per title is the latest
+    const t = s.title || '';
+    if (lastByName[t] == null) lastByName[t] = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+  }
+  let best = templates[0], bestTs = Infinity;
+  for (const t of templates) {
+    const ts = lastByName[t.name] ?? 0;
+    if (ts < bestTs) { bestTs = ts; best = t; }
+  }
+  return { template: best, lastTs: lastByName[best.name] ?? 0 };
+}
+
+function nextSessionCard(next, sessions) {
+  const t = next.template;
+  const exNames = (t.exercises || []).map(e => e.name);
+  const tags = exNames.slice(0, 3).map(n => `<span class="next-tag">${esc(n)}</span>`).join('')
+    + (exNames.length > 3 ? `<span class="next-tag">+${exNames.length - 3} more</span>` : '');
+  const totalSets = t.exercises.reduce((a, e) => a + (e.sets?.length || 0), 0);
+  const mins = Math.max(20, Math.round(totalSets * 3.5 / 5) * 5);
+  const daysAgo = next.lastTs ? Math.floor((Date.now() - next.lastTs) / 86400000) : null;
+  const lastTxt = daysAgo == null ? 'not done yet'
+    : daysAgo === 0 ? 'last done today'
+    : `last done ${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`;
+  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt}.`;
+  const byCat = {}; weeklySetsByCategory(sessions).rows.forEach(r => { byCat[r.cat] = r.perWk; });
+  const catSets = {};
+  t.exercises.forEach(e => { if (e.category && e.category !== 'Cardio') catSets[e.category] = (catSets[e.category] || 0) + (e.sets?.length || 0); });
+  const primary = Object.entries(catSets).sort((a, b) => b[1] - a[1])[0];
+  if (primary && byCat[primary[0]] != null) {
+    const cur = Math.round(byCat[primary[0]]);
+    const to = Math.round(byCat[primary[0]] + primary[1]);
+    rationale += ` ${primary[0]} sits at ${cur} sets/wk — this session brings it to ${to}.`;
+  }
+  return `
+    <div class="next-card">
+      <div class="next-eyebrow">${icon('zap', { size: 13 })} NEXT IN YOUR SPLIT</div>
+      <div class="next-name">${esc(t.name)}</div>
+      <div class="next-rationale">${esc(rationale)}</div>
+      <div class="next-tags">${tags}</div>
+      <div class="next-actions">
+        <button class="next-start" data-tid="${t.id}">${icon('play', { size: 19 })} Start ${esc(t.name)}</button>
+        <button class="next-more" aria-label="Choose another routine">${icon('ellipsis', { size: 20 })}</button>
+      </div>
+    </div>`;
+}
+
+function emptyHeroCard() {
+  return `
+    <div class="next-card">
+      <div class="next-eyebrow">${icon('zap', { size: 13 })} GET STARTED</div>
+      <div class="next-name">No routine yet</div>
+      <div class="next-rationale">Add a ready-made split from the Library, or start an empty workout and build as you go.</div>
+      <div class="next-actions">
+        <button class="next-start hero-empty-start">${icon('play', { size: 19 })} Start empty workout</button>
+        <button class="next-more hero-empty-lib" aria-label="Browse library">${icon('book-open', { size: 20 })}</button>
+      </div>
+    </div>`;
+}
+
+// Coach-flagged card: the top local suggestion (no API key needed).
+async function dashCoachFlag() {
+  try {
+    const sugg = await generateSuggestions();
+    const top = sugg.find(s => s.severity !== 'good');
+    if (!top) return '';
+    return `
+      <div class="dash-flag">
+        ${icon('bot', { size: 19 })}
+        <div>
+          <div class="dash-flag-body">${esc(top.text)}</div>
+          <div class="dash-flag-cta">Ask your coach →</div>
+        </div>
+      </div>`;
+  } catch (_) { return ''; }
+}
+
+// Routines list lives in the "…" chooser sheet now (long-press-to-delete kept).
+function renderRoutinesChooser(templates) {
   const tmplEl = document.getElementById('templatesList');
+  if (!tmplEl) return;
   document.getElementById('routinesEmpty').style.display = templates.length ? 'none' : '';
   document.getElementById('routinesHint').style.display = templates.length ? '' : 'none';
   tmplEl.innerHTML = templates.map(t => `
     <div class="template-card" data-tid="${t.id}">
       <div>
         <div class="tc-name">${esc(t.name)}</div>
-        <div class="tc-ex">${t.exercises.map(e=>esc(e.name)).join(' · ')}</div>
+        <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
       </div>
     </div>
   `).join('');
@@ -2025,25 +2311,92 @@ async function renderDashboard() {
     card.addEventListener('click', () => {
       if (held) { held = false; return; } // long-press already handled it
       const t = templates.find(x => x.id === tid);
+      closeRoutineChooser();
       startEmptyWorkout(t);
     });
   });
+}
 
-  const sessions = await loadSessions();
-  renderStreakChip(sessions);
+function openRoutineChooser() {
+  document.getElementById('routineChooser').classList.add('open');
+}
+function closeRoutineChooser() {
+  document.getElementById('routineChooser').classList.remove('open');
+}
+document.getElementById('routineChooser').addEventListener('click', e => {
+  if (e.target === document.getElementById('routineChooser')) closeRoutineChooser();
+});
+
+async function renderDashboard() {
+  const dashTop = document.getElementById('dashTop');
+  const recentEl0 = document.getElementById('recentList');
+  if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(1);
+
+  const [templates, sessions, streakSettings] = await Promise.all([getTemplates(), loadSessions(), getStreakSettings()]);
+  renderRoutinesChooser(templates);
+  renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
+
+  const now = new Date();
+  const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' });
+  const weekNo = isoWeek(now);
+  const dayNo = ((now.getDay() + 6) % 7) + 1;
+  const { weeks, thisWeekCount, target } = computeStreak(sessions, streakSettings);
+
+  const ym = now.toISOString().slice(0, 7);
+  const monthVol = sessions
+    .filter(s => (s.date || s.startTime || '').slice(0, 7) === ym)
+    .flatMap(s => (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)))
+    .reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
+
+  const next = computeNextTemplate(templates, sessions);
+  const heroHTML = next ? nextSessionCard(next, sessions) : emptyHeroCard();
+
+  const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;
+  const streakLbl = weeks > 0 ? `Streak · ${thisWeekCount}/${target} this wk` : 'This week';
+  const tilesHTML = `
+    <div class="dash-tiles">
+      <div class="dash-tile" id="tileStreak">
+        <div class="dash-tile-top"><span style="color:var(--amber);display:inline-flex">${icon('flame', { size: 16 })}</span><span class="dash-tile-val">${streakVal}</span></div>
+        <div class="dash-tile-lbl">${streakLbl}</div>
+      </div>
+      <div class="dash-tile" id="tileVol">
+        <div class="dash-tile-top"><span class="dash-tile-val">${Math.round(monthVol).toLocaleString()} kg</span></div>
+        <div class="dash-tile-lbl">Lifted this month</div>
+      </div>
+    </div>`;
+
+  const flagHTML = await dashCoachFlag();
+
+  dashTop.innerHTML = `
+    <div class="dash-datehead">
+      <span class="dash-weekday">${weekday}</span>
+      <span class="dash-weekmeta">Week ${weekNo} · day ${dayNo}</span>
+    </div>
+    ${heroHTML}
+    ${tilesHTML}
+    ${flagHTML}`;
+
+  // Wire the hero + tiles + flag
+  const startBtn = dashTop.querySelector('.next-start[data-tid]');
+  if (startBtn) startBtn.onclick = () => { const t = templates.find(x => x.id === startBtn.dataset.tid); startEmptyWorkout(t); };
+  dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
+  dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
+  dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
+  dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
+  dashTop.querySelector('.dash-flag')?.addEventListener('click', () => document.querySelector('.tab[data-tab="Coach"]').click());
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
-    recentEl.innerHTML = `<div class="empty-state">No workouts yet.<br>Tap Start Empty Workout, or restore from cloud in Stats.</div>`;
+    recentEl.innerHTML = `<div class="empty-state">No workouts yet.<br>Start a workout, or restore from cloud in Stats.</div>`;
     return;
   }
-  recentEl.innerHTML = sessions.slice(0,5).map(s => workoutCard(s)).join('');
+  recentEl.innerHTML = workoutCard(sessions[0], { tags: false });
   recentEl.querySelectorAll('.workout-card').forEach(card => {
     card.onclick = () => openHistoryDetail(card.dataset.sid);
   });
 }
 
-function workoutCard(s) {
+function workoutCard(s, { tags = true } = {}) {
   const exList = (s.exercises||[]).slice(0,4).map(e => `<span class="wc-ex-tag">${esc(e.name)}</span>`).join('');
   const more   = (s.exercises||[]).length > 4 ? `<span class="wc-ex-tag">+${s.exercises.length - 4} more</span>` : '';
   const doneSets = (s.exercises||[]).flatMap(e => (e.sets||[]).filter(st => st.done));
@@ -2056,7 +2409,7 @@ function workoutCard(s) {
         <span class="wc-date">${fmtDate(s.date||s.startTime||'')}</span>
       </div>
       <div class="wc-meta">${fmtTime(s.duration||0)} · ${(s.exercises||[]).length} exercises · ${Math.round(vol).toLocaleString()} kg</div>
-      <div class="wc-exercises">${exList}${more}</div>
+      ${tags ? `<div class="wc-exercises">${exList}${more}</div>` : ''}
     </div>`;
 }
 
@@ -2497,34 +2850,160 @@ document.getElementById('routineBuilderDone').onclick = () => {
 };
 
 // ── Library render ────────────────────────────────────────────────────────────
+// ── Per-exercise history stats (one pass over sessions) ───────────────────────
+// name -> { pbWeight, pbReps, e1rm, lastTs, count, series:[topSetWeight…] }.
+// Built once per Library/picker render and shared, never recomputed per row.
+function buildExerciseStatsMap(sessions) {
+  const map = new Map();
+  for (const s of sessions) {
+    const d = parseToDate(s.date || s.startTime || '');
+    const t = d && !isNaN(d) ? d.getTime() : 0;
+    for (const ex of s.exercises || []) {
+      const working = (ex.sets || []).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
+      if (!working.length) continue;
+      const existed = map.has(ex.name);
+      const m = map.get(ex.name) || { pbWeight: 0, pbReps: 0, e1rm: 0, lastTs: 0, lastWeight: 0, lastReps: 0, count: 0, _series: [] };
+      const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
+      if (!existed) { m.lastWeight = top.weight; m.lastReps = top.reps || 0; } // sessions newest-first → first hit is latest
+      for (const st of working) {
+        if (st.weight > m.pbWeight || (st.weight === m.pbWeight && (st.reps || 0) > m.pbReps)) {
+          m.pbWeight = st.weight; m.pbReps = st.reps || 0;
+        }
+        const est = e1RM(st.weight, st.reps || 1);
+        if (est > m.e1rm) m.e1rm = est;
+      }
+      m.count++;
+      if (t > m.lastTs) m.lastTs = t;
+      if (t) m._series.push({ t, w: top.weight });
+      map.set(ex.name, m);
+    }
+  }
+  for (const m of map.values()) {
+    m._series.sort((a, b) => a.t - b.t);
+    m.series = m._series.map(p => p.w);
+    delete m._series;
+  }
+  return map;
+}
+
+function relTime(ts) {
+  if (!ts) return '';
+  const days = Math.floor((Date.now() - ts) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7)   return `${days} days ago`;
+  if (days < 30)  return `${Math.floor(days / 7)} wk ago`;
+  if (days < 365) return `${Math.floor(days / 30)} mo ago`;
+  return `${Math.floor(days / 365)} yr ago`;
+}
+
+// Tiny inline sparkline of a numeric series (top-set weights). '' if <2 points.
+function sparklineSVG(vals, { w = 52, h = 16, stroke = 1.6, color = 'var(--blue)', dot = false } = {}) {
+  if (!vals || vals.length < 2) return '';
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1, pad = 2;
+  const X = i => (i / (vals.length - 1)) * (w - pad * 2) + pad;
+  const Y = v => (h - pad) - ((v - min) / span) * (h - pad * 2);
+  const d = vals.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const li = vals.length - 1;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none" aria-hidden="true">`
+    + `<path d="${d}" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/>`
+    + (dot ? `<circle cx="${X(li).toFixed(1)}" cy="${Y(vals[li]).toFixed(1)}" r="2.4" fill="${color}"/>` : '')
+    + `</svg>`;
+}
+
+let libFilter = 'all'; // 'all' | 'routines' | 'never' | 'custom'
+
 async function renderLibrary() {
   const q      = document.getElementById('libSearch').value.toLowerCase();
   const libEl0 = document.getElementById('libraryList2');
   if (libEl0 && !libEl0.children.length && !q)
     libEl0.innerHTML = Array.from({ length: 8 }, () =>
-      `<div class="skeleton" style="height:44px;margin-bottom:8px;border-radius:10px"></div>`).join('');
-  const all    = await getAllExercises();
-  const filtered = all.filter(e => !q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q));
+      `<div class="skeleton" style="height:56px;margin-bottom:8px;border-radius:14px"></div>`).join('');
+
+  const [all, sessions, templates] = await Promise.all([getAllExercises(), loadSessions(), getTemplates()]);
+  const stats = buildExerciseStatsMap(sessions);
+  const setsByCat = {};
+  weeklySetsByCategory(sessions).rows.forEach(r => { setsByCat[r.cat] = r.perWk; });
+  const inRoutines = new Set(templates.flatMap(t => (t.exercises || []).map(e => e.name)));
+
+  // Count line
+  const loggedCount = all.filter(e => stats.has(e.name)).length;
+  document.getElementById('libCount').textContent = `${all.length} exercises · ${loggedCount} logged`;
+
+  // Filter chips
+  const CHIPS = [
+    { v: 'routines', t: 'In my routines' }, { v: 'all', t: 'All' },
+    { v: 'never', t: 'Never tried' }, { v: 'custom', t: 'Custom' },
+  ];
+  document.getElementById('libChips').innerHTML = CHIPS.map(c =>
+    `<button class="lib-chip${libFilter === c.v ? ' active' : ''}" data-filter="${c.v}">${c.t}</button>`).join('');
+  document.querySelectorAll('#libChips .lib-chip').forEach(chip => {
+    chip.onclick = () => { libFilter = chip.dataset.filter; renderLibrary(); };
+  });
+
+  const matchesFilter = e =>
+    libFilter === 'all' ? true :
+    libFilter === 'routines' ? inRoutines.has(e.name) :
+    libFilter === 'never' ? !stats.has(e.name) :
+    libFilter === 'custom' ? !!e.custom : true;
+
+  const filtered = all.filter(e =>
+    matchesFilter(e) && (!q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)));
 
   const el = document.getElementById('libraryList2');
+  if (!filtered.length) {
+    el.innerHTML = `<div class="routines-empty">No exercises match.</div>`;
+    return;
+  }
+
   const groups = {};
   filtered.forEach(e => (groups[e.category] = groups[e.category] || []).push(e));
 
-  el.innerHTML = Object.entries(groups).map(([cat, exs]) => `
-    <div class="section-heading" style="margin-top:12px">${cat}</div>
-    ${exs.map(e => `
-      <div class="lib-item" data-cue="${esc(e.name)}">
-        <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[cat]||'#8e8e9a'}"></span>
-        <span class="lib-name">${esc(e.name)}</span>
-        ${resolveCues(e.name) ? `<span class="lib-cue-hint">${icon('info', { size: 12 })} form</span>` : ''}
-        ${e.custom ? '<span class="lib-custom-badge">Custom</span>' : ''}
+  el.innerHTML = Object.entries(groups).map(([cat, exs]) => {
+    // logged rows first (most-recent first), then never-logged.
+    const rows = exs.slice().sort((a, b) => {
+      const sa = stats.get(a.name), sb = stats.get(b.name);
+      if (!!sa !== !!sb) return sa ? -1 : 1;
+      if (sa && sb) return sb.lastTs - sa.lastTs;
+      return a.name.localeCompare(b.name);
+    });
+    const setsLbl = setsByCat[cat] ? `<span class="lib-group-sets">${Math.round(setsByCat[cat])} sets/wk</span>` : '';
+    return `
+      <div class="lib-group-head">
+        <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[cat] || '#8e8e9a'}"></span>
+        <span class="lib-group-name">${esc(cat)}</span>${setsLbl}
       </div>
-    `).join('')}
-  `).join('');
+      ${rows.map(e => libraryRow(e, stats.get(e.name))).join('')}`;
+  }).join('');
 
-  el.querySelectorAll('.lib-item').forEach(item => {
+  el.querySelectorAll('.lib-row').forEach(item => {
     item.onclick = () => showCues(item.dataset.cue);
   });
+}
+
+function libraryRow(e, st) {
+  if (!st) {
+    return `
+      <div class="lib-row never" data-cue="${esc(e.name)}">
+        <div class="lib-row-l1">
+          <span class="lib-row-name">${esc(e.name)}</span>
+          ${e.custom ? '<span class="lib-custom-badge">Custom</span>' : '<span class="lib-row-never">Never logged</span>'}
+        </div>
+      </div>`;
+  }
+  const spark = sparklineSVG(st.series, { w: 52, h: 16 });
+  return `
+    <div class="lib-row" data-cue="${esc(e.name)}">
+      <div class="lib-row-l1">
+        <span class="lib-row-name">${esc(e.name)}</span>
+        <span class="lib-row-pb">🏆 ${fmtKg(st.pbWeight)} × ${st.pbReps}</span>
+      </div>
+      <div class="lib-row-l2">
+        <span>Last: ${relTime(st.lastTs)}</span>
+        <span>est. 1RM <b>${Math.round(st.e1rm)} kg</b></span>
+        ${spark}
+      </div>
+    </div>`;
 }
 
 // ── Form cues sheet ───────────────────────────────────────────────────────────

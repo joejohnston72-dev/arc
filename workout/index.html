@@ -97,6 +97,61 @@
       -webkit-tap-highlight-color: transparent;
     }
     .start-btn:active { transform: scale(0.985); }
+    /* ── Dashboard: next-session hero ── */
+    .dash-datehead { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+    .dash-weekday { font-size:1.5rem; font-weight:700; letter-spacing:-0.6px; }
+    .dash-weekmeta { font-size:0.72rem; color:var(--text-muted); }
+    .next-card {
+      background:linear-gradient(150deg,#132a37,#101014);
+      border:1px solid rgba(56,189,248,0.35); border-radius:20px; padding:16px; margin-bottom:12px;
+    }
+    .next-eyebrow {
+      display:flex; align-items:center; gap:5px; color:var(--blue);
+      font-size:0.66rem; font-weight:700; letter-spacing:.07em; margin-bottom:8px;
+    }
+    .next-name { font-size:1.45rem; font-weight:700; letter-spacing:-0.5px; margin-bottom:4px; }
+    .next-rationale { font-size:0.8rem; color:var(--text-muted); line-height:1.45; margin-bottom:12px; }
+    .next-tags { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:14px; }
+    .next-tag { font-size:0.68rem; background:var(--surface2); border-radius:5px; padding:3px 8px; color:var(--text-muted); }
+    .next-actions { display:flex; gap:8px; }
+    .next-start {
+      flex:1; display:flex; align-items:center; justify-content:center; gap:8px;
+      padding:15px; border:none; border-radius:14px; cursor:pointer;
+      background:linear-gradient(135deg,#38bdf8,#2596d1); color:#04131c; font-size:1rem; font-weight:700;
+      box-shadow:0 6px 22px rgba(56,189,248,0.28); -webkit-tap-highlight-color:transparent;
+    }
+    .next-start:active { transform:scale(0.98); }
+    .next-more {
+      width:52px; flex:0 0 auto; border-radius:14px; border:1px solid rgba(255,255,255,0.15);
+      background:none; color:var(--text); cursor:pointer; display:flex; align-items:center; justify-content:center;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .next-more:active { transform:scale(0.98); }
+    /* stat tiles */
+    .dash-tiles { display:flex; gap:8px; margin-bottom:20px; }
+    .dash-tile {
+      flex:1; background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:11px 12px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .dash-tile:active { background:var(--surface2); }
+    .dash-tile-top { display:flex; align-items:center; gap:6px; }
+    .dash-tile-val { font-size:1.05rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .dash-tile-lbl { font-size:0.62rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-top:4px; }
+    /* coach-flagged suggestion */
+    .dash-flag {
+      display:flex; gap:11px; align-items:flex-start;
+      background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--purple);
+      border-radius:14px; padding:13px 14px; margin-bottom:20px; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .dash-flag:active { background:var(--surface2); }
+    .dash-flag .lc { color:var(--purple); flex:0 0 auto; margin-top:1px; }
+    .dash-flag-body { font-size:0.85rem; line-height:1.45; }
+    .dash-flag-cta { font-size:0.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-top:6px; }
+    .dash-last-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
+    .dash-link { background:none; border:none; color:var(--blue); font-size:0.72rem; font-weight:700; cursor:pointer; padding:0; }
+    .chooser-actions { display:flex; gap:8px; margin-top:12px; }
+    .chooser-actions .new-routine-btn { flex:1; justify-content:center; padding:10px; }
     .section-heading {
       font-size:0.72rem; font-weight:700; text-transform:uppercase;
       letter-spacing:0.06em; color:var(--text-muted); margin-bottom:10px;
@@ -427,6 +482,25 @@
       color:var(--blue); padding:10px 0 4px;
     }
     .ep-often-sep { height:1px; background:rgba(56,189,248,0.25); margin:8px 0 4px; }
+    /* ── Exercise picker: swap mode ── */
+    .ep-replace-head { padding:calc(env(safe-area-inset-top) + 14px) var(--gap) 0; }
+    .ep-replace-eyebrow { font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); }
+    .ep-replace-name { font-size:1.05rem; font-weight:700; margin-top:2px; }
+    .ep-match-head { display:flex; align-items:center; gap:6px; color:var(--blue); font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:12px 0 8px; }
+    .ep-match-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:13px 14px; margin-bottom:8px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+      transition:transform .12s ease;
+    }
+    .ep-match-card:active { transform:scale(0.98); }
+    .ep-match-card.first { border-color:rgba(56,189,248,0.35); }
+    .ep-match-top { display:flex; align-items:center; gap:8px; }
+    .ep-match-name { font-size:0.92rem; font-weight:700; }
+    .ep-new-chip { font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--green); background:rgba(var(--green-rgb),0.14); border-radius:5px; padding:2px 6px; margin-left:auto; }
+    .ep-match-why { font-size:0.75rem; color:var(--text-muted); line-height:1.45; margin-top:6px; }
+    .ep-match-hist { font-size:0.72rem; color:var(--text-muted); margin-top:6px; font-variant-numeric:tabular-nums; }
+    .ep-match-hist b { color:var(--text); font-weight:700; }
+    .ep-else-head { font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); padding:14px 0 6px; border-top:1px solid var(--border); margin-top:6px; }
 
     /* ── Streak chip ── */
     #streakChip {
@@ -617,9 +691,34 @@
       padding:15px; margin-bottom:10px; cursor:pointer; -webkit-tap-highlight-color:transparent;
     }
     .split-card:active { background:var(--surface2); }
-    .split-name { font-size:0.98rem; font-weight:700; margin-bottom:4px; }
+    .split-card-head { display:flex; align-items:flex-start; gap:8px; margin-bottom:4px; }
+    .split-name { flex:1; font-size:0.98rem; font-weight:700; }
     .split-tagline { font-size:0.8rem; color:var(--text-muted); line-height:1.4; margin-bottom:8px; }
     .split-meta { font-size:0.72rem; color:var(--blue); font-weight:700; }
+    /* days-per-week filter */
+    .rl-filter-prompt { font-size:0.72rem; color:var(--text-muted); margin-bottom:8px; }
+    .rl-pills { display:flex; gap:6px; margin-bottom:16px; }
+    .rl-pill {
+      flex:1; text-align:center; background:var(--surface); border:1px solid rgba(255,255,255,0.10);
+      border-radius:20px; padding:8px 0; color:var(--text-muted); font-size:0.75rem; font-weight:700;
+      cursor:pointer; -webkit-tap-highlight-color:transparent; transition:transform .12s ease;
+    }
+    .rl-pill:active { transform:scale(0.97); }
+    .rl-pill.active { background:var(--blue); border-color:var(--blue); color:#000; }
+    /* fit tag */
+    .split-fit-tag {
+      flex:0 0 auto; font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+      border-radius:6px; padding:3px 7px;
+    }
+    .split-fit-best { color:var(--green);  background:rgba(var(--green-rgb),0.14); }
+    .split-fit-more { color:var(--blue);   background:rgba(var(--blue-rgb),0.14); }
+    .split-fit-less { color:var(--orange); background:rgba(var(--orange-rgb),0.14); }
+    /* footer row: week shape + meta */
+    .split-card-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .split-week-shape { display:flex; gap:4px; }
+    .week-sq { width:16px; height:16px; border-radius:5px; background:var(--surface2); }
+    .week-sq.on { background:var(--blue); }
+    .rl-foot { font-size:0.72rem; color:var(--text-muted); line-height:1.5; padding:4px 2px 20px; }
     .lib-detail-tagline { font-size:0.85rem; color:var(--text-muted); line-height:1.5; margin:0 0 16px; }
     .lib-day-card { background:var(--surface); border-radius:14px; padding:14px; margin-bottom:10px; }
     .lib-day-name { font-size:0.9rem; font-weight:700; margin-bottom:8px; }
@@ -638,15 +737,58 @@
       border-radius:20px 20px 0 0;
       padding:24px var(--gap) calc(env(safe-area-inset-bottom) + 24px);
     }
-    .summary-title { font-size:1.1rem; font-weight:700; margin-bottom:4px; }
-    .summary-date  { font-size:0.78rem; color:var(--text-muted); margin-bottom:20px; }
-    .summary-stats { display:flex; gap:10px; margin-bottom:20px; }
+    /* PB-first summary header */
+    .summary-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+    .summary-badge {
+      width:46px; height:46px; flex:0 0 auto; border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      background:rgba(var(--amber-rgb),0.14); border:1px solid rgba(var(--amber-rgb),0.4); color:var(--amber);
+    }
+    .summary-badge.ok { background:rgba(var(--green-rgb),0.14); border-color:rgba(var(--green-rgb),0.4); color:var(--green); }
+    .summary-htext { min-width:0; }
+    .summary-title { font-size:1.15rem; font-weight:700; letter-spacing:-0.3px; }
+    .summary-date  { font-size:0.78rem; color:var(--text-muted); margin-top:2px; }
+    /* PB list */
+    .summary-pbs {
+      background:rgba(var(--amber-rgb),0.07); border:1px solid rgba(var(--amber-rgb),0.28);
+      border-radius:14px; padding:12px 14px; margin-bottom:16px;
+    }
+    .summary-pb-row {
+      display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+      padding:8px 0; border-top:1px solid rgba(var(--amber-rgb),0.22);
+    }
+    .summary-pb-row:first-child { padding-top:0; border-top:none; }
+    .summary-pb-row:last-child { padding-bottom:0; }
+    .summary-pb-name { font-size:0.86rem; color:var(--text); min-width:0; }
+    .summary-pb-val  { font-size:0.86rem; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+    .summary-pb-val .sub { color:var(--text-muted); font-weight:400; }
+    .summary-stats { display:flex; gap:10px; margin-bottom:16px; }
     .stat-box {
       flex:1; background:var(--surface2); border-radius:10px; padding:12px 10px; text-align:center;
     }
-    .stat-val   { font-size:1.2rem; font-weight:700; }
+    .stat-val   { font-size:1.2rem; font-weight:700; font-variant-numeric:tabular-nums; }
     .stat-label { font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-top:3px; }
-    .summary-ex { font-size:0.82rem; color:var(--text-muted); margin-bottom:20px; line-height:1.8; }
+    /* vs-last-time comparison strip */
+    .summary-compare { margin-bottom:16px; }
+    .summary-compare-rule {
+      text-align:center; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+      color:var(--text-muted); margin-bottom:8px;
+    }
+    .summary-compare-figs { display:flex; gap:10px; }
+    .summary-compare-fig {
+      flex:1; background:var(--surface2); border-radius:10px; padding:10px; text-align:center;
+    }
+    .summary-compare-fig .cf-val { font-size:1rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .summary-compare-fig .cf-val.up { color:var(--green); }
+    .summary-compare-fig .cf-lbl { font-size:0.62rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-top:3px; }
+    /* coach note */
+    .summary-coach {
+      display:flex; gap:10px; align-items:flex-start;
+      background:rgba(var(--purple-rgb),0.09); border:1px solid rgba(var(--purple-rgb),0.4);
+      border-radius:14px; padding:12px 14px; margin-bottom:16px;
+    }
+    .summary-coach .lc { color:var(--purple); flex:0 0 auto; margin-top:1px; }
+    .summary-coach-body { font-size:0.82rem; line-height:1.5; color:var(--text); }
     .summary-btns { display:flex; gap:10px; }
     .summary-btn {
       flex:1; padding:14px; border-radius:12px; border:none; font-size:0.95rem; font-weight:700; cursor:pointer;
@@ -686,6 +828,47 @@
     .hd-edit-input:focus { border-color:var(--blue); }
 
     /* ── Library ── */
+    .lib-head { display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
+    .lib-title { font-size:1.5rem; font-weight:700; letter-spacing:-0.4px; margin:0; }
+    .lib-count { font-size:0.7rem; color:var(--text-muted); }
+    .lib-search-wrap {
+      display:flex; align-items:center; gap:8px; background:var(--surface2);
+      border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:10px;
+    }
+    .lib-search-icon { color:var(--text-muted); display:inline-flex; flex:0 0 auto; }
+    .lib-search-wrap input {
+      flex:1; background:none; border:none; outline:none; color:var(--text); font-size:16px; min-width:0;
+    }
+    .lib-search-wrap input::placeholder { color:var(--text-muted); }
+    .lib-chips { display:flex; gap:7px; overflow-x:auto; margin-bottom:14px; -webkit-overflow-scrolling:touch; }
+    .lib-chips::-webkit-scrollbar { display:none; }
+    .lib-chip {
+      flex:0 0 auto; background:var(--surface); border:1px solid rgba(255,255,255,0.10); border-radius:20px;
+      color:var(--text-muted); font-size:0.72rem; font-weight:700; padding:6px 13px; cursor:pointer;
+      white-space:nowrap; -webkit-tap-highlight-color:transparent;
+    }
+    .lib-chip.active { background:var(--blue); border-color:var(--blue); color:#000; }
+    .lib-group-head { display:flex; align-items:center; gap:7px; margin:16px 0 8px; }
+    .lib-group-name { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text); }
+    .lib-group-sets { font-size:0.72rem; color:var(--text-muted); margin-left:auto; }
+    .lib-row {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:13px 14px; margin-bottom:8px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+      transition:transform .12s ease;
+    }
+    .lib-row:active { transform:scale(0.98); }
+    .lib-row-l1 { display:flex; align-items:baseline; gap:10px; }
+    .lib-row-name { flex:1; font-size:0.92rem; font-weight:700; min-width:0; }
+    .lib-row-pb { font-size:0.72rem; font-weight:700; color:var(--amber); white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .lib-row-l2 {
+      display:flex; align-items:center; gap:10px; margin-top:6px;
+      font-size:0.72rem; color:var(--text-muted); font-variant-numeric:tabular-nums;
+    }
+    .lib-row-l2 b { color:var(--text); font-weight:700; }
+    .lib-row-l2 .spark { margin-left:auto; flex:0 0 auto; }
+    .lib-row.never { opacity:.72; }
+    .lib-row.never .lib-row-name { font-weight:500; }
+    .lib-row-never { font-size:0.7rem; color:var(--text-muted); white-space:nowrap; }
     .lib-item {
       display:flex; align-items:center; gap:12px; padding:12px 0;
       border-bottom:1px solid rgba(255,255,255,0.05);
@@ -745,30 +928,43 @@
 
   <!-- Dashboard -->
   <div class="section active" id="secDashboard">
-    <button class="start-btn" id="startEmptyBtn"><i data-lucide="dumbbell" data-size="22"></i> Start Empty Workout</button>
-    <button id="streakChip" data-tip="Streak settings" title="Streak settings"></button>
+    <button id="streakChip" data-tip="Streak settings" title="Streak settings" style="display:none"></button>
+    <div id="dashTop"></div>
 
-    <div class="routines-head">
-      <span class="section-heading" style="margin:0">Routines</span>
-      <div style="display:flex; gap:8px">
+    <div class="dash-last-head">
+      <span class="section-heading" style="margin:0">Last session</span>
+      <button class="dash-link" id="dashAllHistory">All history</button>
+    </div>
+    <div id="recentList"></div>
+  </div>
+
+  <!-- Routine chooser sheet (opened from the hero "…") -->
+  <div class="modal-backdrop" id="routineChooser">
+    <div class="modal">
+      <div class="modal-title">Your routines</div>
+      <div id="templatesList"></div>
+      <div id="routinesHint" class="routines-hint" style="display:none">Tap a routine to start · hold to delete</div>
+      <div id="routinesEmpty" class="routines-empty" style="display:none">No routines yet — tap <strong>Library</strong> for ready-made splits, or <strong>New Routine</strong> to build your own.</div>
+      <div class="chooser-actions">
         <button class="new-routine-btn" id="libraryBtn"><i data-lucide="book-open" data-size="15"></i> Library</button>
         <button class="new-routine-btn" id="newRoutineBtn"><i data-lucide="plus" data-size="15"></i> New Routine</button>
       </div>
+      <button class="start-btn" id="startEmptyBtn" style="margin:12px 0 0"><i data-lucide="dumbbell" data-size="20"></i> Start empty workout</button>
     </div>
-    <div id="templatesList"></div>
-    <div id="routinesHint" class="routines-hint" style="display:none">Tap a routine to start · hold to delete</div>
-    <div id="routinesEmpty" class="routines-empty" style="display:none">No routines yet — tap <strong>Library</strong> for ready-made splits, or <strong>New Routine</strong> to build your own.</div>
-
-    <div class="section-heading" style="margin-top:16px">Recent</div>
-    <div id="recentList"></div>
   </div>
 
   <!-- History -->
   <!-- Library -->
   <div class="section" id="secLibrary">
-    <div style="margin-bottom:12px">
-      <input class="form-input" id="libSearch" placeholder="Search exercises…" style="margin-bottom:10px">
+    <div class="lib-head">
+      <h1 class="lib-title">Library</h1>
+      <span class="lib-count" id="libCount"></span>
     </div>
+    <div class="lib-search-wrap">
+      <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
+      <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
+    </div>
+    <div class="lib-chips" id="libChips"></div>
     <div id="libraryList2"></div>
   </div>
 
@@ -851,6 +1047,7 @@
 
 <!-- ── Exercise picker ── -->
 <div id="exercisePicker">
+  <div class="ep-replace-head" id="epReplaceHead" style="display:none"></div>
   <div class="ep-header">
     <input class="ep-search" id="epSearch" placeholder="Search exercises…" autocomplete="off">
     <button class="ep-cancel" id="epCancel">Cancel</button>
@@ -885,11 +1082,12 @@
 <!-- ── Workout summary ── -->
 <div id="workoutSummary" onclick="handleSummaryBgClick(event)">
   <div class="summary-sheet">
-    <div class="summary-title" id="summaryTitle"></div>
-    <div class="summary-date"  id="summaryDate"></div>
+    <div class="summary-head" id="summaryHeader"></div>
+    <div id="summaryPBs"></div>
     <div class="summary-stats" id="summaryStats"></div>
     <div id="summaryWarnings"></div>
-    <div class="summary-ex"    id="summaryExercises"></div>
+    <div id="summaryCompare"></div>
+    <div id="summaryCoachNote"></div>
     <div class="summary-btns">
       <button class="summary-btn summary-btn-discard" id="discardBtn">Discard</button>
       <button class="summary-btn summary-btn-save"    id="saveBtn">Save Workout</button>
