@@ -8,7 +8,7 @@ import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML } from './stats.js';
-import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
+import { assembleContext, callCoach, validateRoutine } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
 
@@ -1684,28 +1684,46 @@ async function ensureExercisesInRepo(exercises) {
 }
 
 // Most recent past performance of an exercise, from a preloaded session list.
-// Match history to the current exercise across the naming differences the
-// library expansion introduced, so the previous-weight pre-fill still appears.
-// Three tiers, most-specific first:
-//   1. exact name                         ("Bench Press (Barbell)")
-//   2. parentheses stripped               ("Bench Press" ↔ "Bench Press (Barbell)")
-//   3. equipment-agnostic (normName)      ("Barbell Bench Press" ↔ "Bench Press (Barbell)")
-// Exact always wins; the looser tiers only fill in when nothing exact exists.
-const _histKey = s => String(s || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+// Equipment tokens the library uses to distinguish variants. Equipment MATTERS
+// for load (a cable row ≠ a barbell row ≠ a dumbbell row), so the pre-fill match
+// must be equipment-aware — it may bridge naming *style* but never mix equipment.
+// Order: more specific first ("smith machine" before "machine").
+const EQUIP_TOKENS = [
+  ['smith machine', 'smith'], ['smith', 'smith'],
+  ['barbell', 'barbell'], ['dumbbell', 'dumbbell'], ['kettlebell', 'kettlebell'],
+  ['cable', 'cable'], ['machine', 'machine'], ['resistance band', 'band'], ['band', 'band'],
+  ['ez bar', 'ezbar'], ['ez-bar', 'ezbar'], ['trap bar', 'trapbar'], ['hex bar', 'trapbar'],
+  ['landmine', 'landmine'], ['bodyweight', 'bodyweight'], ['sled', 'sled'],
+];
+function equipOf(name) {
+  const n = String(name || '').toLowerCase();
+  for (const [tok, id] of EQUIP_TOKENS) if (n.includes(tok)) return id;
+  return '';   // unspecified
+}
+function baseOf(name) {
+  let n = String(name || '').toLowerCase().replace(/\(.*?\)/g, ' ');
+  for (const [tok] of EQUIP_TOKENS) n = n.split(tok).join(' ');
+  return n.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// Find the most recent history for this exercise, tolerant of naming style but
+// STRICT on equipment. Tiers: exact name → same movement + same equipment →
+// same movement where one side left equipment unspecified. Two DIFFERENT explicit
+// equipments (cable vs dumbbell) never match, so their weights never cross over.
 function prevPerfFrom(sessions, exerciseName) {
-  const paren = _histKey(exerciseName);
-  const equip = normName(exerciseName);
-  let looseParen = null, looseEquip = null;
+  const tBase = baseOf(exerciseName), tEq = equipOf(exerciseName);
+  let sameEquip = null, oneUnspecified = null;
   for (const s of sessions) {
     if (s.id === activeSession?.id) continue;
     for (const e of (s.exercises || [])) {
       if (!e.sets?.length) continue;
-      if (e.name === exerciseName) return e;                                  // tier 1
-      if (!looseParen && paren && _histKey(e.name) === paren) looseParen = e; // tier 2
-      if (!looseEquip && equip && normName(e.name) === equip) looseEquip = e; // tier 3
+      if (e.name === exerciseName) return e;                 // tier 1: exact
+      if (baseOf(e.name) !== tBase) continue;
+      const eq = equipOf(e.name);
+      if (eq === tEq) { sameEquip ||= e; }                   // tier 2: same equipment
+      else if (eq === '' || tEq === '') { oneUnspecified ||= e; } // tier 3: one side generic
     }
   }
-  return looseParen || looseEquip;
+  return sameEquip || oneUnspecified;
 }
 
 // ── Custom exercise modal ─────────────────────────────────────────────────────
