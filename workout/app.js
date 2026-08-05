@@ -11,7 +11,7 @@ import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
 import { assembleContext, callCoach, validateRoutine } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
-import { generateSuggestions } from '../shared/suggestions.js';
+import { generateSuggestions, dismissSuggestion } from '../shared/suggestions.js';
 
 // Paint any static/dynamic `<i data-lucide>` placeholders. Cheap + idempotent,
 // so it's safe to call after every render that may inject new icon markup.
@@ -3290,11 +3290,162 @@ async function renderCoach() {
   const thread = document.getElementById('coachThread');
   thread.innerHTML = '';
   if (!coachThread.length) {
-    thread.innerHTML = `<div class="coach-empty">👋 I'm your training coach.<br>Ask me to draft a routine, plan today's session, review your progress, or answer any form/technique question.</div>`;
-  } else {
-    coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
+    await renderCoachFindings(thread);      // analysis-first: findings before chat
+    requestAnimationFrame(() => { thread.scrollTop = 0; });
+    return;
   }
+  coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
   scrollCoachDown();
+}
+
+// ── Coach findings (generated from your data — no API key needed) ─────────────
+let _coachFindings = [];
+
+function generateCoachFindings(sessions) {
+  const out = [];
+  if (!sessions.length) return out;
+  const { rows } = weeklySetsByCategory(sessions);
+  const byCat = {}; rows.forEach(r => byCat[r.cat] = r.perWk);
+  const stats = buildExerciseStatsMap(sessions);
+
+  // 1) Push : pull balance
+  const push = (byCat.Chest || 0) + (byCat.Shoulders || 0) + (byCat.Triceps || 0);
+  const pull = (byCat.Back || 0) + (byCat.Biceps || 0);
+  if (push > 0 && pull > 0) {
+    const ratio = push / pull;
+    if (ratio > 1.3 || ratio < 0.77) {
+      const heavy = ratio > 1 ? 'push' : 'pull';
+      const r = ratio > 1 ? ratio : 1 / ratio;
+      const denom = Math.max(push, pull);
+      out.push({
+        severity: 'warn', eyebrow: 'Imbalance', metric: `${r.toFixed(1)} : 1`,
+        body: `Your ${heavy} volume is running ahead of the other side. Left unchecked that skews posture and holds the lagging side back — add a set or two to ${heavy === 'push' ? 'back and biceps' : 'chest and shoulders'}.`,
+        evidence: { type: 'bars', bars: [
+          { label: 'Push', pct: (push / denom) * 100, color: CATEGORY_COLORS.Chest, under: ratio < 1 },
+          { label: 'Pull', pct: (pull / denom) * 100, color: CATEGORY_COLORS.Back,  under: ratio > 1 },
+        ] },
+        actions: [
+          { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a routine to rebalance it.`, force: 'suggest_routine_edit' },
+          { label: 'Explain', kind: 'ghost', prompt: `Why does a ${r.toFixed(1)}:1 push-to-pull ratio matter, and how should I fix it?` },
+        ],
+        key: 'find-balance',
+      });
+    }
+  }
+
+  // 2) Progressing — the biggest est-1RM riser
+  let prog = null;
+  for (const [name, m] of stats) {
+    if (m.series.length < 3) continue;
+    const first = m.series[0], last = m.series[m.series.length - 1];
+    if (last > first && (!prog || last - first > prog.gain)) prog = { name, m, gain: last - first, first, last };
+  }
+  if (prog) {
+    out.push({
+      severity: 'good', eyebrow: 'Progressing', metric: `+${Math.round(prog.gain)} kg`,
+      body: `${prog.name} is climbing — top set went from ${fmtKg(prog.first)} kg to ${fmtKg(prog.last)} kg over ${prog.m.series.length} sessions. Whatever you're doing, keep it.`,
+      evidence: { type: 'spark', vals: prog.m.series },
+      actions: [{ label: 'Explain', kind: 'ghost', prompt: `How is my ${prog.name} progressing, and what should I do to keep it moving?` }],
+      key: 'find-progress',
+    });
+  }
+
+  // 3) Stalling — a frequent lift flat over its last 4 sessions
+  let stall = null;
+  for (const [name, m] of stats) {
+    if (m.series.length < 4) continue;
+    const recent = m.series.slice(-4);
+    const max = Math.max(...recent), min = Math.min(...recent);
+    if (max > 0 && (max - min) / max < 0.03 && (!stall || m.count > stall.m.count)) stall = { name, m, n: recent.length };
+  }
+  if (stall && (!prog || stall.name !== prog.name)) {
+    out.push({
+      severity: 'stalling', eyebrow: 'Stalling', metric: `${stall.n} sessions flat`,
+      body: `${stall.name} hasn't moved in ${stall.n} sessions. A small load bump, an extra set, or a short deload usually breaks a plateau like this.`,
+      evidence: { type: 'spark', vals: stall.m.series.slice(-6) },
+      actions: [
+        { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.`, force: 'suggest_routine_edit' },
+        { label: 'Dismiss', kind: 'dismiss' },
+      ],
+      key: 'find-stall',
+    });
+  }
+  return out;
+}
+
+const _SEV_COLOR = { warn: 'var(--red)', good: 'var(--green)', stalling: 'var(--amber)', tip: 'var(--blue)' };
+
+function coachEvidence(ev) {
+  if (ev.type === 'bars') {
+    return `<div class="cf-bars">${ev.bars.map(b => `
+      <div class="cf-bar-row">
+        <span class="cf-bar-label">${esc(b.label)}</span>
+        <div class="cf-bar-track"><div class="cf-bar-fill" style="width:${Math.round(b.pct)}%;background:${b.color};opacity:${b.under ? 0.55 : 1}"></div></div>
+      </div>`).join('')}</div>`;
+  }
+  if (ev.type === 'spark') {
+    return `<div class="cf-spark">${sparklineSVG(ev.vals, { w: 120, h: 46, stroke: 2, dot: true })}</div>`;
+  }
+  return '';
+}
+
+function coachFindingCard(f, fi) {
+  const color = _SEV_COLOR[f.severity] || 'var(--blue)';
+  const actions = (f.actions || []).map((a, ai) =>
+    `<button class="cf-btn ${a.kind === 'primary' ? 'cf-btn-primary' : 'cf-btn-ghost'}" data-fi="${fi}" data-ai="${ai}">${esc(a.label)}</button>`).join('');
+  return `
+    <div class="coach-finding" data-fi="${fi}" style="border-left-color:${color}">
+      <div class="cf-head">
+        <span class="cf-eyebrow" style="color:${color}">${esc(f.eyebrow)}</span>
+        <span class="cf-metric">${esc(f.metric || '')}</span>
+      </div>
+      <div class="cf-body">${esc(f.body)}</div>
+      ${f.evidence ? coachEvidence(f.evidence) : ''}
+      ${actions ? `<div class="cf-actions">${actions}</div>` : ''}
+    </div>`;
+}
+
+async function renderCoachFindings(threadEl) {
+  const sessions = await loadSessions();
+  const dismissed = (await db.get('workout', 'suggestions-dismissed')) || [];
+  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
+  _coachFindings = findings;
+
+  const n = sessions.length;
+  const wrap = document.createElement('div');
+  wrap.className = 'coach-findings';
+  const head = `
+    <div class="coach-analysis-head">
+      <div class="coach-analysis-title">Coach</div>
+      <div class="coach-analysis-meta">Read ${n} session${n === 1 ? '' : 's'}${findings.length ? ' · just now' : ''}</div>
+    </div>`;
+
+  if (!findings.length) {
+    wrap.innerHTML = head +
+      `<div class="coach-analysis-sub">${n ? 'Nothing urgent this week — ask me anything below.' : "Log a workout and I'll analyse it here. Or ask me anything below."}</div>`;
+    threadEl.appendChild(wrap);
+    return;
+  }
+
+  wrap.innerHTML = head +
+    `<div class="coach-analysis-sub">${findings.length} thing${findings.length > 1 ? 's' : ''} worth acting on this week.</div>` +
+    findings.map((f, i) => coachFindingCard(f, i)).join('') +
+    `<div class="coach-findings-divider"><span>or ask something</span></div>`;
+  threadEl.appendChild(wrap);
+
+  wrap.querySelectorAll('.cf-btn').forEach(btn => {
+    btn.onclick = () => {
+      const f = _coachFindings[+btn.dataset.fi];
+      const a = f?.actions?.[+btn.dataset.ai];
+      if (!a) return;
+      if (a.kind === 'dismiss') {
+        dismissSuggestion(f.key);
+        btn.closest('.coach-finding')?.remove();
+        return;
+      }
+      sendCoach(a.prompt, a.force || false);
+    };
+  });
 }
 
 function scrollCoachDown() {
@@ -3526,7 +3677,7 @@ async function sendCoach(text, forceTool = false) {
 
   const key = await coachGetKey();
   const thread = document.getElementById('coachThread');
-  if (thread.querySelector('.coach-empty')) thread.innerHTML = '';
+  if (thread.querySelector('.coach-empty') || thread.querySelector('.coach-findings')) thread.innerHTML = '';
 
   // user bubble
   const userMsg = { role: 'user', text };
