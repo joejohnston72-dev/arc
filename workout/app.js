@@ -2627,7 +2627,12 @@ async function renderDashboard() {
     recentEl.innerHTML = `<div class="empty-state">No workouts yet.<br>Start a workout, or restore from cloud in Stats.</div>`;
     return;
   }
-  recentEl.innerHTML = workoutCard(sessions[0], { tags: false });
+  // Show a few recent workouts so the home screen fills the viewport rather than
+  // trailing off into empty space above the tab bar. Heading matches the count.
+  const recent = sessions.slice(0, 4);
+  const headingEl = document.getElementById('dashRecentHeading');
+  if (headingEl) headingEl.textContent = recent.length > 1 ? 'Recent' : 'Last session';
+  recentEl.innerHTML = recent.map(s => workoutCard(s)).join('');
   recentEl.querySelectorAll('.workout-card').forEach(card => {
     card.onclick = () => openHistoryDetail(card.dataset.sid);
   });
