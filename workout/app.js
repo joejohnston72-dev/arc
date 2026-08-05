@@ -160,7 +160,12 @@ let backfillDate = null;   // when set, the in-progress workout saves to this pa
 let restTimer      = null;
 let restEndsAt     = null;   // epoch ms
 let restTotalSecs  = 0;      // for the progress fill
+let restExName     = '';     // exercise the current rest belongs to (focus ring sub)
 let restFiredChime = false;
+
+// ── Focus mode (one exercise at a time; toggled from the active workout) ──────
+let focusMode  = false;
+let focusIndex = 0;
 
 // ── In-progress autosave ──────────────────────────────────────────────────────
 let saveTimer = null;
@@ -295,6 +300,18 @@ function openActiveWorkout() {
   document.getElementById('awTitle').value = activeSession?.title || '';
   syncScrollLock();   // pin the page so an overscroll can't lift the overlay
   fitActiveWorkout();
+  // Restore focus mode if it was on when the app was last backgrounded/reloaded.
+  try {
+    const f = JSON.parse(localStorage.getItem('arc-focus') || 'null');
+    if (f && activeSession?.exercises?.length) enterFocusMode(f.index || 0);
+  } catch (_) {}
+}
+
+// Tear focus mode down whenever a workout ends (save/discard).
+function closeFocusMode() {
+  focusMode = false;
+  document.getElementById('focusMode').classList.remove('visible');
+  try { localStorage.removeItem('arc-focus'); } catch (_) {}
 }
 
 // ── iOS-reliable scroll lock ─────────────────────────────────────────────────
@@ -534,6 +551,221 @@ function renderActiveSession() {
 function renumberSetRows(tbody) {
   [...tbody.querySelectorAll('.set-row')].forEach((row, i) => {
     row.querySelector('.set-num').textContent = i + 1;
+  });
+}
+
+// ── Focus mode ────────────────────────────────────────────────────────────────
+// A one-exercise-at-a-time view layered over the active workout. It reads the
+// same activeSession and reuses the same PB / rest / autosave machinery — the
+// table view underneath stays intact, so this is a pure toggle, never a rewrite.
+function persistFocus() {
+  try { localStorage.setItem('arc-focus', JSON.stringify({ index: focusIndex })); } catch (_) {}
+}
+
+function enterFocusMode(restoreIndex = null) {
+  if (!activeSession || !activeSession.exercises.length) return;
+  if (!awBody.children.length) renderActiveSession();   // ensure table rows exist for sync
+  focusMode = true;
+  if (restoreIndex != null) focusIndex = restoreIndex;
+  else {
+    const idx = activeSession.exercises.findIndex(e => e.sets.some(s => !s.done));
+    focusIndex = idx >= 0 ? idx : 0;
+  }
+  persistFocus();
+  document.getElementById('focusMode').classList.add('visible');
+  renderFocusMode();
+}
+
+function exitFocusMode() {
+  focusMode = false;
+  document.getElementById('focusMode').classList.remove('visible');
+  try { localStorage.removeItem('arc-focus'); } catch (_) {}
+  renderActiveSession();   // reflect any edits back into the table view
+}
+
+function refreshFocusRest() {
+  const ring = document.getElementById('fmRingProg');
+  if (!ring) return;
+  const countEl = document.getElementById('fmRingCount');
+  const titleEl = document.getElementById('fmRestTitle');
+  const subEl   = document.getElementById('fmRestSub');
+  const card    = document.getElementById('fmRest');
+  const C = 150.8;
+  if (restEndsAt) {
+    const remaining = Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000));
+    const frac = Math.max(0, Math.min(1, remaining / (restTotalSecs || 1)));
+    ring.style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
+    ring.style.stroke = remaining <= 20 ? 'var(--amber)' : 'var(--blue)';
+    countEl.textContent = fmtTime(remaining);
+    if (remaining <= 0) {
+      titleEl.textContent = 'Ready'; subEl.textContent = 'Rest done — next set';
+      card.classList.add('pulsing');
+    } else {
+      titleEl.textContent = 'Resting';
+      subEl.textContent = restExName ? `Resting — ${restExName}` : 'Resting';
+      card.classList.toggle('pulsing', remaining <= 6);
+    }
+  } else {
+    ring.style.strokeDashoffset = C.toFixed(1);
+    ring.style.stroke = 'var(--blue)';
+    countEl.textContent = '0:00';
+    titleEl.textContent = 'Ready';
+    subEl.textContent = 'Check a set to start the timer';
+    card.classList.remove('pulsing');
+  }
+}
+
+function renderFocusMode() {
+  if (!focusMode) return;
+  if (!activeSession || !activeSession.exercises.length) { exitFocusMode(); return; }
+  const exs = activeSession.exercises;
+  focusIndex = Math.max(0, Math.min(focusIndex, exs.length - 1));
+  const ex = exs[focusIndex];
+  const lt = resolveLogType(ex);
+  const cfg = LOGTYPES[lt];
+
+  document.getElementById('fmTitle').textContent = activeSession.title || 'Workout';
+  document.getElementById('fmSub').textContent = `${fmtTime(sessionSecsNow())} elapsed · ${focusIndex + 1} of ${exs.length}`;
+
+  document.getElementById('fmRail').innerHTML = exs.map((e, i) => {
+    const allDone = e.sets.length && e.sets.every(s => s.done);
+    return `<div class="fm-rail-bar ${i === focusIndex ? 'current' : allDone ? 'done' : ''}"></div>`;
+  }).join('');
+
+  const color = CATEGORY_COLORS[ex.category] || '#8e8e9a';
+  const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
+  const last = ex.prevPerf || (ex.prevSets?.length ? ex.prevSets.slice(0, 3).map(s => setPrevText(lt, s)).join(', ') : null);
+  document.getElementById('fmExHead').innerHTML = `
+    <div class="fm-exhead-top">
+      <span class="fm-exhead-dot" style="background:${color}"></span>
+      <span class="fm-exname">${esc(ex.name)}</span>
+      <button class="fm-info" data-cue="${esc(ex.name)}" aria-label="Form cues">${icon('info', { size: 19 })}</button>
+    </div>
+    <div class="fm-exmeta">
+      ${range ? `<span class="fm-target">${icon('target', { size: 14 })} Target ${range.min}–${range.max}</span>` : ''}
+      ${last ? `<span class="fm-last">Last: ${esc(last)}</span>` : ''}
+    </div>`;
+
+  const unit = { weight: 'kg', reps: 'reps', distance: 'km', time: 'time' };
+  document.getElementById('fmSets').innerHTML = ex.sets.map((set, si) => {
+    const fields = cfg.cols.map(col => {
+      const field = col;
+      let val = '';
+      if (col === 'weight') val = set.weight || '';
+      else if (col === 'reps') val = set.reps || '';
+      else if (col === 'distance') val = set.distance || '';
+      else if (col === 'time') val = set.duration ? fmtDuration(set.duration) : '';
+      const type = col === 'time' ? 'text' : 'number';
+      const im = col === 'weight' || col === 'distance' ? 'decimal' : 'numeric';
+      return `<div class="fm-field"><input type="${type}" inputmode="${im}" value="${val}" data-ei="${focusIndex}" data-set-id="${set.id}" data-field="${field}"><div class="fm-field-unit">${unit[col]}</div></div>`;
+    }).join('');
+    return `
+      <div class="fm-set ${set.done ? 'done' : ''} ${set.type === 'warmup' ? 'warmup' : ''}" data-set-id="${set.id}">
+        <span class="fm-set-num">${si + 1}</span>
+        ${fields}
+        <button class="fm-check" data-ei="${focusIndex}" data-set-id="${set.id}">${set.done ? icon('check', { size: 18 }) : ''}</button>
+      </div>`;
+  }).join('') + `<button class="fm-add-set" data-ei="${focusIndex}">+ Add set</button>`;
+
+  document.getElementById('fmBack').disabled = focusIndex === 0;
+  const nextBtn = document.getElementById('fmNext');
+  nextBtn.innerHTML = focusIndex < exs.length - 1
+    ? `Next: ${esc(exs[focusIndex + 1].name)} ${icon('chevron-right', { size: 20 })}`
+    : `Finish ${icon('check', { size: 18 })}`;
+
+  refreshFocusRest();
+  refreshIcons();
+}
+
+// Toggle a set done from focus mode. Self-contained (no table-DOM focus jumps),
+// but reuses the shared PB / rest / autosave logic so it behaves like the table.
+function fmToggleSet(ei, setId) {
+  const { ex, set, si } = findSet(ei, setId);
+  if (!set) return;
+  set.done = !set.done;
+  set.touched ||= {};
+  const lt = resolveLogType(ex);
+  if (set.done) {
+    const commit = (field, ghost) => {
+      if (ghost == null || ghost === 0 || ghost === '') return;
+      if (field === 'time') { if (!set.duration) set.duration = ghost; }
+      else if (!set[field]) set[field] = ghost;
+    };
+    const prev = ex.prevSets?.[si] ?? null;
+    if (lt === 'weighted') { commit('weight', set.tW); commit('reps', set.tR); }
+    else if (lt === 'bodyweight') commit('reps', set.tR ?? prev?.reps);
+    else if (lt === 'duration')   commit('time', prev?.duration);
+    else if (lt === 'cardio')   { commit('distance', prev?.distance); commit('time', prev?.duration); }
+    const next = ex.sets[si + 1];
+    if (next && !next.done && lt === 'weighted' && !next.touched?.weight && set.weight) next.weight = set.weight;
+    unlockAudio();
+    if (!routineMode && isLastSupersetMember(ei)) startRest(ex.restTime ?? 60, ex.name);
+  }
+  if (!routineMode) {
+    const res = refreshExercisePBs(ei);   // also repaints table trophies (harmless)
+    if (set.done && res.pbBySet.has(set.id)) showPbToast(res.pbBySet.get(set.id));
+  }
+  // keep the underlying table row consistent for when the user flips back
+  const tRow = awBody.querySelector(`.set-row[data-set-id="${setId}"]`);
+  if (tRow) {
+    tRow.classList.toggle('done', set.done);
+    const c = tRow.querySelector('.set-check'); if (c) c.innerHTML = set.done ? icon('check', { size: 16 }) : '';
+    const wi = tRow.querySelector('[data-field="weight"]'); if (wi && set.weight) wi.value = set.weight;
+    const ri = tRow.querySelector('[data-field="reps"]'); if (ri && set.reps) ri.value = set.reps;
+  }
+  saveSoon();
+  renderFocusMode();
+}
+
+// Focus-mode wiring (bound once).
+document.getElementById('awFocusBtn').onclick = () => enterFocusMode();
+document.getElementById('fmExit').onclick = exitFocusMode;
+document.getElementById('fmFinish').onclick = () => document.getElementById('awFinishBtn').click();
+document.getElementById('fmBack').onclick = () => { if (focusIndex > 0) { focusIndex--; persistFocus(); renderFocusMode(); } };
+document.getElementById('fmNext').onclick = () => {
+  if (focusIndex < (activeSession?.exercises.length || 0) - 1) { focusIndex++; persistFocus(); renderFocusMode(); }
+  else document.getElementById('awFinishBtn').click();
+};
+{
+  const fmSets = document.getElementById('fmSets');
+  fmSets.addEventListener('input', e => {
+    const t = e.target;
+    if (t.tagName !== 'INPUT') return;
+    const { setId, field } = t.dataset;
+    // mirror to the table input and let its handler own the model update / PB check
+    const tInput = awBody.querySelector(`.set-input[data-set-id="${setId}"][data-field="${field}"]`);
+    if (tInput) { tInput.value = t.value; tInput.dispatchEvent(new Event('input', { bubbles: true })); }
+  });
+  fmSets.addEventListener('click', e => {
+    const check = e.target.closest('.fm-check');
+    if (check) { fmToggleSet(+check.dataset.ei, check.dataset.setId); return; }
+    const add = e.target.closest('.fm-add-set');
+    if (add) {
+      const btn = awBody.querySelector(`.add-set-mini[data-ei="${add.dataset.ei}"]`);
+      if (btn) btn.click();
+      renderFocusMode();
+    }
+  });
+  document.getElementById('fmExHead').addEventListener('click', e => {
+    const info = e.target.closest('.fm-info');
+    if (info) showCues(info.dataset.cue);
+  });
+  // Horizontal swipe on the body changes exercise (buttons/inputs excluded).
+  const fmScroll = document.getElementById('fmScroll');
+  let sx = null, sy = null;
+  fmScroll.addEventListener('pointerdown', e => {
+    if (e.target.closest('input, button')) { sx = null; return; }
+    sx = e.clientX; sy = e.clientY;
+  });
+  fmScroll.addEventListener('pointerup', e => {
+    if (sx == null) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    sx = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      const n = activeSession?.exercises.length || 0;
+      if (dx < 0 && focusIndex < n - 1) { focusIndex++; persistFocus(); renderFocusMode(); }
+      else if (dx > 0 && focusIndex > 0) { focusIndex--; persistFocus(); renderFocusMode(); }
+    }
   });
 }
 
@@ -1384,6 +1616,7 @@ async function saveWorkout() {
   await db.set(STORE, 'session-' + session.id, session);
   await clearActiveSessionStore();
   backfillDate = null;
+  closeFocusMode();
   document.getElementById('workoutSummary').classList.remove('visible');
   document.getElementById('activeWorkout').classList.remove('visible');
   unfitActiveWorkout();
@@ -1402,6 +1635,7 @@ function cancelWorkout() {
   backfillDate = null;
   activeSession = null;
   clearActiveSessionStore();
+  closeFocusMode();
   document.getElementById('workoutSummary').classList.remove('visible');
   document.getElementById('activeWorkout').classList.remove('visible');
   unfitActiveWorkout();
@@ -1476,6 +1710,7 @@ function startRest(secs = 60, exName = '') {
   clearInterval(restTimer);
   restEndsAt = Date.now() + secs * 1000;
   restTotalSecs = secs;
+  restExName = exName;
   restFiredChime = false;
   db.set(STORE, 'active-rest', { endsAt: restEndsAt, totalSecs: secs, exName });
   const bar = document.getElementById('restBar');
@@ -1519,6 +1754,7 @@ function updateRestDisplay(remaining) {
   if (fill && restTotalSecs > 0) {
     fill.style.width = `${Math.max(0, Math.min(100, (r / restTotalSecs) * 100))}%`;
   }
+  if (focusMode) refreshFocusRest();
 }
 
 function skipRest() {
@@ -1527,6 +1763,7 @@ function skipRest() {
   const bar = document.getElementById('restBar');
   bar?.classList.remove('visible', 'flash', 'done-state');
   db.set(STORE, 'active-rest', null);
+  if (focusMode) refreshFocusRest();
 }
 
 function bumpRest(delta) {

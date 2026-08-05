@@ -246,6 +246,77 @@
       width:100%; padding:13px; border-radius:12px; border:1px dashed rgba(56,189,248,0.4);
       background:none; color:var(--blue); font-size:0.9rem; font-weight:500; cursor:pointer;
     }
+    .header-icon-btn { display:inline-flex; align-items:center; justify-content:center; padding:6px 9px; }
+
+    /* ── Focus mode ── */
+    #focusMode {
+      position:fixed; inset:0; z-index:62; background:var(--bg);
+      display:none; flex-direction:column;
+    }
+    #focusMode.visible { display:flex; }
+    .fm-header { display:flex; align-items:center; gap:10px; padding:calc(env(safe-area-inset-top) + 8px) var(--gap) 10px; flex-shrink:0; }
+    .fm-htext { flex:1; min-width:0; }
+    .fm-title { font-size:1.05rem; font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .fm-sub { font-size:0.72rem; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .fm-rail { display:flex; gap:4px; padding:0 var(--gap) 14px; flex-shrink:0; }
+    .fm-rail-bar { flex:1; height:3px; border-radius:2px; background:rgba(255,255,255,0.12); }
+    .fm-rail-bar.done { background:var(--green); }
+    .fm-rail-bar.current { background:var(--blue); }
+    .fm-scroll { flex:1; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding:0 var(--gap); touch-action:pan-y; }
+    .fm-exhead { margin-bottom:16px; }
+    .fm-exhead-top { display:flex; align-items:flex-start; gap:9px; }
+    .fm-exhead-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; margin-top:9px; }
+    .fm-exname { flex:1; font-size:1.5rem; font-weight:700; letter-spacing:-0.6px; line-height:1.15; }
+    .fm-info { background:none; border:none; color:var(--blue); cursor:pointer; padding:4px; flex:0 0 auto; -webkit-tap-highlight-color:transparent; }
+    .fm-exmeta { display:flex; gap:14px; align-items:center; margin-top:8px; font-size:0.74rem; flex-wrap:wrap; }
+    .fm-target { display:inline-flex; align-items:center; gap:5px; color:var(--blue); }
+    .fm-last { color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .fm-sets { display:flex; flex-direction:column; gap:8px; padding-bottom:16px; }
+    .fm-set {
+      display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border);
+      border-radius:14px; padding:10px 12px;
+    }
+    .fm-set-num { width:22px; flex:0 0 auto; font-size:0.8rem; font-weight:700; color:var(--text-muted); font-variant-numeric:tabular-nums; text-align:center; }
+    .fm-field { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:9px 6px; text-align:center; }
+    .fm-field input {
+      width:100%; background:none; border:none; outline:none; color:var(--text);
+      font-size:1.05rem; font-weight:700; text-align:center; font-variant-numeric:tabular-nums;
+      -moz-appearance:textfield;
+    }
+    .fm-field input::-webkit-outer-spin-button, .fm-field input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+    .fm-field-unit { font-size:0.58rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-top:2px; }
+    .fm-check {
+      width:46px; height:46px; flex:0 0 auto; border-radius:50%; border:2px solid rgba(255,255,255,0.2);
+      background:none; color:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .fm-set.done { background:rgba(var(--green-rgb),0.12); border-color:rgba(var(--green-rgb),0.45); }
+    .fm-set.done .fm-set-num { color:var(--green); }
+    .fm-set.done .fm-field { background:rgba(var(--green-rgb),0.10); border-color:rgba(var(--green-rgb),0.30); }
+    .fm-set.done .fm-check { background:var(--green); border-color:var(--green); color:#04150e; }
+    .fm-set.warmup .fm-set-num { color:var(--amber); }
+    .fm-add-set {
+      width:100%; margin-top:2px; padding:11px; border-radius:12px; border:1px dashed rgba(255,255,255,0.14);
+      background:none; color:var(--text-muted); font-size:0.78rem; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .fm-footer { flex-shrink:0; border-top:1px solid rgba(255,255,255,0.07); padding:12px var(--gap) calc(env(safe-area-inset-bottom) + 12px); background:var(--bg); }
+    .fm-rest { display:flex; align-items:center; gap:14px; background:var(--surface); border-radius:18px; padding:12px 14px; margin-bottom:10px; }
+    .fm-rest.pulsing { animation: restPulse 0.8s ease-in-out infinite; }
+    .fm-ring { position:relative; width:56px; height:56px; flex:0 0 auto; }
+    .fm-ring-count { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.9rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .fm-rest-text { flex:1; min-width:0; }
+    .fm-rest-title { font-size:0.85rem; font-weight:700; }
+    .fm-rest-sub { font-size:0.72rem; color:var(--text-muted); margin-top:2px; }
+    .fm-skip { background:var(--surface2); border:none; border-radius:10px; color:var(--text); font-size:0.8rem; font-weight:700; padding:8px 14px; cursor:pointer; flex:0 0 auto; -webkit-tap-highlight-color:transparent; }
+    .fm-nav { display:flex; gap:10px; }
+    .fm-back { width:52px; flex:0 0 auto; border:1px solid rgba(255,255,255,0.15); background:none; color:var(--text); border-radius:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent; }
+    .fm-back:disabled { opacity:.35; }
+    .fm-next {
+      flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:15px; border:none;
+      border-radius:14px; background:var(--blue); color:#000; font-size:0.95rem; font-weight:700; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .fm-back:active, .fm-next:active, .fm-check:active, .fm-skip:active { transform:scale(0.98); }
 
     /* ── Exercise block (in active workout) ── */
     .ex-block { margin-bottom:20px; }
@@ -1051,6 +1122,7 @@
 <div id="activeWorkout">
   <div class="aw-header">
     <input class="aw-title-input" id="awTitle" placeholder="Workout name…" maxlength="50">
+    <button class="header-btn header-icon-btn" id="awFocusBtn" data-tip="Focus mode" title="Focus mode"><i data-lucide="target" data-size="18"></i></button>
     <button class="header-btn" id="awFinishBtn" data-tip="Finish & save workout" title="Finish & save workout">Finish</button>
   </div>
   <div class="aw-body" id="awBody"></div>
@@ -1065,6 +1137,45 @@
       <button class="rest-bar-skip" onclick="skipRest()">Skip</button>
     </div>
     <button class="add-exercise-btn" id="awAddExBtn"><i data-lucide="plus" data-size="18"></i> Add Exercise</button>
+  </div>
+</div>
+
+<!-- ── Focus mode (one exercise at a time; toggled from the active workout) ── -->
+<div id="focusMode">
+  <div class="fm-header">
+    <div class="fm-htext">
+      <span class="fm-title" id="fmTitle"></span>
+      <span class="fm-sub" id="fmSub"></span>
+    </div>
+    <button class="header-btn header-icon-btn" id="fmExit" data-tip="Table view" title="Table view"><i data-lucide="layout-dashboard" data-size="18"></i></button>
+    <button class="header-btn" id="fmFinish">Finish</button>
+  </div>
+  <div class="fm-rail" id="fmRail"></div>
+  <div class="fm-scroll" id="fmScroll">
+    <div class="fm-exhead" id="fmExHead"></div>
+    <div class="fm-sets" id="fmSets"></div>
+  </div>
+  <div class="fm-footer">
+    <div class="fm-rest" id="fmRest">
+      <div class="fm-ring">
+        <svg width="56" height="56" viewBox="0 0 56 56">
+          <circle cx="28" cy="28" r="24" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="5"/>
+          <circle id="fmRingProg" cx="28" cy="28" r="24" fill="none" stroke="var(--blue)" stroke-width="5"
+                  stroke-linecap="round" stroke-dasharray="150.8" stroke-dashoffset="150.8"
+                  transform="rotate(-90 28 28)"/>
+        </svg>
+        <span class="fm-ring-count" id="fmRingCount">0:00</span>
+      </div>
+      <div class="fm-rest-text">
+        <div class="fm-rest-title" id="fmRestTitle">Ready</div>
+        <div class="fm-rest-sub" id="fmRestSub">Check a set to start the timer</div>
+      </div>
+      <button class="fm-skip" id="fmSkip" onclick="skipRest()">Skip</button>
+    </div>
+    <div class="fm-nav">
+      <button class="fm-back" id="fmBack" aria-label="Previous exercise"><i data-lucide="chevron-left" data-size="20"></i></button>
+      <button class="fm-next" id="fmNext"></button>
+    </div>
   </div>
 </div>
 
