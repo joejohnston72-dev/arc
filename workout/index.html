@@ -152,6 +152,22 @@
     .dash-link { background:none; border:none; color:var(--blue); font-size:0.72rem; font-weight:700; cursor:pointer; padding:0; }
     .chooser-actions { display:flex; gap:8px; margin-top:12px; }
     .chooser-actions .new-routine-btn { flex:1; justify-content:center; padding:10px; }
+    .chooser-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px; }
+    .chooser-order-hint { font-size:0.72rem; color:var(--text-muted); line-height:1.5; margin:-6px 0 10px; }
+    .tc-next-badge {
+      font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--blue); background:rgba(var(--blue-rgb),0.14); border-radius:5px; padding:2px 6px; margin-left:8px;
+    }
+    .template-card.tc-editing { display:flex; align-items:center; gap:10px; }
+    .template-card.tc-editing > div { flex:1; min-width:0; }
+    .tc-move { display:flex; flex-direction:column; gap:4px; flex:0 0 auto; }
+    .tc-move button, .tc-del {
+      background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text);
+      width:34px; height:26px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+      -webkit-tap-highlight-color:transparent; padding:0;
+    }
+    .tc-move button:disabled { opacity:.3; }
+    .tc-del { width:34px; height:34px; flex:0 0 auto; color:var(--red); }
     .section-heading {
       font-size:0.72rem; font-weight:700; text-transform:uppercase;
       letter-spacing:0.06em; color:var(--text-muted); margin-bottom:10px;
@@ -1040,7 +1056,11 @@
   <!-- Routine chooser sheet (opened from the hero "…") -->
   <div class="modal-backdrop" id="routineChooser">
     <div class="modal">
-      <div class="modal-title">Your routines</div>
+      <div class="chooser-head">
+        <span class="modal-title" style="margin:0">Your routines</span>
+        <button class="dash-link" id="chooserEditOrder">Edit order</button>
+      </div>
+      <div class="chooser-order-hint" id="chooserOrderHint" style="display:none">Routines run top to bottom. The one marked <strong>Next</strong> is what the home card offers — reorder to change it.</div>
       <div id="templatesList"></div>
       <div id="routinesHint" class="routines-hint" style="display:none">Tap a routine to start · hold to delete</div>
       <div id="routinesEmpty" class="routines-empty" style="display:none">No routines yet — tap <strong>Library</strong> for ready-made splits, or <strong>New Routine</strong> to build your own.</div>

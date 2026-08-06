@@ -2428,20 +2428,25 @@ function isoWeek(d) {
   return 1 + Math.round((date - firstThu) / (7 * 86400000));
 }
 
-// The split day least-recently trained — never-trained days sort first.
+// "Next in your split" follows the manual routine order (the templates list —
+// editable in the "…" chooser). Next = the routine after the most recently
+// completed one in that sequence, wrapping around; off-plan workouts don't
+// advance it. Falls back to the first routine when none has been done yet.
 function computeNextTemplate(templates, sessions) {
   if (!templates.length) return null;
-  const lastByName = {};
-  for (const s of sessions) { // newest-first: first hit per title is the latest
-    const t = s.title || '';
-    if (lastByName[t] == null) lastByName[t] = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+  const names = templates.map(t => t.name);
+  let lastIdx = -1;
+  for (const s of sessions) {                       // newest-first
+    const i = names.indexOf(s.title || '');
+    if (i >= 0) { lastIdx = i; break; }
   }
-  let best = templates[0], bestTs = Infinity;
-  for (const t of templates) {
-    const ts = lastByName[t.name] ?? 0;
-    if (ts < bestTs) { bestTs = ts; best = t; }
+  const nextIdx = lastIdx >= 0 ? (lastIdx + 1) % templates.length : 0;
+  const nextName = names[nextIdx];
+  let lastTs = 0;                                    // last time THIS routine was done
+  for (const s of sessions) {
+    if ((s.title || '') === nextName) { lastTs = parseToDate(s.date || s.startTime || '')?.getTime() || 0; break; }
   }
-  return { template: best, lastTs: lastByName[best.name] ?? 0 };
+  return { template: templates[nextIdx], lastTs, nextIdx };
 }
 
 function nextSessionCard(next, sessions) {
@@ -2508,28 +2513,68 @@ async function dashCoachFlag() {
   } catch (_) { return ''; }
 }
 
-// Routines list lives in the "…" chooser sheet now (long-press-to-delete kept).
-function renderRoutinesChooser(templates) {
+// Routines list lives in the "…" chooser sheet. It doubles as the order editor:
+// the list order is the manual split sequence that drives "next in your split".
+let chooserEditOrder = false;
+
+async function deleteRoutine(id) {
+  const ts = await getTemplates();
+  const t = ts.find(x => x.id === id);
+  if (!confirm(`Delete routine "${t?.name || ''}"? This can't be undone.`)) return;
+  await db.set(STORE, 'templates', ts.filter(x => x.id !== id));
+  db.backup();
+  renderDashboard();
+}
+
+async function moveRoutine(from, to) {
+  const ts = await getTemplates();
+  if (to < 0 || to >= ts.length) return;
+  const [item] = ts.splice(from, 1);
+  ts.splice(to, 0, item);
+  await db.set(STORE, 'templates', ts);
+  db.backup();
+  renderDashboard();   // re-renders the hero (next) and the chooser together
+}
+
+function renderRoutinesChooser(templates, nextId = null) {
   const tmplEl = document.getElementById('templatesList');
   if (!tmplEl) return;
+  const editing = chooserEditOrder && templates.length > 0;
   document.getElementById('routinesEmpty').style.display = templates.length ? 'none' : '';
-  document.getElementById('routinesHint').style.display = templates.length ? '' : 'none';
+  document.getElementById('routinesHint').style.display = (templates.length && !editing) ? '' : 'none';
+  document.getElementById('chooserOrderHint').style.display = editing ? '' : 'none';
+  const editBtn = document.getElementById('chooserEditOrder');
+  editBtn.style.display = templates.length > 1 ? '' : 'none';
+  editBtn.textContent = editing ? 'Done' : 'Edit order';
+
+  if (editing) {
+    tmplEl.innerHTML = templates.map((t, i) => `
+      <div class="template-card tc-editing" data-tid="${t.id}">
+        <div>
+          <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
+          <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
+        </div>
+        <div class="tc-move">
+          <button class="tc-up" data-i="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+          <button class="tc-down" data-i="${i}" ${i === templates.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+        </div>
+        <button class="tc-del" data-tid="${t.id}" aria-label="Delete">${icon('trash-2', { size: 16 })}</button>
+      </div>`).join('');
+    tmplEl.querySelectorAll('.tc-up').forEach(b => b.onclick = () => moveRoutine(+b.dataset.i, +b.dataset.i - 1));
+    tmplEl.querySelectorAll('.tc-down').forEach(b => b.onclick = () => moveRoutine(+b.dataset.i, +b.dataset.i + 1));
+    tmplEl.querySelectorAll('.tc-del').forEach(b => b.onclick = () => deleteRoutine(b.dataset.tid));
+    refreshIcons();
+    return;
+  }
+
   tmplEl.innerHTML = templates.map(t => `
     <div class="template-card" data-tid="${t.id}">
       <div>
-        <div class="tc-name">${esc(t.name)}</div>
+        <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
         <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
       </div>
     </div>
   `).join('');
-  const deleteTemplate = async id => {
-    const t = templates.find(x => x.id === id);
-    if (!confirm(`Delete routine "${t?.name || ''}"? This can't be undone.`)) return;
-    const ts = (await getTemplates()).filter(x => x.id !== id);
-    await db.set(STORE, 'templates', ts);
-    db.backup();
-    renderDashboard();
-  };
   tmplEl.querySelectorAll('.template-card').forEach(card => {
     const tid = card.dataset.tid;
     // Long-press guards deletion so routines can't be lost with a stray tap.
@@ -2538,7 +2583,7 @@ function renderRoutinesChooser(templates) {
     card.addEventListener('pointerdown', e => {
       held = false; sx = e.clientX; sy = e.clientY;
       card.classList.add('tc-holding');
-      holdTimer = setTimeout(() => { held = true; card.classList.remove('tc-holding'); deleteTemplate(tid); }, 550);
+      holdTimer = setTimeout(() => { held = true; card.classList.remove('tc-holding'); deleteRoutine(tid); }, 550);
     });
     card.addEventListener('pointermove', e => {
       if (holdTimer && (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10)) cancelHold();
@@ -2554,10 +2599,13 @@ function renderRoutinesChooser(templates) {
   });
 }
 
+document.getElementById('chooserEditOrder').onclick = () => { chooserEditOrder = !chooserEditOrder; renderDashboard(); };
+
 function openRoutineChooser() {
   document.getElementById('routineChooser').classList.add('open');
 }
 function closeRoutineChooser() {
+  chooserEditOrder = false;   // always reopen in tap-to-start mode
   document.getElementById('routineChooser').classList.remove('open');
 }
 document.getElementById('routineChooser').addEventListener('click', e => {
@@ -2570,7 +2618,8 @@ async function renderDashboard() {
   if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(1);
 
   const [templates, sessions, streakSettings] = await Promise.all([getTemplates(), loadSessions(), getStreakSettings()]);
-  renderRoutinesChooser(templates);
+  const next = computeNextTemplate(templates, sessions);
+  renderRoutinesChooser(templates, next?.template?.id || null);
   renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
@@ -2585,7 +2634,6 @@ async function renderDashboard() {
     .flatMap(s => (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)))
     .reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
 
-  const next = computeNextTemplate(templates, sessions);
   const heroHTML = next ? nextSessionCard(next, sessions) : emptyHeroCard();
 
   const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;

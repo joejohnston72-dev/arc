@@ -1,4 +1,4 @@
-const CACHE = 'life-dashboard-v52';
+const CACHE = 'life-dashboard-v53';
 const PRECACHE = [
   '/life-dashboard/',
   '/life-dashboard/index.html',
