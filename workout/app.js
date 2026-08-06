@@ -11,7 +11,7 @@ import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
 import { assembleContext, callCoach, validateRoutine } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
-import { generateSuggestions, dismissSuggestion } from '../shared/suggestions.js';
+import { dismissSuggestion } from '../shared/suggestions.js';
 
 // Paint any static/dynamic `<i data-lucide>` placeholders. Cheap + idempotent,
 // so it's safe to call after every render that may inject new icon markup.
@@ -2496,21 +2496,44 @@ function emptyHeroCard() {
     </div>`;
 }
 
-// Coach-flagged card: the top local suggestion (no API key needed).
-async function dashCoachFlag() {
+// Coach-flagged card: the top actionable finding, surfaced on the home screen
+// so the most important thing is visible without opening the Coach tab.
+function dashCoachFlag(finding) {
+  if (!finding) return '';
+  const color = _SEV_COLOR[finding.severity] || 'var(--purple)';
+  return `
+    <div class="dash-flag" style="border-left-color:${color}">
+      <span class="dash-flag-icon" style="color:${color}">${icon('bot', { size: 19 })}</span>
+      <div>
+        <div class="dash-flag-eyebrow" style="color:${color}">${esc(finding.eyebrow)}</div>
+        <div class="dash-flag-body">${esc(finding.body)}</div>
+        <div class="dash-flag-cta">Open coach →</div>
+      </div>
+    </div>`;
+}
+
+// Attention badge on the Coach tab: a small count of actionable findings.
+function updateCoachBadge(n) {
+  const tab = document.querySelector('.tab[data-tab="Coach"]');
+  if (!tab) return;
+  let badge = tab.querySelector('.tab-badge');
+  if (n > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'tab-badge'; tab.appendChild(badge); }
+    badge.textContent = n > 9 ? '9+' : String(n);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+// Recompute the actionable-finding count (non-good, non-dismissed) and repaint
+// the Coach-tab badge. Cheap (one IndexedDB read); safe to call from anywhere.
+async function refreshCoachBadge() {
   try {
-    const sugg = await generateSuggestions();
-    const top = sugg.find(s => s.severity !== 'good');
-    if (!top) return '';
-    return `
-      <div class="dash-flag">
-        ${icon('bot', { size: 19 })}
-        <div>
-          <div class="dash-flag-body">${esc(top.text)}</div>
-          <div class="dash-flag-cta">Ask your coach →</div>
-        </div>
-      </div>`;
-  } catch (_) { return ''; }
+    const [sessions, dismissed] = await Promise.all([loadSessions(), db.get(STORE, 'suggestions-dismissed')]);
+    const skip = dismissed || [];
+    const n = generateCoachFindings(sessions).filter(f => f.severity !== 'good' && !skip.includes(f.key)).length;
+    updateCoachBadge(n);
+  } catch (_) {}
 }
 
 // Routines list lives in the "…" chooser sheet. It doubles as the order editor:
@@ -2650,7 +2673,12 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  const flagHTML = await dashCoachFlag();
+  // Coach findings drive both the home "flagged" card and the Coach-tab badge.
+  const dismissed = (await db.get(STORE, 'suggestions-dismissed')) || [];
+  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
+  const actionable = findings.filter(f => f.severity !== 'good');
+  const flagHTML = dashCoachFlag(actionable[0]);
+  updateCoachBadge(actionable.length);
 
   dashTop.innerHTML = `
     <div class="dash-datehead">
@@ -3700,6 +3728,7 @@ async function renderCoachFindings(threadEl) {
   const dismissed = (await db.get('workout', 'suggestions-dismissed')) || [];
   const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
   _coachFindings = findings;
+  updateCoachBadge(findings.filter(f => f.severity !== 'good').length);
 
   const n = sessions.length;
   const wrap = document.createElement('div');
@@ -3724,13 +3753,14 @@ async function renderCoachFindings(threadEl) {
   threadEl.appendChild(wrap);
 
   wrap.querySelectorAll('.cf-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const f = _coachFindings[+btn.dataset.fi];
       const a = f?.actions?.[+btn.dataset.ai];
       if (!a) return;
       if (a.kind === 'dismiss') {
-        dismissSuggestion(f.key);
         btn.closest('.coach-finding')?.remove();
+        await dismissSuggestion(f.key);   // persist first so the recount excludes it
+        refreshCoachBadge();              // the dot/count reflects the dismissal
         return;
       }
       sendCoach(a.prompt, a.force || false);

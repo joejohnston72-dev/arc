@@ -65,8 +65,15 @@
     }
     .tab {
       flex:1; background:none; border:none; color:var(--text-muted);
-      font-size:0.68rem; font-weight:500; cursor:pointer;
+      font-size:0.68rem; font-weight:500; cursor:pointer; position:relative;
       display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    }
+    .tab-badge {
+      position:absolute; top:2px; left:calc(50% + 6px);
+      min-width:16px; height:16px; padding:0 4px; box-sizing:border-box;
+      border-radius:8px; background:var(--blue); color:#000;
+      font-size:0.6rem; font-weight:700; line-height:1;
+      display:flex; align-items:center; justify-content:center;
     }
     .tab .ti { font-size:1.1rem; display:flex; align-items:center; justify-content:center; height:22px; color:currentColor; }
     .tab.active { color: var(--blue); }
@@ -145,7 +152,9 @@
       -webkit-tap-highlight-color:transparent;
     }
     .dash-flag:active { background:var(--surface2); }
-    .dash-flag .lc { color:var(--purple); flex:0 0 auto; margin-top:1px; }
+    .dash-flag-icon { flex:0 0 auto; margin-top:1px; display:inline-flex; }
+    .dash-flag-icon .lc { color:inherit; }
+    .dash-flag-eyebrow { font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; margin-bottom:3px; }
     .dash-flag-body { font-size:0.85rem; line-height:1.45; }
     .dash-flag-cta { font-size:0.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-top:6px; }
     .dash-last-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
