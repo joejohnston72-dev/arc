@@ -41,6 +41,14 @@ const fmtTime = secs => {
 };
 const fmtRest = secs => (secs <= 0 ? 'Off' : fmtTime(secs));   // rest timer can be disabled
 
+// Forgiving search: case-insensitive, order-independent "all words present".
+// "bench barbell" matches "Bench Press (Barbell)"; empty query matches everything.
+function matchesSearch(text, q) {
+  if (!q || !q.trim()) return true;
+  const hay = String(text || '').toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(tok => hay.includes(tok));
+}
+
 // ── Exercise tracking types ───────────────────────────────────────────────────
 // Which fields a set records. 'time' is stored in set.duration (seconds),
 // 'distance' in set.distance (km). weight/reps as before.
@@ -234,6 +242,7 @@ function freshSet(tpl, prevSets, si) {
 async function startEmptyWorkout(prefill = null, backfill = null) {
   routineMode = false;
   backfillDate = backfill;
+  autoNotedEx.clear();   // fresh coach-note tracking per workout
   document.getElementById('awFinishBtn').textContent = backfill ? 'Save' : 'Finish';
   document.getElementById('awTitle').placeholder = backfill ? `Workout on ${fmtDate(backfill)}…` : 'Workout name…';
 
@@ -269,6 +278,7 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
     pbs: [],
   };
   sessionStartMs = Date.now();
+  ensureExercisesInRepo(exercises);   // catalogue anything a started routine references
   acquireWakeLock();
   openActiveWorkout();
   renderActiveSession();
@@ -714,6 +724,7 @@ function fmToggleSet(ei, setId) {
     const ri = tRow.querySelector('[data-field="reps"]'); if (ri && set.reps) ri.value = set.reps;
   }
   saveSoon();
+  if (set.done) maybeAutoCoachNote(ei);
   renderFocusMode();
 }
 
@@ -946,6 +957,52 @@ function toggleSetDone(ei, setId, rowEl) {
     const res = refreshExercisePBs(ei);
     if (set.done && res.pbBySet.has(set.id)) showPbToast(res.pbBySet.get(set.id));
   }
+  saveSoon();
+  if (set.done) maybeAutoCoachNote(ei);
+}
+
+// When every set of an exercise is completed, ask the coach for a one-line note
+// and drop it into the exercise's notes field. Fires once per exercise, only
+// with an API key, and never overwrites a note you've typed yourself.
+const autoNotedEx = new Set();
+async function maybeAutoCoachNote(ei) {
+  if (routineMode) return;
+  const ex = activeSession?.exercises[ei];
+  if (!ex || autoNotedEx.has(ex.id)) return;
+  if ((ex.notes || '').trim()) return;                       // don't clobber a user note
+  const working = ex.sets.filter(s => s.type !== 'warmup');  // dropsets count as effort
+  if (!working.length || working.some(s => !s.done)) return; // not fully complete yet
+  if (!working.some(s => s.done && (s.weight || 0) > 0 || (s.reps || 0) > 0)) return;
+  const key = await coachGetKey();
+  if (!key) return;
+  autoNotedEx.add(ex.id);
+
+  const lt = resolveLogType(ex);
+  const range = ex.repRange ? `${ex.repRange.min}-${ex.repRange.max}` : 'n/a';
+  const setsStr = ex.sets.filter(s => s.done).map(s =>
+    lt === 'weighted' ? `${fmtKg(s.weight)}kg x ${s.reps}` :
+    lt === 'bodyweight' ? `${s.reps} reps` :
+    lt === 'duration' ? `${s.duration || 0}s` : `${s.distance || 0}km`).join(', ');
+  const prompt =
+    `Exercise: ${ex.name}. Target reps: ${range}. Today's sets: ${setsStr}. `
+    + `${ex.prevPerf ? `Previous session: ${ex.prevPerf}.` : 'No prior data.'}\n`
+    + `Write ONE short coaching note (max 16 words) on this performance — whether to add load or reps next time, or a form/tempo cue. Note text only, no preamble.`;
+  const system = 'You are a concise strength coach. Reply with a single short note (≤16 words), plain text, British English, numbers over adjectives, at most one emoji.';
+
+  const inputEl = () => awBody.querySelector(`.ex-notes-input[data-ei="${ei}"]`);
+  const loading = inputEl(); if (loading) loading.placeholder = 'Coach is noting…';
+  let res;
+  try { res = await callCoach({ apiMessages: [{ role: 'user', content: prompt }], system, getKey: coachGetKey }); }
+  catch (_) { res = { error: 'network' }; }
+  const ph = inputEl(); if (ph) ph.placeholder = 'Notes…';
+
+  const note = (res?.text || '').replace(/\s+/g, ' ').trim().replace(/^["']|["']$/g, '').slice(0, 140);
+  if (!note || res?.error) { autoNotedEx.delete(ex.id); return; }   // allow a retry later
+  // Write it back only if the exercise is still here and still un-noted.
+  const cur = activeSession?.exercises[ei];
+  if (!cur || cur.id !== ex.id || (cur.notes || '').trim()) return;
+  cur.notes = note;
+  const target = inputEl(); if (target) target.value = note;   // focus view has no notes field; it persists to the table + save
   saveSoon();
 }
 
@@ -1991,7 +2048,7 @@ async function renderExPicker() {
   // ── Default: add mode, or swap-with-a-query — flat filtered list ──
   const filtered = all.filter(e =>
     (swap || epFilter === 'All' || e.category === epFilter) &&
-    (!q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
+    matchesSearch(`${e.name} ${e.category}`, q)
   );
 
   listEl.innerHTML = filtered.map(pickerRow).join('') + `
@@ -2623,6 +2680,7 @@ function renderRoutinesChooser(templates, nextId = null) {
 }
 
 document.getElementById('chooserEditOrder').onclick = () => { chooserEditOrder = !chooserEditOrder; renderDashboard(); };
+document.getElementById('chooserClose').onclick = closeRoutineChooser;
 
 function openRoutineChooser() {
   document.getElementById('routineChooser').classList.add('open');
@@ -2859,11 +2917,10 @@ async function renderHistory() {
   }
 
   // Search filter — matches workout title or any exercise name.
-  const q = (document.getElementById('histSearch')?.value || '').trim().toLowerCase();
+  const q = (document.getElementById('histSearch')?.value || '').trim();
   if (q) {
     sessions = sessions.filter(s =>
-      (s.title || '').toLowerCase().includes(q) ||
-      (s.exercises || []).some(e => (e.name || '').toLowerCase().includes(q)));
+      matchesSearch(`${s.title || ''} ${(s.exercises || []).map(e => e.name).join(' ')}`, q));
     if (!sessions.length) {
       el.innerHTML = `<div class="empty-state">Nothing matches “${esc(q)}”.</div>`;
       return;
@@ -3232,7 +3289,7 @@ function sparklineSVG(vals, { w = 52, h = 16, stroke = 1.6, color = 'var(--blue)
 let libFilter = 'all'; // 'all' | 'routines' | 'never' | 'custom'
 
 async function renderLibrary() {
-  const q      = document.getElementById('libSearch').value.toLowerCase();
+  const q      = document.getElementById('libSearch').value.trim();
   const libEl0 = document.getElementById('libraryList2');
   if (libEl0 && !libEl0.children.length && !q)
     libEl0.innerHTML = Array.from({ length: 8 }, () =>
@@ -3247,6 +3304,29 @@ async function renderLibrary() {
   // Count line
   const loggedCount = all.filter(e => stats.has(e.name)).length;
   document.getElementById('libCount').textContent = `${all.length} exercises · ${loggedCount} logged`;
+
+  // Your routines — start any of them straight from the Library (tap to begin).
+  const libRoutinesEl = document.getElementById('libRoutines');
+  libRoutinesEl.innerHTML = `
+    <div class="lib-routines-head">
+      <span class="section-heading" style="margin:0">Your routines</span>
+      <button class="dash-link" id="libBrowseSplits">Browse splits</button>
+    </div>
+    ${templates.length
+      ? templates.map(t => `
+        <div class="lib-routine-card" data-tid="${t.id}">
+          <div class="lib-routine-name">${esc(t.name)}</div>
+          <div class="lib-routine-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
+        </div>`).join('')
+      : `<div class="routines-empty">No routines yet — tap <strong>Browse splits</strong> for ready-made ones.</div>`}
+    <div class="lib-routines-divider">Exercises</div>`;
+  libRoutinesEl.querySelector('#libBrowseSplits').onclick = () => {
+    renderLibraryList();
+    document.getElementById('routineLibrary').classList.add('visible');
+  };
+  libRoutinesEl.querySelectorAll('.lib-routine-card').forEach(card => {
+    card.onclick = () => startEmptyWorkout(templates.find(t => t.id === card.dataset.tid));
+  });
 
   // Filter chips
   const CHIPS = [
@@ -3266,7 +3346,7 @@ async function renderLibrary() {
     libFilter === 'custom' ? !!e.custom : true;
 
   const filtered = all.filter(e =>
-    matchesFilter(e) && (!q || e.name.toLowerCase().includes(q) || e.category.toLowerCase().includes(q)));
+    matchesFilter(e) && matchesSearch(`${e.name} ${e.category}`, q));
 
   const el = document.getElementById('libraryList2');
   if (!filtered.length) {

@@ -161,7 +161,20 @@
     .dash-link { background:none; border:none; color:var(--blue); font-size:0.72rem; font-weight:700; cursor:pointer; padding:0; }
     .chooser-actions { display:flex; gap:8px; margin-top:12px; }
     .chooser-actions .new-routine-btn { flex:1; justify-content:center; padding:10px; }
-    .chooser-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px; }
+    .chooser-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+    .chooser-close { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px; display:inline-flex; -webkit-tap-highlight-color:transparent; }
+    /* Routines section inside the Library tab */
+    .lib-routines-head { display:flex; align-items:baseline; justify-content:space-between; margin:4px 0 10px; }
+    .lib-routine-card {
+      background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--amber);
+      border-radius:12px; padding:12px 14px; margin-bottom:8px; cursor:pointer;
+      -webkit-tap-highlight-color:transparent; transition:transform .12s ease;
+    }
+    .lib-routine-card:active { transform:scale(0.98); background:var(--surface2); }
+    .lib-routine-name { font-size:0.92rem; font-weight:700; }
+    .lib-routine-ex { font-size:0.72rem; color:var(--text-muted); margin-top:3px; line-height:1.4;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .lib-routines-divider { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:16px 0 10px; }
     .chooser-order-hint { font-size:0.72rem; color:var(--text-muted); line-height:1.5; margin:-6px 0 10px; }
     .tc-next-badge {
       font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
@@ -1067,7 +1080,10 @@
     <div class="modal">
       <div class="chooser-head">
         <span class="modal-title" style="margin:0">Your routines</span>
-        <button class="dash-link" id="chooserEditOrder">Edit order</button>
+        <div style="display:flex; align-items:center; gap:14px">
+          <button class="dash-link" id="chooserEditOrder">Edit order</button>
+          <button class="chooser-close" id="chooserClose" aria-label="Close" title="Close"><i data-lucide="x" data-size="20"></i></button>
+        </div>
       </div>
       <div class="chooser-order-hint" id="chooserOrderHint" style="display:none">Routines run top to bottom. The one marked <strong>Next</strong> is what the home card offers — reorder to change it.</div>
       <div id="templatesList"></div>
@@ -1088,6 +1104,7 @@
       <h1 class="lib-title">Library</h1>
       <span class="lib-count" id="libCount"></span>
     </div>
+    <div id="libRoutines"></div>
     <div class="lib-search-wrap">
       <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
       <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
