@@ -961,9 +961,26 @@ function toggleSetDone(ei, setId, rowEl) {
   if (set.done) maybeAutoCoachNote(ei);
 }
 
-// When every set of an exercise is completed, ask the coach for a one-line note
-// and drop it into the exercise's notes field. Fires once per exercise, only
-// with an API key, and never overwrites a note you've typed yourself.
+// A completed exercise is "notable" — worth a coach note — when it set a PB this
+// session or its top set landed outside the target rep range. Everything else is
+// routine and skipped, so the coach only spends a call on meaningful sets.
+function exerciseNotable(ex) {
+  const pb = (activeSession?.pbs || []).some(p => p.exercise === ex.name);
+  const r = ex.repRange;
+  let offRange = false, dir = '';
+  const working = ex.sets.filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
+  if (r?.min && r?.max && working.length) {
+    const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
+    if ((top.reps || 0) > r.max + 1) { offRange = true; dir = 'over'; }
+    else if ((top.reps || 0) > 0 && top.reps < r.min) { offRange = true; dir = 'under'; }
+  }
+  return { notable: pb || offRange, pb, offRange, dir };
+}
+
+// When every set of an exercise is completed AND it was notable (a PB or a
+// top set off the rep target), ask the coach for a one-line note and drop it
+// into the notes field. Fires once per exercise, only with an API key, and
+// never overwrites a note you've typed yourself.
 const autoNotedEx = new Set();
 async function maybeAutoCoachNote(ei) {
   if (routineMode) return;
@@ -972,7 +989,9 @@ async function maybeAutoCoachNote(ei) {
   if ((ex.notes || '').trim()) return;                       // don't clobber a user note
   const working = ex.sets.filter(s => s.type !== 'warmup');  // dropsets count as effort
   if (!working.length || working.some(s => !s.done)) return; // not fully complete yet
-  if (!working.some(s => s.done && (s.weight || 0) > 0 || (s.reps || 0) > 0)) return;
+  if (!working.some(s => s.done && ((s.weight || 0) > 0 || (s.reps || 0) > 0))) return;
+  const why = exerciseNotable(ex);
+  if (!why.notable) return;                                  // routine set — no call, may re-evaluate after edits
   const key = await coachGetKey();
   if (!key) return;
   autoNotedEx.add(ex.id);
@@ -983,9 +1002,11 @@ async function maybeAutoCoachNote(ei) {
     lt === 'weighted' ? `${fmtKg(s.weight)}kg x ${s.reps}` :
     lt === 'bodyweight' ? `${s.reps} reps` :
     lt === 'duration' ? `${s.duration || 0}s` : `${s.distance || 0}km`).join(', ');
+  const highlight = `${why.pb ? 'Hit a personal best this session. ' : ''}`
+    + `${why.offRange ? (why.dir === 'over' ? 'Top set went above the rep target. ' : 'Top set fell short of the rep target. ') : ''}`;
   const prompt =
     `Exercise: ${ex.name}. Target reps: ${range}. Today's sets: ${setsStr}. `
-    + `${ex.prevPerf ? `Previous session: ${ex.prevPerf}.` : 'No prior data.'}\n`
+    + `${ex.prevPerf ? `Previous session: ${ex.prevPerf}. ` : 'No prior data. '}${highlight}\n`
     + `Write ONE short coaching note (max 16 words) on this performance — whether to add load or reps next time, or a form/tempo cue. Note text only, no preamble.`;
   const system = 'You are a concise strength coach. Reply with a single short note (≤16 words), plain text, British English, numbers over adjectives, at most one emoji.';
 
