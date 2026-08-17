@@ -169,6 +169,7 @@ let restTimer      = null;
 let restEndsAt     = null;   // epoch ms
 let restTotalSecs  = 0;      // for the progress fill
 let restExName     = '';     // exercise the current rest belongs to (focus ring sub)
+let restSubText    = '';     // "Set 3 logged · 35 kg × 8 — new best" for the focus rest card
 let restFiredChime = false;
 
 // ── Focus mode (one exercise at a time; toggled from the active workout) ──────
@@ -612,7 +613,7 @@ function refreshFocusRest() {
       card.classList.add('pulsing');
     } else {
       titleEl.textContent = 'Resting';
-      subEl.textContent = restExName ? `Resting — ${restExName}` : 'Resting';
+      subEl.textContent = restSubText || (restExName ? `Resting — ${restExName}` : 'Resting');
       card.classList.toggle('pulsing', remaining <= 6);
     }
   } else {
@@ -713,7 +714,9 @@ function fmToggleSet(ei, setId) {
   }
   if (!routineMode) {
     const res = refreshExercisePBs(ei);   // also repaints table trophies (harmless)
-    if (set.done && res.pbBySet.has(set.id)) showPbToast(res.pbBySet.get(set.id));
+    const isPb = set.done && res.pbBySet.has(set.id);
+    if (set.done) restSubText = restSubForSet(ex, set, isPb);
+    if (isPb) showPbToast(res.pbBySet.get(set.id));
   }
   // keep the underlying table row consistent for when the user flips back
   const tRow = awBody.querySelector(`.set-row[data-set-id="${setId}"]`);
@@ -955,10 +958,23 @@ function toggleSetDone(ei, setId, rowEl) {
   // any trophy it wrongly earned. Fanfare fires only for the set just checked.
   if (!routineMode) {
     const res = refreshExercisePBs(ei);
-    if (set.done && res.pbBySet.has(set.id)) showPbToast(res.pbBySet.get(set.id));
+    const isPb = set.done && res.pbBySet.has(set.id);
+    if (set.done) restSubText = restSubForSet(ex, set, isPb);
+    if (isPb) showPbToast(res.pbBySet.get(set.id));
   }
   saveSoon();
   if (set.done) maybeAutoCoachNote(ei);
+}
+
+// The focus rest card's subtitle: "Set 3 logged · 35 kg × 8 — new best".
+function restSubForSet(ex, set, isPb) {
+  const lt = resolveLogType(ex);
+  const n = ex.sets.indexOf(set) + 1;
+  const val = lt === 'weighted' ? `${fmtKg(set.weight)} kg × ${set.reps}`
+    : lt === 'bodyweight' ? `${set.reps} reps`
+    : lt === 'duration' ? `${set.duration || 0}s`
+    : `${set.distance || 0} km`;
+  return `Set ${n} logged · ${val}${isPb ? ' — new best' : ''}`;
 }
 
 // A completed exercise is "notable" — worth a coach note — when it set a PB this
@@ -1838,6 +1854,7 @@ function updateRestDisplay(remaining) {
 function skipRest() {
   clearInterval(restTimer);
   restEndsAt = null;
+  restSubText = '';
   const bar = document.getElementById('restBar');
   bar?.classList.remove('visible', 'flash', 'done-state');
   db.set(STORE, 'active-rest', null);
