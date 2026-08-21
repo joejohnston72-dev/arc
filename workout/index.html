@@ -743,6 +743,18 @@
     .coach-typing span { width:6px; height:6px; border-radius:50%; background:var(--text-muted); animation:ctd 1s infinite; }
     .coach-typing span:nth-child(2){ animation-delay:.15s; } .coach-typing span:nth-child(3){ animation-delay:.3s; }
     @keyframes ctd { 0%,60%,100%{ opacity:.3; transform:translateY(0);} 30%{ opacity:1; transform:translateY(-3px);} }
+    /* ── Coach's pick for today (proactive daily AI suggestion) ── */
+    .coach-daily {
+      background:linear-gradient(180deg, rgba(167,139,250,0.10), rgba(167,139,250,0.02));
+      border:1px solid rgba(167,139,250,0.35); border-left:4px solid var(--purple);
+      border-radius:16px; padding:14px; margin-bottom:14px;
+    }
+    .coach-daily-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:7px; }
+    .coach-daily-eyebrow { display:inline-flex; align-items:center; gap:6px; font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--purple); }
+    .coach-daily-x { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px; display:flex; -webkit-tap-highlight-color:transparent; }
+    .coach-daily-body { font-size:0.9rem; line-height:1.55; }
+    .coach-daily .coach-routine, .coach-daily .coach-suggestion { margin-top:12px; max-width:100%; }
+    .coach-daily.loading .coach-daily-body { opacity:0.75; }
     /* Routine card inside a bot message */
     .coach-routine { align-self:flex-start; background:var(--surface); border:1px solid rgba(56,189,248,0.3); border-radius:14px; padding:14px; max-width:92%; }
     .coach-routine-name { font-size:0.95rem; font-weight:700; margin-bottom:8px; }
@@ -1144,7 +1156,7 @@
       <button class="coach-chip" data-prompt="Analyse my routines, history, PBs and the exercises I keep swapping, then suggest one concrete improvement to a routine." data-force="suggest_routine_edit"><i data-lucide="zap" data-size="15"></i> Improve my routines</button>
       <button class="coach-chip" data-prompt="Analyse my training balance — what am I doing too much and too little — then build me a new split that rebalances it, and tell me what you changed and why."><i data-lucide="layout-dashboard" data-size="15"></i> Build a split</button>
       <button class="coach-chip" data-prompt="Draft me a routine" data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a routine</button>
-      <button class="coach-chip" data-prompt="What should I train today?" data-force="1"><i data-lucide="calendar" data-size="15"></i> Today's session</button>
+      <button class="coach-chip" data-prompt="What should I train today? Check my recovery/readiness and training balance first — if a muscle is under-recovered or over-volume, alter the session or swap what I'd normally do, and tell me why with the numbers."><i data-lucide="calendar" data-size="15"></i> Today's session</button>
       <button class="coach-chip" data-prompt="How's my progress? What's lagging and what should I push?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
       <button class="coach-chip" data-prompt="Review my last workout and suggest what to adjust next time."><i data-lucide="search" data-size="15"></i> Review last</button>
       <button class="coach-chip coach-chip-key" id="coachKeyBtn" data-tip="API key" title="API key"><i data-lucide="key" data-size="16"></i></button>
@@ -1313,6 +1325,31 @@
   </div>
 </div>
 
+<!-- ── Edit exercise modal (writes to the core library) ── -->
+<div class="modal-backdrop" id="editExModal">
+  <div class="modal">
+    <p class="modal-title">Edit Exercise</p>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" id="editExName" placeholder="Exercise name" maxlength="50">
+      <div class="form-hint" id="editExNameHint" style="display:none;font-size:0.72rem;color:var(--text-muted);margin-top:5px">Built-in exercise — name is fixed, but you can change its muscle group and how it's tracked.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Muscle Group</label>
+      <select class="form-input" id="editExCat"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">How do you track it?</label>
+      <select class="form-input" id="editExType"></select>
+    </div>
+    <div class="form-hint" style="font-size:0.72rem;color:var(--text-muted);margin:-4px 0 12px">Saves to your library — applies to this exercise everywhere.</div>
+    <div class="modal-btns">
+      <button class="btn btn-g" id="editExCancel">Cancel</button>
+      <button class="btn btn-p" id="editExSave">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Form cues modal ── -->
 <div class="modal-backdrop" id="cuesModal">
   <div class="modal">
@@ -1332,6 +1369,7 @@
 <div class="modal-backdrop" id="exMenuSheet">
   <div class="modal">
     <p class="modal-title" id="exMenuTitle"></p>
+    <button class="sheet-btn" id="exMenuEdit"><i data-lucide="pencil" data-size="17"></i> Edit exercise…</button>
     <button class="sheet-btn" id="exMenuReplace"><i data-lucide="repeat" data-size="17"></i> Replace exercise…</button>
     <button class="sheet-btn" id="exMenuSuperset"><i data-lucide="repeat" data-size="17"></i> Superset…</button>
     <button class="sheet-btn" id="exMenuReorder"><i data-lucide="arrow-up-down" data-size="17"></i> Reorder exercises</button>

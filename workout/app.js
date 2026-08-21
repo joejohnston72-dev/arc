@@ -58,6 +58,11 @@ const LOGTYPES = {
   duration:   { cols: ['time'],               head: ['Time'],        label: 'Time / hold' },
   cardio:     { cols: ['distance', 'time'],   head: ['km', 'Time'],  label: 'Distance & time (cardio)' },
 };
+// User edits to the core library (via the "…" → Edit exercise sheet). Keyed by
+// the built-in exercise's canonical name → { category?, logType? }. Loaded once
+// at init (loadExOverrides) and kept in sync on every edit. Custom exercises are
+// edited in place in `exercises-custom` instead, so they don't live here.
+let exOverrides = {};
 // NB: bare "hang" was removed — it false-matched "Leg Raise (Hanging)" (a
 // rep-based exercise) and forced it into time-tracking. "dead hang" alone
 // covers the actual isometric hold.
@@ -80,6 +85,11 @@ function exLogType(name, category) {
 // baked into old/imported data — including a 'duration' left over from when a
 // bare "hang" match wrongly forced "Hanging Leg Raise" into time-tracking.
 const resolveLogType = ex => {
+  // An explicit user edit to the library (built-in override, or a custom
+  // exercise's own stored type) is authoritative everywhere — that's the whole
+  // point of "Edit exercise writes to the core library".
+  const ov = exOverrides[ex?.name]?.logType;
+  if (ov && LOGTYPES[ov]) return ov;
   if (BODYWEIGHT_NAMES.test(ex?.name || '')) return 'bodyweight';
   const stored = ex?.logType;
   return LOGTYPES[stored] ? stored : exLogType(ex?.name, ex?.category);
@@ -1305,6 +1315,10 @@ function openExMenuSheet(ei) {
 const exMenuSheet = document.getElementById('exMenuSheet');
 exMenuSheet.addEventListener('click', e => { if (e.target === exMenuSheet) exMenuSheet.classList.remove('open'); });
 document.getElementById('exMenuCancel').onclick  = () => exMenuSheet.classList.remove('open');
+document.getElementById('exMenuEdit').onclick = () => {
+  exMenuSheet.classList.remove('open');
+  openEditExerciseModal(menuEi);
+};
 document.getElementById('exMenuReplace').onclick = () => {
   exMenuSheet.classList.remove('open');
   openExPicker({ replaceEi: menuEi });
@@ -1938,7 +1952,24 @@ let epReplaceEi = null; // when set, picking replaces instead of appends
 
 async function getAllExercises() {
   const custom = (await db.get(STORE, 'exercises-custom')) || [];
-  return [...EXERCISES, ...custom.map(e => ({ ...e, custom: true }))];
+  // Apply any library edits to the built-in list (category / tracking type).
+  const builtin = EXERCISES.map(e => {
+    const ov = exOverrides[e.name];
+    if (!ov) return e;
+    const merged = { ...e };
+    if (ov.category && CATEGORIES.includes(ov.category)) merged.category = ov.category;
+    if (ov.logType && LOGTYPES[ov.logType]) merged.logType = ov.logType;
+    return merged;
+  });
+  return [...builtin, ...custom.map(e => ({ ...e, custom: true }))];
+}
+
+// Load the built-in library overrides into the module cache. Called at init
+// before the first render so resolveLogType/resolveCategory see them, and again
+// after each edit so they stay current.
+async function loadExOverrides() {
+  exOverrides = (await db.get(STORE, 'exercises-overrides')) || {};
+  return exOverrides;
 }
 
 document.getElementById('awAddExBtn').onclick   = () => openExPicker();
@@ -2216,6 +2247,81 @@ document.getElementById('customExSave').onclick = async () => {
   renderActiveSession();
   saveSoon();
   lookupRepRangeForCustom(entry); // background AI lookup — updates in place when it resolves
+};
+
+// ── Edit exercise (writes to the core library) ────────────────────────────────
+// Change an exercise's muscle group and tracking type (and, for custom exercises,
+// its name). Built-in exercises are edited via an overrides layer keyed by their
+// canonical name; custom exercises are edited in place in `exercises-custom`. The
+// change applies everywhere the exercise appears (resolveLogType/resolveCategory
+// + getAllExercises read the same overrides), not just this workout.
+let editExEi = null;
+async function openEditExerciseModal(ei) {
+  const ex = activeSession?.exercises?.[ei];
+  if (!ex) return;
+  editExEi = ei;
+  const custom = (await db.get(STORE, 'exercises-custom')) || [];
+  const isCustom = custom.some(e => e.name.toLowerCase() === ex.name.toLowerCase());
+
+  const nameEl = document.getElementById('editExName');
+  nameEl.value = ex.name;
+  nameEl.readOnly = !isCustom;                      // built-in names are fixed
+  document.getElementById('editExNameHint').style.display = isCustom ? 'none' : '';
+
+  const catSel = document.getElementById('editExCat');
+  catSel.innerHTML = CATEGORIES.map(c => `<option${c === ex.category ? ' selected' : ''}>${c}</option>`).join('');
+
+  const typeSel = document.getElementById('editExType');
+  const curType = resolveLogType(ex);
+  typeSel.innerHTML = Object.entries(LOGTYPES)
+    .map(([k, v]) => `<option value="${k}"${k === curType ? ' selected' : ''}>${v.label}</option>`).join('');
+
+  document.getElementById('editExModal').classList.add('open');
+}
+document.getElementById('editExCancel').onclick = () => document.getElementById('editExModal').classList.remove('open');
+document.getElementById('editExModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('editExModal')) document.getElementById('editExModal').classList.remove('open');
+});
+document.getElementById('editExSave').onclick = async () => {
+  if (editExEi == null || !activeSession?.exercises?.[editExEi]) {
+    document.getElementById('editExModal').classList.remove('open'); return;
+  }
+  const ex = activeSession.exercises[editExEi];
+  const oldName  = ex.name;
+  const newName  = document.getElementById('editExName').value.trim() || oldName;
+  const newCat   = document.getElementById('editExCat').value;
+  const newType  = document.getElementById('editExType').value || 'weighted';
+
+  const custom = (await db.get(STORE, 'exercises-custom')) || [];
+  const cIdx = custom.findIndex(e => e.name.toLowerCase() === oldName.toLowerCase());
+
+  if (cIdx !== -1) {
+    // Custom exercise — edit its library entry in place (name editable).
+    custom[cIdx] = { ...custom[cIdx], name: newName, category: newCat, logType: newType };
+    if (newType === 'duration' || newType === 'cardio') delete custom[cIdx].repRange;
+    await db.set(STORE, 'exercises-custom', custom);
+  } else {
+    // Built-in exercise — record a library override (name stays canonical).
+    exOverrides[oldName] = { ...(exOverrides[oldName] || {}), category: newCat, logType: newType };
+    await db.set(STORE, 'exercises-overrides', exOverrides);
+  }
+
+  // Reflect on the live exercise immediately.
+  ex.name = newName;
+  ex.category = newCat;
+  ex.logType = newType;
+  if (newType === 'duration' || newType === 'cardio') ex.repRange = null;
+  else ex.repRange = resolveRepRange({ name: newName, category: newCat, logType: newType, repRange: ex.repRange });
+
+  document.getElementById('editExModal').classList.remove('open');
+  renderActiveSession();
+  saveSoon();
+  db.backup();
+  if (activeTab === 'Library') renderLibrary();
+  // For a renamed custom exercise with no stored range yet, kick a background lookup.
+  if (cIdx !== -1 && !custom[cIdx].repRange && newType !== 'duration' && newType !== 'cardio') {
+    lookupRepRangeForCustom(custom[cIdx]);
+  }
 };
 
 // ── Ideal rep range for custom exercises: AI lookup + cache ───────────────────
@@ -2627,7 +2733,7 @@ async function refreshCoachBadge() {
     const [sessions, dismissed] = await Promise.all([loadSessions(), db.get(STORE, 'suggestions-dismissed')]);
     const skip = dismissed || [];
     const n = generateCoachFindings(sessions).filter(f => f.severity !== 'good' && !skip.includes(f.key)).length;
-    updateCoachBadge(n);
+    updateCoachBadge(n + await dailyPendingCount());
   } catch (_) {}
 }
 
@@ -2774,7 +2880,7 @@ async function renderDashboard() {
   const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
   const actionable = findings.filter(f => f.severity !== 'good');
   const flagHTML = dashCoachFlag(actionable[0]);
-  updateCoachBadge(actionable.length);
+  updateCoachBadge(actionable.length + await dailyPendingCount());
 
   dashTop.innerHTML = `
     <div class="dash-datehead">
@@ -3728,6 +3834,7 @@ async function renderCoach() {
   if (!coachThread.length) {
     await renderCoachFindings(thread);      // analysis-first: findings before chat
     requestAnimationFrame(() => { thread.scrollTop = 0; });
+    maybeShowDailySuggestion(thread);       // proactive AI pick — prepends when ready
     return;
   }
   coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
@@ -3846,7 +3953,7 @@ async function renderCoachFindings(threadEl) {
   const dismissed = (await db.get('workout', 'suggestions-dismissed')) || [];
   const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
   _coachFindings = findings;
-  updateCoachBadge(findings.filter(f => f.severity !== 'good').length);
+  updateCoachBadge(findings.filter(f => f.severity !== 'good').length + await dailyPendingCount());
 
   const n = sessions.length;
   const wrap = document.createElement('div');
@@ -3884,6 +3991,112 @@ async function renderCoachFindings(threadEl) {
       sendCoach(a.prompt, a.force || false);
     };
   });
+}
+
+// ── Coach's pick for today (proactive, once-per-day AI suggestion) ────────────
+// When the user opens the Coach tab, the coach reviews ALL their data on its own
+// and surfaces its single highest-value suggestion for today — an altered
+// session, a split swap, a routine tweak, or an observation. One API call per
+// calendar day (cached in 'coach-daily'); needs an API key; dismissible.
+let _dailyBusy = false;
+
+async function dailyPendingCount() {
+  try {
+    if (!(await coachGetKey())) return 0;
+    const today = new Date().toISOString().slice(0, 10);
+    const d = await db.get(STORE, 'coach-daily');
+    if (d && d.date === today && d.dismissedDate !== today &&
+        (d.text || d.routine || d.split || d.suggestion)) return 1;
+    return 0;
+  } catch (_) { return 0; }
+}
+
+async function generateDailySuggestion(today) {
+  try {
+    const system = await assembleContext({ loadSessions, getTemplates, getAllExercises, getStreakSettings });
+    const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do not add exercises or log workouts.`;
+    const result = await callCoach({
+      apiMessages: [{ role: 'user', content: prompt }],
+      system, forceTool: false, getKey: coachGetKey,
+    });
+    if (!result || result.error) return null;
+
+    const out = { date: today, text: result.text || '' };
+    const tool = result.tool;
+    if (tool?.name === 'draft_routine') {
+      try { out.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory }); } catch (_) {}
+    } else if (tool?.name === 'draft_split') {
+      try {
+        const days = Array.isArray(tool.input?.days) ? tool.input.days : [];
+        const routines = [];
+        for (const d of days) { try { routines.push(await validateRoutine(d, { getAllExercises, guessCategory })); } catch (_) {} }
+        if (routines.length) out.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
+      } catch (_) {}
+    } else if (tool?.name === 'suggest_routine_edit') {
+      out.suggestion = tool.input;
+    }
+    if (!out.text && !out.routine && !out.split && !out.suggestion) return null;
+    if (!out.text) {
+      out.text = out.routine ? `Here's what I'd train today — “${out.routine.name}”.`
+               : out.split ? `I'd reshape your week — “${out.split.name}”.`
+               : out.suggestion?.rationale || 'Here’s a change worth making.';
+    }
+    return out;
+  } catch (_) { return null; }
+}
+
+function renderDailyCard(daily) {
+  const card = document.createElement('div');
+  card.className = 'coach-daily';
+  card.id = 'coachDailyCard';
+  card.innerHTML = `
+    <div class="coach-daily-head">
+      <span class="coach-daily-eyebrow">${icon('bot', { size: 14 })} Coach's pick for today</span>
+      <button class="coach-daily-x" aria-label="Dismiss" title="Dismiss">${icon('x', { size: 15 })}</button>
+    </div>
+    <div class="coach-daily-body">${esc(daily.text || '')}</div>`;
+  if (daily.routine)    card.appendChild(renderRoutineCard(daily.routine));
+  if (daily.split)      card.appendChild(renderSplitCard(daily.split));
+  if (daily.suggestion) card.appendChild(renderSuggestionCard(daily.suggestion));
+  card.querySelector('.coach-daily-x').onclick = async () => {
+    card.remove();
+    const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
+    d.dismissedDate = new Date().toISOString().slice(0, 10);
+    await db.set(STORE, 'coach-daily', d);
+    refreshCoachBadge();
+  };
+  return card;
+}
+
+async function maybeShowDailySuggestion(threadEl) {
+  if (_dailyBusy) return;
+  if (!(await coachGetKey())) return;                     // no proactive AI without a key
+  const today = new Date().toISOString().slice(0, 10);
+  let daily = await db.get(STORE, 'coach-daily');
+  if (daily?.dismissedDate === today) return;             // dismissed for today
+
+  if (!daily || daily.date !== today) {
+    _dailyBusy = true;
+    const ph = document.createElement('div');
+    ph.className = 'coach-daily loading';
+    ph.id = 'coachDailyCard';
+    ph.innerHTML = `<div class="coach-daily-head"><span class="coach-daily-eyebrow">${icon('bot', { size: 14 })} Coach's pick for today</span></div>
+      <div class="coach-daily-body">Reading your training…</div>`;
+    threadEl.insertBefore(ph, threadEl.firstChild);
+    daily = await generateDailySuggestion(today);
+    _dailyBusy = false;
+    document.getElementById('coachDailyCard')?.remove();
+    if (!daily) return;
+    await db.set(STORE, 'coach-daily', daily);
+  }
+
+  // Only surface on the analysis view (don't intrude on an active chat), and only
+  // if the Coach tab is still what's showing.
+  if (coachThread.length || activeTab !== 'Coach') return;
+  document.getElementById('coachDailyCard')?.remove();
+  threadEl.insertBefore(renderDailyCard(daily), threadEl.firstChild);
+  refreshCoachBadge();
 }
 
 function scrollCoachDown() {
@@ -4253,6 +4466,7 @@ if (document.getElementById('recentList')) {
 }
 try { await Promise.race([initialSync, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
+await loadExOverrides();   // library edits (exercise types/categories) before any render
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await checkForAbandonedSession();

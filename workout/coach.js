@@ -8,6 +8,13 @@ import { lifetimeTotals, exerciseFrequency, weeklySetsByCategory } from './stats
 
 const MODEL = 'claude-sonnet-5';
 
+// Millisecond timestamp of a saved session (date preferred, startTime fallback).
+function sessionTs(s) {
+  const d = new Date(s?.date || s?.startTime || 0);
+  const t = d.getTime();
+  return isNaN(t) ? 0 : t;
+}
+
 // ── The one tool: draft_routine (schema == the app's template contract) ───────
 export const DRAFT_ROUTINE_TOOL = {
   name: 'draft_routine',
@@ -253,6 +260,53 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   }).join('\n');
   const cardioLine = bal4.cardioMinPerWk > 0 ? `\n- Cardio: ${bal4.cardioMinPerWk.toFixed(0)} min/wk` : '';
 
+  // ── Recovery / readiness: days since each muscle group was last trained ──────
+  // This is what lets the coach say "not legs today" or "your chest is fresh" —
+  // proactive, data-backed session steering rather than generic advice.
+  const DAY = 86400000;
+  const nowTs = Date.now();
+  const catLastTs = {};
+  let lastWorkoutTs = 0;
+  for (const s of sessions) {
+    const t = sessionTs(s);
+    if (!t) continue;
+    if (t > lastWorkoutTs) lastWorkoutTs = t;
+    for (const ex of s.exercises || []) {
+      const c = ex.category;
+      if (!c || c === 'Cardio') continue;
+      if (!catLastTs[c] || t > catLastTs[c]) catLastTs[c] = t;
+    }
+  }
+  const daysAgo = t => { const d = Math.floor((nowTs - t) / DAY); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
+  const recoveryLines = Object.entries(catLastTs)
+    .map(([c, t]) => ({ c, d: Math.floor((nowTs - t) / DAY), t }))
+    .sort((a, b) => b.d - a.d)   // stalest (most rested) first — the freshest to hit
+    .map(r => `- ${r.c}: last trained ${daysAgo(r.t)}`)
+    .join('\n');
+  const sinceLast = lastWorkoutTs ? daysAgo(lastWorkoutTs) : 'no sessions yet';
+
+  // ── Progression signals: per-lift top-set trend (rising / stalled) ───────────
+  const seriesByEx = {};
+  for (let i = sessions.length - 1; i >= 0; i--) {   // oldest → newest (chronological)
+    for (const ex of sessions[i].exercises || []) {
+      const working = (ex.sets || []).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
+      if (!working.length) continue;
+      const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
+      (seriesByEx[ex.name] ||= []).push(top.weight);
+    }
+  }
+  const signals = [];
+  for (const [name, ser] of Object.entries(seriesByEx)) {
+    if (ser.length < 3) continue;
+    const recent = ser.slice(-4);
+    const max = Math.max(...recent), min = Math.min(...recent);
+    const first = ser[0], last = ser[ser.length - 1];
+    if (max > 0 && (max - min) / max < 0.03) signals.push({ n: ser.length, s: `- ${name}: STALLED — flat ~${last}kg over last ${recent.length} sessions` });
+    else if (last > first) signals.push({ n: ser.length, s: `- ${name}: rising — ${first}→${last}kg over ${ser.length} sessions` });
+    else if (last < first) signals.push({ n: ser.length, s: `- ${name}: down — ${first}→${last}kg over ${ser.length} sessions` });
+  }
+  const signalLines = signals.sort((a, b) => b.n - a.n).slice(0, 8).map(x => x.s).join('\n');
+
   const now = new Date();
   const todayStr = `${now.toISOString().slice(0, 10)} (${now.toLocaleDateString('en-GB', { weekday: 'long' })})`;
 
@@ -268,8 +322,14 @@ VOICE — technical & precise, always explain the why
 
 HOW TO RESPOND
 - Answer ANY question the user asks — training, technique/form, programming, progression, recovery, nutrition-for-lifters, or how to use this app. Always give a real answer in plain text; never refuse a normal training/health question or reply with just a routine when they asked something else.
-- Ground everything in the user's own data below (their lifts, PBs, recent sessions, streak, and especially the TRAINING BALANCE analysis). When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the specific groups above 20 sets/wk (too much) and below 10 (too little), and cite the numbers.
+- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their SAVED ROUTINES. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups above 20 sets/wk (too much) and below 10 (too little), with numbers.
+- Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), DON'T interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
 - ONLY call draft_routine when the user wants a single workout/day created or asks "what should I train today". For a whole multi-day programme/split, call draft_split instead. For everything else, reply with text.
+
+STEERING TODAY'S SESSION (proactive, data-driven)
+- You can and should suggest ALTERING today's plan when the data warrants it. If a muscle group is under-recovered (trained in the last ~48h per RECOVERY/READINESS) or already over-volume (TRAINING BALANCE >20/wk), steer away from it: "Skip legs today — quads trained yesterday and are already at 22 sets/wk; here's an upper session that hits your lagging back instead." Use draft_routine to hand them the altered session.
+- If their week is structurally off (a lagging group chronically under 10 sets, push:pull skewed, a lift stalled for weeks), propose swapping the split — call draft_split and say in text which groups you rebalanced and why, citing the numbers.
+- Favour the freshest, most-recovered muscle groups and the lifts that are still rising; program around stalled lifts (small load bump, extra set, or a short deload) rather than repeating them unchanged.
 
 ACTIONS YOU CAN TAKE (make real changes in the app)
 - add_library_exercises — add custom exercises to the user's library when they ask you to.
@@ -292,8 +352,16 @@ ${allowed}
 THIS LIFTER
 Lifetime: ${lt.workouts} workouts, ${lt.hours.toFixed(0)}h trained, ${(lt.volume/1000).toFixed(1)} tonnes lifted. Current streak: ${streak.weeks} week(s) (${streak.thisWeekCount}/${streak.target} this week).
 
+Last workout: ${sinceLast}.
+
 TRAINING BALANCE (avg working sets/muscle group/week — target band 10–20; <10 = too little, >20 = too much)
 ${balanceLines || '- (not enough recent history)'}${cardioLine}
+
+RECOVERY / READINESS (days since each muscle group was last trained — freshest/most-rested listed first)
+${recoveryLines || '- (not enough recent history)'}
+
+PROGRESSION SIGNALS (top-set trend per lift — rising lifts to keep pushing, STALLED lifts to program around)
+${signalLines || '- (not enough history to read trends yet)'}
 
 TOP EXERCISES (by frequency, with bests)
 ${topLines || '- (no history yet)'}
