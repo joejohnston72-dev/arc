@@ -1,0 +1,23 @@
+{
+  "name": "life-dashboard",
+  "version": "1.0.0",
+  "description": "",
+  "main": "sw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joejohnston72-dev/life-dashboard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/joejohnston72-dev/life-dashboard/issues"
+  },
+  "homepage": "https://github.com/joejohnston72-dev/life-dashboard#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
