@@ -1053,6 +1053,184 @@
 
     /* ── Misc ── */
     .divider { height:1px; background:rgba(255,255,255,0.06); margin:12px 0; }
+
+    /* ══ REDESIGN: Today snapshot (streak · body · calories) ══ */
+    .dash-snapshot { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+    .snap-tile {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:11px 12px;
+      display:flex; flex-direction:column; gap:8px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .snap-tile:active { background:var(--surface2); }
+    .snap-ico { width:26px; height:26px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; }
+    .snap-val { font-size:1.02rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.05; }
+    .snap-lbl { font-size:0.58rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-top:3px; }
+    .snap-sub { font-size:0.64rem; color:var(--text-muted); display:flex; align-items:center; gap:3px; margin-top:2px; }
+    .snap-sub.up { color:var(--green); } .snap-sub.down { color:var(--green); } .snap-sub.flat { color:var(--text-muted); }
+    .snap-ring { position:relative; width:30px; height:30px; }
+    .snap-ring .rc { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.5rem; font-weight:700; }
+
+    /* Coach insight inline actions on Today */
+    .dash-flag-actions { display:flex; gap:8px; margin-top:10px; }
+    .dash-flag-btn { border:none; border-radius:9px; font-size:0.74rem; font-weight:700; padding:8px 11px; cursor:pointer;
+      -webkit-tap-highlight-color:transparent; display:inline-flex; align-items:center; gap:5px; }
+    .dash-flag-btn.p { background:var(--blue); color:#000; }
+    .dash-flag-btn.g { background:var(--surface2); color:var(--text); }
+
+    /* ══ REDESIGN: Plan (weekly schedule) ══ */
+    .plan-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+    .plan-title { font-size:1.5rem; font-weight:700; letter-spacing:-0.5px; }
+    .plan-wknav { display:flex; align-items:center; gap:10px; font-size:0.78rem; font-weight:500; color:var(--text-muted); }
+    .plan-wknav button { width:30px; height:30px; border-radius:8px; background:var(--surface2); border:none; color:var(--text);
+      display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .plan-wknav button:disabled { opacity:.3; }
+    .week-strip { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:16px; }
+    .wcol { display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0; border-radius:12px;
+      background:var(--surface); border:1px solid var(--border); }
+    .wcol.today { border-color:var(--blue); background:rgba(var(--blue-rgb),0.10); }
+    .wdow { font-size:0.56rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; }
+    .wnum { font-size:0.8rem; font-weight:700; }
+    .wdot { width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+    .wdot.done { background:var(--green); color:#04150e; }
+    .wdot.rest { background:var(--surface2); }
+    .wdot.up   { border:2px solid rgba(255,255,255,0.18); box-sizing:border-box; }
+    .wdot.now  { border:2px solid var(--blue); color:var(--blue); font-weight:700; box-sizing:border-box; }
+    .day-list { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+    .dcard { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border);
+      border-radius:14px; padding:12px 14px; -webkit-tap-highlight-color:transparent; }
+    .dcard.rest { background:none; border-style:dashed; }
+    .dcard.today { border-color:var(--blue); border-left:4px solid var(--blue); }
+    .dcard.done { border-left:4px solid var(--green); }
+    .dstate { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+    .dstate.done { background:rgba(var(--green-rgb),0.16); color:var(--green); }
+    .dstate.rest { background:var(--surface2); color:var(--text-muted); }
+    .dstate.today { background:rgba(var(--blue-rgb),0.16); color:var(--blue); }
+    .dstate.up { background:var(--surface2); color:var(--text-muted); }
+    .dbody { flex:1; min-width:0; }
+    .dday { font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    .dname { font-size:0.95rem; font-weight:700; margin-top:1px; }
+    .dname.muted { color:var(--text-muted); font-weight:500; }
+    .dmeta { font-size:0.72rem; color:var(--text-muted); margin-top:2px; display:flex; align-items:center; gap:6px; }
+    .dpb { color:var(--amber); font-weight:700; display:inline-flex; align-items:center; gap:3px; }
+    .dstart { border:none; border-radius:10px; background:var(--blue); color:#000; font-size:0.78rem; font-weight:700;
+      padding:9px 14px; flex:0 0 auto; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .plan-note { background:rgba(var(--purple-rgb),0.10); border:1px solid rgba(var(--purple-rgb),0.45); border-radius:14px;
+      padding:13px 14px; display:flex; gap:11px; align-items:flex-start; margin-bottom:16px; }
+    .plan-note .ci { color:var(--purple); flex:0 0 auto; margin-top:1px; display:flex; }
+    .plan-note-body { font-size:0.83rem; line-height:1.5; }
+    .plan-note-body b { font-weight:700; }
+    .plan-vcard { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px; }
+    .plan-vtop { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:4px; }
+    .plan-vtitle { font-size:0.85rem; font-weight:700; } .plan-vsub { font-size:0.72rem; color:var(--text-muted); }
+    .plan-vbar { height:8px; border-radius:4px; background:rgba(255,255,255,0.07); overflow:hidden; margin:10px 0 16px; }
+    .plan-vfill { height:100%; border-radius:4px; background:var(--blue); }
+    .plan-mrow { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+    .plan-mcat { font-size:0.74rem; width:74px; flex:0 0 auto; }
+    .plan-mtrack { flex:1; height:8px; background:rgba(255,255,255,0.06); border-radius:4px; position:relative; overflow:hidden; }
+    .plan-mfill { position:absolute; top:0; bottom:0; left:0; border-radius:4px; }
+    .plan-mval { font-size:0.7rem; color:var(--text-muted); width:44px; text-align:right; font-variant-numeric:tabular-nums; flex:0 0 auto; }
+    .plan-mval.behind, .plan-mcat.behind { color:var(--amber); }
+    .plan-vlink { margin-top:6px; font-size:0.72rem; font-weight:700; color:var(--blue); display:inline-flex; align-items:center; gap:5px;
+      background:none; border:none; cursor:pointer; padding:0; }
+
+    /* ══ REDESIGN: segmented control (Progress) ══ */
+    .seg { display:flex; background:var(--surface2); border-radius:11px; padding:3px; gap:3px; margin-bottom:14px; }
+    .seg button { flex:1; border:none; background:none; color:var(--text-muted); font-size:0.82rem; font-weight:700;
+      padding:8px; border-radius:9px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .seg button.on { background:var(--blue); color:#000; }
+
+    /* ══ REDESIGN: PR timeline ══ */
+    .pr-row { display:flex; gap:12px; }
+    .pr-rail { display:flex; flex-direction:column; align-items:center; flex:0 0 auto; }
+    .pr-dot { width:30px; height:30px; border-radius:9px; background:rgba(var(--amber-rgb),0.16); color:var(--amber);
+      display:flex; align-items:center; justify-content:center; }
+    .pr-line { flex:1; width:2px; background:var(--border); margin:4px 0; min-height:8px; }
+    .pr-info { flex:1; padding-bottom:14px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .pr-row:last-child .pr-info { padding-bottom:0; }
+    .pr-l1 { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+    .pr-name { font-size:0.9rem; font-weight:700; }
+    .pr-date { font-size:0.7rem; color:var(--text-muted); white-space:nowrap; }
+    .pr-detail { font-size:0.78rem; color:var(--text-muted); margin-top:2px; }
+    .pr-detail b { color:var(--green); font-weight:700; }
+
+    /* Muscle-balance actionable row (Progress) */
+    .mb-fix { display:flex; align-items:center; gap:8px; background:rgba(var(--amber-rgb),0.08);
+      border:1px solid rgba(var(--amber-rgb),0.30); border-radius:11px; padding:9px 11px; margin-top:10px; }
+    .mb-fix-txt { font-size:0.76rem; flex:1; } .mb-fix-txt b { color:var(--amber); }
+    .mb-fix-btn { border:none; border-radius:9px; background:var(--surface2); color:var(--text); font-size:0.72rem;
+      font-weight:700; padding:8px 11px; display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; cursor:pointer;
+      -webkit-tap-highlight-color:transparent; }
+
+    /* Bodyweight card (Progress · Body) */
+    .bw-top { display:flex; align-items:baseline; gap:8px; margin-bottom:2px; }
+    .bw-val { font-size:1.35rem; font-weight:700; letter-spacing:-0.5px; }
+    .bw-delta { font-size:0.76rem; font-weight:700; display:flex; align-items:center; gap:3px; }
+    .bw-delta.down, .bw-delta.up { color:var(--green); } .bw-delta.flat { color:var(--text-muted); }
+    .bw-chart { width:100%; height:96px; display:block; }
+    .bw-log { width:100%; margin-top:12px; border:1px dashed rgba(var(--blue-rgb),0.4); border-radius:11px; background:none;
+      color:var(--blue); font-size:0.82rem; font-weight:700; padding:11px; display:flex; align-items:center; justify-content:center; gap:7px;
+      cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .stats-link { display:flex; align-items:center; justify-content:center; gap:6px; font-size:0.8rem; font-weight:700;
+      color:var(--blue); padding:6px; background:none; border:none; cursor:pointer; width:100%; }
+
+    /* Data & backup disclosure */
+    .data-disclosure { margin-top:22px; border-top:1px solid var(--border); }
+    .data-disclosure > summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+      padding:14px 2px 10px; -webkit-tap-highlight-color:transparent; }
+    .data-disclosure > summary::-webkit-details-marker { display:none; }
+    .dd-label { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted);
+      display:inline-flex; align-items:center; gap:7px; }
+    .dd-chev { color:var(--text-muted); transition:transform .2s ease; display:inline-flex; }
+    .data-disclosure[open] .dd-chev { transform:rotate(180deg); }
+
+    /* ══ REDESIGN: Exercise detail overlay ══ */
+    #exerciseDetail {
+      position:fixed; inset:0; z-index:66; background:var(--bg);
+      transform:translateX(100%); transition:transform .25s ease; overflow-y:auto; overflow-x:hidden;
+    }
+    #exerciseDetail.visible { transform:translateX(0); }
+    .ed-cat-pill { font-size:0.62rem; font-weight:700; padding:4px 9px; border-radius:6px; flex:0 0 auto;
+      background:rgba(var(--blue-rgb),0.16); color:var(--blue); }
+    #exDetailBody { padding:0 var(--gap) 100px; }
+    .ed-hstats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+    .ed-hbox { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 5px; text-align:center; }
+    .ed-hval { font-size:0.98rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .ed-hval.amber { color:var(--amber); }
+    .ed-hlbl { font-size:0.54rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; margin-top:4px; }
+    .ed-card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:14px; }
+    .ed-card-title { font-size:0.85rem; font-weight:700; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; }
+    .ed-card-title .sub { font-size:0.72rem; font-weight:500; color:var(--text-muted); }
+    .ed-chart { width:100%; height:100px; display:block; }
+    .ed-note { background:rgba(var(--amber-rgb),0.08); border:1px solid rgba(var(--amber-rgb),0.35); border-radius:14px;
+      padding:13px 14px; display:flex; gap:11px; align-items:flex-start; margin-bottom:14px; }
+    .ed-note.good { background:rgba(var(--green-rgb),0.08); border-color:rgba(var(--green-rgb),0.35); }
+    .ed-note.tip  { background:rgba(var(--blue-rgb),0.08); border-color:rgba(var(--blue-rgb),0.35); }
+    .ed-note .ci { flex:0 0 auto; margin-top:1px; display:flex; color:var(--amber); }
+    .ed-note.good .ci { color:var(--green); } .ed-note.tip .ci { color:var(--blue); }
+    .ed-note-body { font-size:0.83rem; line-height:1.5; } .ed-note-body b { font-weight:700; }
+    .ed-note-link { font-size:0.72rem; font-weight:700; margin-top:6px; display:inline-flex; align-items:center; gap:4px;
+      color:var(--amber); background:none; border:none; cursor:pointer; padding:0; }
+    .ed-note.good .ed-note-link { color:var(--green); } .ed-note.tip .ed-note-link { color:var(--blue); }
+    .ed-target { display:inline-flex; align-items:center; gap:7px; font-size:0.8rem; font-weight:700; color:var(--blue);
+      background:rgba(var(--blue-rgb),0.10); border:1px solid rgba(var(--blue-rgb),0.3); border-radius:10px; padding:8px 12px; margin-bottom:14px; }
+    .ed-cues { list-style:none; display:flex; flex-direction:column; gap:9px; }
+    .ed-cue { display:flex; gap:10px; font-size:0.84rem; line-height:1.4; }
+    .ed-cue-n { width:20px; height:20px; border-radius:6px; background:var(--surface2); color:var(--blue); font-size:0.68rem;
+      font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto; margin-top:1px; }
+    .ed-hrow { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--border); }
+    .ed-hrow:first-child { border-top:none; }
+    .ed-hdate { font-size:0.74rem; color:var(--text-muted); flex:0 0 auto; }
+    .ed-hsets { font-size:0.82rem; font-variant-numeric:tabular-nums; text-align:right; }
+    .ed-hsets .pbmark { color:var(--amber); font-weight:700; }
+    .ed-actionbar { position:fixed; left:0; right:0; bottom:0; display:none; gap:10px; padding:12px var(--gap) calc(env(safe-area-inset-bottom) + 14px);
+      background:linear-gradient(to top,var(--bg) 72%,transparent); z-index:67; }
+    #exerciseDetail.visible .ed-actionbar { display:flex; }
+    .ed-abtn { border:none; border-radius:14px; font-size:0.95rem; font-weight:700; padding:15px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; gap:8px; -webkit-tap-highlight-color:transparent; }
+    .ed-abtn.p { flex:1; background:linear-gradient(135deg,#38bdf8,#2596d1); color:#04131c; box-shadow:0 6px 22px rgba(var(--blue-rgb),0.28); }
+    .ed-abtn.g { background:var(--surface2); color:var(--text); }
+    /* exercise-name deep-link affordance in the active workout */
+    .ex-name.linked { display:inline-flex; align-items:center; gap:5px; }
+    .ex-name .ex-chev { color:var(--text-muted); display:inline-flex; }
   </style>
 </head>
 <body>
@@ -1097,6 +1275,11 @@
     </div>
   </div>
 
+  <!-- Plan (weekly schedule) -->
+  <div class="section" id="secPlan">
+    <div id="planBody"></div>
+  </div>
+
   <!-- History -->
   <!-- Library -->
   <div class="section" id="secLibrary">
@@ -1117,13 +1300,20 @@
   <div class="section" id="secStats">
     <div id="statsBody"></div>
 
-    <div class="section-heading" style="margin-top:22px">Backup &amp; restore</div>
-    <button class="import-btn" id="restoreCloudBtn" style="border-color:rgba(56,189,248,0.4);color:var(--blue)"><i data-lucide="refresh-cw" data-size="16"></i> Restore from cloud</button>
-    <button class="import-btn" id="backupCloudBtn"><i data-lucide="upload" data-size="16"></i> Back up to cloud now</button>
-    <button class="import-btn" id="exportBtn"><i data-lucide="download" data-size="16"></i> Export backup file</button>
-    <button class="import-btn" id="importBtn"><i data-lucide="list-plus" data-size="16"></i> Import workouts (CSV / JSON)</button>
-    <div class="import-progress" id="importProgress"></div>
-    <input type="file" id="csvInput" accept=".csv,.json,.txt" style="display:none">
+    <details class="data-disclosure">
+      <summary class="dd-summary">
+        <span class="dd-label"><i data-lucide="refresh-cw" data-size="15"></i> Data &amp; backup</span>
+        <i class="dd-chev" data-lucide="chevron-down" data-size="16"></i>
+      </summary>
+      <div class="dd-body">
+        <button class="import-btn" id="restoreCloudBtn" style="border-color:rgba(56,189,248,0.4);color:var(--blue)"><i data-lucide="refresh-cw" data-size="16"></i> Restore from cloud</button>
+        <button class="import-btn" id="backupCloudBtn"><i data-lucide="upload" data-size="16"></i> Back up to cloud now</button>
+        <button class="import-btn" id="exportBtn"><i data-lucide="download" data-size="16"></i> Export backup file</button>
+        <button class="import-btn" id="importBtn"><i data-lucide="list-plus" data-size="16"></i> Import workouts (CSV / JSON)</button>
+        <div class="import-progress" id="importProgress"></div>
+        <input type="file" id="csvInput" accept=".csv,.json,.txt" style="display:none">
+      </div>
+    </details>
 
     <div class="section-heading" style="margin-top:18px">History</div>
     <input class="form-input" id="histSearch" placeholder="Search history — title or exercise…" style="margin-bottom:10px">
@@ -1157,8 +1347,9 @@
   </div>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="Dashboard"><span class="ti" data-lucide="house" data-size="21"></span>Home</button>
-    <button class="tab" data-tab="Stats"><span class="ti" data-lucide="chart-line" data-size="21"></span>Stats</button>
+    <button class="tab active" data-tab="Dashboard"><span class="ti" data-lucide="house" data-size="21"></span>Today</button>
+    <button class="tab" data-tab="Plan"><span class="ti" data-lucide="calendar" data-size="21"></span>Plan</button>
+    <button class="tab" data-tab="Stats"><span class="ti" data-lucide="chart-line" data-size="21"></span>Progress</button>
     <button class="tab" data-tab="Coach"><span class="ti" data-lucide="bot" data-size="21"></span>Coach</button>
     <button class="tab" data-tab="Library"><span class="ti" data-lucide="book-open" data-size="21"></span>Library</button>
   </nav>
@@ -1288,6 +1479,36 @@
     <button class="header-btn btn-d" id="hdDelete" style="border:none">Delete</button>
   </div>
   <div style="padding:0 var(--gap)" id="hdBody"></div>
+</div>
+
+<!-- ── Exercise detail (the anti-silo page: one lift, everything) ── -->
+<div id="exerciseDetail">
+  <div class="page-header">
+    <button class="back-btn" id="exDetailBack" data-tip="Back" title="Back"><i data-lucide="arrow-left" data-size="24"></i></button>
+    <h1 class="page-title" id="exDetailTitle"></h1>
+    <span class="ed-cat-pill" id="exDetailCat"></span>
+  </div>
+  <div id="exDetailBody"></div>
+  <div class="ed-actionbar" id="exDetailActions"></div>
+</div>
+
+<!-- ── Log bodyweight modal ── -->
+<div class="modal-backdrop" id="bodyweightModal">
+  <div class="modal">
+    <p class="modal-title" style="display:flex;align-items:center;gap:7px"><span style="color:var(--blue);display:flex"><i data-lucide="scale" data-size="18"></i></span> Log bodyweight</p>
+    <div class="form-group">
+      <label class="form-label">Weight (kg)</label>
+      <input class="form-input" id="bwInput" type="number" step="0.1" min="0" max="500" inputmode="decimal" placeholder="e.g. 82.4">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input class="form-input" id="bwDate" type="date">
+    </div>
+    <div class="modal-btns">
+      <button class="btn btn-g" id="bwCancel">Cancel</button>
+      <button class="btn btn-p" id="bwSave">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Add custom exercise modal ── -->

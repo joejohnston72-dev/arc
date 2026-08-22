@@ -146,6 +146,115 @@ async function loadSessions() {
     .sort((a,b) => (parseToDate(b.date||b.startTime||'')?.getTime()||0) - (parseToDate(a.date||a.startTime||'')?.getTime()||0));
 }
 
+// ── Bodyweight tracking (syncs + backs up via the shared 'workout' store) ─────
+const CALORIE_APP_URL = 'https://joejohnston72-dev.github.io/calorieAI/';
+const toNum = x => (typeof x === 'number' && isFinite(x)) ? x
+  : (x != null && x !== '' && !isNaN(+x)) ? +x : null;
+
+async function getBodyLog() {
+  const log = (await db.get(STORE, 'bodyweight-log')) || [];
+  return log.filter(e => e && e.date && e.kg > 0).sort((a, b) => a.date.localeCompare(b.date));
+}
+async function logBodyweight(kg, date) {
+  const log = (await db.get(STORE, 'bodyweight-log')) || [];
+  const d = date || new Date().toISOString().slice(0, 10);
+  const i = log.findIndex(e => e.date === d);
+  if (i >= 0) log[i] = { date: d, kg }; else log.push({ date: d, kg });
+  await db.set(STORE, 'bodyweight-log', log);
+  db.backup();
+}
+// Latest weight + change across the log window (first → last), plus the series.
+function bodyStats(log) {
+  if (!log || !log.length) return null;
+  const latest = log[log.length - 1], first = log[0];
+  return {
+    latest: latest.kg, date: latest.date,
+    delta: +(latest.kg - first.kg).toFixed(1),
+    points: log.map(e => e.kg), n: log.length,
+  };
+}
+
+// Nutrition snapshot — best-effort read of the shared 'calories' store that the
+// separate CalorieAI app writes to the same Supabase project (both apps sync
+// every store). Its schema is owned by that app, so we probe defensively and
+// fall back to a link-out when nothing is found. Returns {kcal,goal,protein}|null.
+async function getNutritionToday() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = await db.getAll('calories');
+    for (const { key, value } of rows) {
+      if (!String(key).includes(today)) continue;
+      const v = value && typeof value === 'object' ? value : null;
+      if (!v) continue;
+      const kcal = toNum(v.kcal ?? v.calories ?? v.total ?? v.totalCalories ?? v.energy);
+      if (kcal == null) continue;
+      return {
+        kcal: Math.round(kcal),
+        goal: toNum(v.goal ?? v.target ?? v.kcalGoal ?? v.calorieGoal ?? v.dailyGoal),
+        protein: toNum(v.protein ?? v.proteinG ?? v.protein_g),
+      };
+    }
+  } catch (_) {}
+  return null;
+}
+
+// ── Personal-record timeline (flattened from saved session.pbs, newest first) ──
+function collectPRs(sessions, limit = 40) {
+  const out = [];
+  for (const s of sessions) {
+    const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+    for (const pb of (s.pbs || [])) {
+      if (!pb?.exercise) continue;
+      out.push({ exercise: pb.exercise, type: pb.type || '', label: pb.label || '', ts,
+                 date: s.date || (s.startTime || '').slice(0, 10) });
+    }
+  }
+  return out.sort((a, b) => b.ts - a.ts).slice(0, limit);
+}
+
+// ── Weekly plan helpers ────────────────────────────────────────────────────────
+function mondayOf(d) {
+  const x = new Date(d); x.setHours(12, 0, 0, 0);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+const ymd = d => new Date(d).toISOString().slice(0, 10);
+async function getWeekPlanMap() { return (await db.get(STORE, 'week-plan')) || {}; }
+async function setPlanDay(date, tid) {
+  const map = await getWeekPlanMap();
+  if (tid) map[date] = tid; else delete map[date];
+  await db.set(STORE, 'week-plan', map);
+  db.backup();
+}
+
+// ── Bodyweight log modal ───────────────────────────────────────────────────────
+function openBodyweightModal(date) {
+  const iEl = document.getElementById('bwInput');
+  document.getElementById('bwDate').value = date || new Date().toISOString().slice(0, 10);
+  iEl.value = '';
+  getBodyLog().then(log => { const last = log[log.length - 1]; iEl.placeholder = last ? `Last: ${last.kg} kg` : 'e.g. 82.4'; });
+  document.getElementById('bodyweightModal').classList.add('open');
+  syncScrollLock();
+  setTimeout(() => iEl.focus(), 60);
+}
+function closeBodyweightModal() {
+  document.getElementById('bodyweightModal').classList.remove('open');
+  syncScrollLock();
+}
+document.getElementById('bwCancel').onclick = closeBodyweightModal;
+document.getElementById('bodyweightModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('bodyweightModal')) closeBodyweightModal();
+});
+document.getElementById('bwSave').onclick = async () => {
+  const kg = parseFloat(document.getElementById('bwInput').value);
+  const date = document.getElementById('bwDate').value || new Date().toISOString().slice(0, 10);
+  if (!kg || kg <= 0) { closeBodyweightModal(); return; }
+  await logBodyweight(+kg.toFixed(1), date);
+  closeBodyweightModal();
+  if (activeTab === 'Dashboard') renderDashboard();
+  if (activeTab === 'Stats') renderStats();
+};
+
 // ── Screen wake lock ──────────────────────────────────────────────────────────
 let wakeLock = null;
 async function acquireWakeLock() {
@@ -209,6 +318,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     document.getElementById('sec' + activeTab).classList.add('active');
     document.getElementById('miniBar').classList.toggle('visible', !!activeSession);
     if (activeTab === 'Dashboard') { renderDashboard(); }
+    if (activeTab === 'Plan')      { renderPlan();      }
     if (activeTab === 'Library')   { renderLibrary();   }
     if (activeTab === 'Stats')     { renderStats(); renderHistory(); }
     if (activeTab === 'Coach')     { renderCoach();     }
@@ -354,7 +464,7 @@ function unlockBodyScroll() {
 }
 const OVERLAY_OPEN_SELECTOR =
   '#activeWorkout.visible, #exercisePicker.visible, #routineLibrary.visible, ' +
-  '#libraryDetail.visible, #historyDetail.visible, #workoutSummary.visible, .modal-backdrop.open';
+  '#libraryDetail.visible, #historyDetail.visible, #exerciseDetail.visible, #workoutSummary.visible, .modal-backdrop.open';
 function syncScrollLock() {
   if (document.querySelector(OVERLAY_OPEN_SELECTOR)) lockBodyScroll();
   else unlockBodyScroll();
@@ -516,7 +626,7 @@ function buildExerciseBlock(ex, ei) {
     ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
       <div class="ex-cat-dot" style="background:${color}"></div>
-      <div class="ex-name">${esc(ex.name)}</div>
+      <div class="ex-name linked" data-open-ex="${esc(ex.name)}">${esc(ex.name)}<span class="ex-chev">${icon('chevron-right', { size: 15 })}</span></div>
       <button class="ex-cue-btn" data-cue="${esc(ex.name)}" aria-label="Form cues" data-tip="Form cues" title="Form cues">${icon('info', { size: 17 })}</button>
       <button class="ex-menu-btn" data-ei="${ei}" aria-label="Exercise options" data-tip="Options" title="Options">${icon('ellipsis', { size: 18 })}</button>
     </div>
@@ -834,9 +944,9 @@ awBody.addEventListener('click', e => {
     }
     return;
   }
-  // Tap the exercise name for a quick history peek (last sessions of this lift).
+  // Tap the exercise name → full exercise detail (PB, trend, coach note, history).
   const nameEl = e.target.closest('.ex-name');
-  if (nameEl) { openExerciseHistorySheet(nameEl.textContent); return; }
+  if (nameEl) { openExerciseDetail(nameEl.dataset.openEx || nameEl.textContent.trim()); return; }
   const check = e.target.closest('.set-check');
   if (check) {
     // If a swipe revealed the delete button, this cell hosts it instead
@@ -1179,6 +1289,110 @@ async function openExerciseHistorySheet(name) {
     if (e.target === back || e.target.closest('[data-close]')) { back.remove(); syncScrollLock(); }
   });
 }
+
+// ── Exercise detail (the anti-silo page: one lift's PB, trend, coach note, cues,
+// history, and one-tap add-to-workout — reachable from Library, Progress, Coach,
+// and the live workout) ───────────────────────────────────────────────────────
+function closeExerciseDetail() {
+  document.getElementById('exerciseDetail').classList.remove('visible');
+  syncScrollLock();
+}
+async function openExerciseDetail(name) {
+  if (!name) return;
+  const [sessions, allEx] = await Promise.all([loadSessions(), getAllExercises()]);
+  const def = allEx.find(x => x.name === name) || { name, category: guessCategory(name) };
+  const st = buildExerciseStatsMap(sessions).get(name);
+
+  // Recent sessions of this lift + best single-set volume.
+  const history = [];
+  let bestVol = 0;
+  for (const s of sessions) {
+    const ex = (s.exercises || []).find(e => e.name === name);
+    if (!ex) continue;
+    const sets = (ex.sets || []).filter(x => x.done || x.weight || x.reps || x.duration || x.distance);
+    if (!sets.length) continue;
+    sets.forEach(x => { const v = (x.weight || 0) * (x.reps || 0); if (v > bestVol) bestVol = v; });
+    if (history.length < 6) history.push({ date: s.date || (s.startTime || '').slice(0, 10), lt: resolveLogType(ex), sets, pb: (s.pbs || []).some(p => p.exercise === name) });
+  }
+
+  // Header
+  document.getElementById('exDetailTitle').textContent = name;
+  const catEl = document.getElementById('exDetailCat');
+  const cc = CATEGORY_COLORS[def.category];
+  catEl.textContent = def.category || '';
+  catEl.style.display = def.category ? '' : 'none';
+  if (cc) { catEl.style.color = cc; catEl.style.background = 'rgba(255,255,255,0.07)'; }
+
+  // Hero stats
+  const heroHTML = `<div class="ed-hstats">
+    <div class="ed-hbox"><div class="ed-hval amber">${st ? fmtKg(st.pbWeight) + '×' + st.pbReps : '—'}</div><div class="ed-hlbl">Best set</div></div>
+    <div class="ed-hbox"><div class="ed-hval">${st && st.e1rm ? Math.round(st.e1rm) + ' kg' : '—'}</div><div class="ed-hlbl">Est. 1RM</div></div>
+    <div class="ed-hbox"><div class="ed-hval">${bestVol ? Math.round(bestVol).toLocaleString() : '—'}</div><div class="ed-hlbl">Best vol</div></div>
+    <div class="ed-hbox"><div class="ed-hval">${st ? st.count : 0}</div><div class="ed-hlbl">Sessions</div></div>
+  </div>`;
+
+  // Progression chart
+  const chrono = [...sessions].reverse();
+  const progCard = st && st.series.length > 1
+    ? `<div class="ed-card"><div class="ed-card-title">Top set over time <span class="sub">${st.series.length} sessions</span></div>${progressionHTML(chrono, name)}</div>`
+    : '';
+
+  // Coach note — stalling / progressing, with a one-tap ask.
+  let note = '';
+  const askLink = (prompt, force) => `<button class="ed-note-link" data-prompt="${esc(prompt)}" data-force="${esc(force || '')}">Ask coach to help ${icon('arrow-right', { size: 13 })}</button>`;
+  if (st && st.series.length >= 4) {
+    const recent = st.series.slice(-4), max = Math.max(...recent), min = Math.min(...recent);
+    if (max > 0 && (max - min) / max < 0.03) {
+      note = `<div class="ed-note"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Stalling — 4 sessions flat.</b> Your top set has held around ${fmtKg(max)} kg. A short deload or an extra work set usually breaks this.</div>${askLink(`My ${name} has stalled for 4 sessions. Suggest one concrete change to progress it.`, 'suggest_routine_edit')}</div></div>`;
+    } else if (st.series[st.series.length - 1] > st.series[0]) {
+      note = `<div class="ed-note good"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Progressing.</b> Top set is up from ${fmtKg(st.series[0])} to ${fmtKg(st.series[st.series.length - 1])} kg. Whatever you're doing, keep it.</div>${askLink(`How do I keep progressing my ${name}?`)}</div></div>`;
+    }
+  }
+
+  // Target reps + form cues
+  const range = resolveRepRange(def);
+  const targetHTML = range ? `<div style="margin-bottom:14px"><span class="ed-target">${icon('target', { size: 15 })} Target ${range.min}–${range.max} reps</span></div>` : '';
+  const cues = resolveCues(name) || [];
+  const cuesHTML = cues.length
+    ? `<div class="ed-card"><div class="ed-card-title">Form cues</div><ul class="ed-cues">${cues.map((c, i) => `<li class="ed-cue"><span class="ed-cue-n">${i + 1}</span><span>${esc(c)}</span></li>`).join('')}</ul></div>`
+    : '';
+
+  // Recent sets
+  const histHTML = history.length
+    ? `<div class="ed-card"><div class="ed-card-title">Recent sets</div>${history.map(h => `<div class="ed-hrow"><span class="ed-hdate">${fmtDate(h.date)}</span><span class="ed-hsets">${h.pb ? `<span class="pbmark">${icon('trophy', { size: 11 })}</span> ` : ''}${h.sets.map(x => esc(setPrevText(h.lt, x))).join(' · ')}</span></div>`).join('')}</div>`
+    : '<div class="ed-card"><div class="stats-empty">No logged sets yet — add it to a workout to start tracking.</div></div>';
+
+  document.getElementById('exDetailBody').innerHTML = heroHTML + progCard + note + targetHTML + cuesHTML + histHTML;
+
+  // Actions (context-aware)
+  const ei = activeSession ? (activeSession.exercises || []).findIndex(e => e.name === name) : -1;
+  const actEl = document.getElementById('exDetailActions');
+  if (ei >= 0) {
+    actEl.innerHTML = `<button class="ed-abtn p" id="edBack2">${icon('arrow-left', { size: 17 })} Back to workout</button>
+      <button class="ed-abtn g" id="edSwap">${icon('repeat', { size: 16 })} Swap</button>`;
+  } else {
+    actEl.innerHTML = `<button class="ed-abtn p" id="edAdd">${icon('plus', { size: 18 })} ${activeSession ? 'Add to this workout' : 'Add to a workout'}</button>`;
+  }
+
+  document.getElementById('exerciseDetail').classList.add('visible');
+  refreshIcons();
+  syncScrollLock();
+
+  // Wiring
+  actEl.querySelector('#edBack2')?.addEventListener('click', () => { closeExerciseDetail(); openActiveWorkout(); });
+  actEl.querySelector('#edSwap')?.addEventListener('click', () => { closeExerciseDetail(); openExPicker({ replaceEi: ei }); });
+  actEl.querySelector('#edAdd')?.addEventListener('click', () => {
+    if (activeSession) { addExerciseToSession(name, def.category); closeExerciseDetail(); openActiveWorkout(); }
+    else { closeExerciseDetail(); startEmptyWorkout({ exercises: [{ name, category: def.category }] }); }
+  });
+  document.getElementById('exDetailBody').querySelectorAll('.ed-note-link').forEach(b => b.onclick = () => {
+    const p = b.dataset.prompt, f = b.dataset.force;
+    closeExerciseDetail();
+    document.querySelector('.tab[data-tab="Coach"]').click();
+    if (p) sendCoach(p, f || false);
+  });
+}
+document.getElementById('exDetailBack').onclick = closeExerciseDetail;
 
 // ── Supersets ─────────────────────────────────────────────────────────────────
 // Contiguous exercises that share a supersetId are performed back-to-back; rest
@@ -1610,7 +1824,8 @@ async function showWorkoutSummary() {
           <span class="summary-pb-val">${fmtKg(p.weight)} × ${p.reps} <span class="sub">· ${suffix}</span></span>
         </div>`;
       }).join('')}
-    </div>` : '';
+    </div>
+    <button class="stats-link" id="summaryPrLink" style="margin-top:-4px">View on your PR timeline ${icon('arrow-right', { size: 14 })}</button>` : '';
 
   // ── Three stat boxes (PB box dropped — PBs now lead) ─────────────────────────
   document.getElementById('summaryStats').innerHTML = `
@@ -1654,6 +1869,11 @@ async function showWorkoutSummary() {
     : '';
 
   document.getElementById('workoutSummary').classList.add('visible');
+  // Save, then jump to the PR timeline in Progress (the PB you just set leads it).
+  document.getElementById('summaryPrLink')?.addEventListener('click', () => {
+    document.getElementById('saveBtn').click();
+    setTimeout(() => { statsView = 'training'; document.querySelector('.tab[data-tab="Stats"]').click(); }, 80);
+  });
 }
 
 // Generate one actionable sentence from the top working set vs. its rep-range
@@ -2596,13 +2816,17 @@ function emptyHeroCard() {
 function dashCoachFlag(finding) {
   if (!finding) return '';
   const color = _SEV_COLOR[finding.severity] || 'var(--purple)';
+  const primary = (finding.actions || []).find(a => a.kind === 'primary');
   return `
     <div class="dash-flag" style="border-left-color:${color}">
       <span class="dash-flag-icon" style="color:${color}">${icon('bot', { size: 19 })}</span>
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="dash-flag-eyebrow" style="color:${color}">${esc(finding.eyebrow)}</div>
         <div class="dash-flag-body">${esc(finding.body)}</div>
-        <div class="dash-flag-cta">Open coach →</div>
+        <div class="dash-flag-actions">
+          ${primary ? `<button class="dash-flag-btn p" data-flag-primary>${esc(primary.label)}</button>` : ''}
+          <button class="dash-flag-btn g" data-flag-open>Ask coach ${icon('arrow-right', { size: 14 })}</button>
+        </div>
       </div>
     </div>`;
 }
@@ -2731,12 +2955,154 @@ document.getElementById('routineChooser').addEventListener('click', e => {
   if (e.target === document.getElementById('routineChooser')) closeRoutineChooser();
 });
 
+// ── Plan tab (weekly schedule) ─────────────────────────────────────────────────
+let planWeekOffset = 0;
+async function renderPlan() {
+  const el = document.getElementById('planBody');
+  const [templates, sessions, streakSettings, planMap] = await Promise.all([
+    getTemplates(), loadSessions(), getStreakSettings(), getWeekPlanMap()]);
+  const base = new Date(); base.setDate(base.getDate() + planWeekOffset * 7);
+  const start = mondayOf(base);
+  const end = new Date(start); end.setDate(start.getDate() + 7);
+  const todayStr = ymd(new Date());
+  const rangeLbl = `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(end.getTime() - 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+
+  const byDate = {};
+  sessions.forEach(s => { const d = s.date || (s.startTime || '').slice(0, 10); (byDate[d] = byDate[d] || []).push(s); });
+  const next = computeNextTemplate(templates, sessions);
+  const tById = id => templates.find(t => t.id === id);
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const ds = ymd(d);
+    days.push({ ds, dow: d.toLocaleDateString('en-GB', { weekday: 'short' }), num: d.getDate(),
+      isToday: ds === todayStr, past: ds < todayStr, done: byDate[ds] || [], assigned: tById(planMap[ds]) });
+  }
+
+  const strip = days.map(dy => {
+    let dot;
+    if (dy.done.length) dot = `<span class="wdot done">${icon('check', { size: 12 })}</span>`;
+    else if (dy.isToday)  dot = `<span class="wdot now">•</span>`;
+    else if (dy.past)     dot = `<span class="wdot rest"></span>`;
+    else                  dot = `<span class="wdot up"></span>`;
+    return `<div class="wcol${dy.isToday ? ' today' : ''}"><span class="wdow">${dy.dow}</span><span class="wnum">${dy.num}</span>${dot}</div>`;
+  }).join('');
+
+  const dayCards = days.map(dy => {
+    const lbl = `${dy.dow} ${dy.num}${dy.isToday ? ' · Today' : ''}`;
+    if (dy.done.length) {
+      const s = dy.done[0];
+      const vol = (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)).reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
+      const meta = s.pbs?.length ? `<span class="dpb">${icon('trophy', { size: 12 })} ${s.pbs.length} PB${s.pbs.length > 1 ? 's' : ''}</span>` : `${Math.round(vol).toLocaleString()} kg`;
+      return `<div class="dcard done" data-open="${esc(s.id)}">
+        <span class="dstate done">${icon('check', { size: 16 })}</span>
+        <div class="dbody"><div class="dday">${lbl}</div><div class="dname">${esc(s.title || 'Workout')}${dy.done.length > 1 ? ` +${dy.done.length - 1}` : ''}</div>
+        <div class="dmeta">${fmtTime(s.duration || 0)} · ${meta}</div></div></div>`;
+    }
+    if (dy.isToday) {
+      const t = dy.assigned || next?.template;
+      const body = t
+        ? `<div class="dname">${esc(t.name)}</div><div class="dmeta">${t.exercises.length} exercises</div>`
+        : `<div class="dname">Open workout</div><div class="dmeta">Tap to choose a routine</div>`;
+      return `<div class="dcard today" data-assign="${dy.ds}">
+        <span class="dstate today">${icon('dumbbell', { size: 15 })}</span>
+        <div class="dbody"><div class="dday" style="color:var(--blue)">${lbl}</div>${body}</div>
+        ${t ? `<button class="dstart" data-start="${t.id}">Start</button>` : ''}</div>`;
+    }
+    if (dy.assigned) {
+      return `<div class="dcard" data-assign="${dy.ds}">
+        <span class="dstate up">${icon('dumbbell', { size: 15 })}</span>
+        <div class="dbody"><div class="dday">${lbl}</div><div class="dname">${esc(dy.assigned.name)}</div>
+        <div class="dmeta">planned · ${dy.assigned.exercises.length} exercises</div></div></div>`;
+    }
+    if (dy.past) {
+      return `<div class="dcard rest"><span class="dstate rest">${icon('moon', { size: 15 })}</span>
+        <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Rest day</div></div></div>`;
+    }
+    return `<div class="dcard" data-assign="${dy.ds}"><span class="dstate up">${icon('plus', { size: 15 })}</span>
+      <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Open</div><div class="dmeta">Tap to plan a routine</div></div></div>`;
+  }).join('');
+
+  const { thisWeekCount, target } = computeStreak(sessions, streakSettings);
+  const imbalance = generateCoachFindings(sessions).find(f => f.severity === 'warn');
+  const streakLine = thisWeekCount >= target
+    ? `You've hit your <b>${target}/week</b> target — nice.`
+    : `You're at <b>${thisWeekCount}/${target}</b> this week — ${target - thisWeekCount} to go.`;
+  const noteBody = imbalance ? `${streakLine} Coach flagged an ${esc(imbalance.eyebrow.toLowerCase())}: ${esc(imbalance.body)}` : streakLine;
+  const noteHTML = `<div class="plan-note"><span class="ci">${icon('bot', { size: 19 })}</span><div class="plan-note-body">${noteBody}</div></div>`;
+
+  // Weekly volume — this week's completed sets vs one full rotation of your routines.
+  const catAlias = c => (['Quads', 'Hamstrings', 'Glutes', 'Calves'].includes(c)) ? 'Legs'
+    : (['Biceps', 'Triceps'].includes(c)) ? 'Arms' : c;
+  const CATS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core'];
+  const cur = {}, plan = {};
+  sessions.forEach(s => { const d = s.date || (s.startTime || '').slice(0, 10);
+    if (d >= ymd(start) && d < ymd(end)) (s.exercises || []).forEach(e => { const c = catAlias(e.category); cur[c] = (cur[c] || 0) + (e.sets || []).filter(st => st.done).length; }); });
+  templates.forEach(t => (t.exercises || []).forEach(e => { const c = catAlias(e.category); plan[c] = (plan[c] || 0) + (e.sets?.length || 0); }));
+  const curTotal = Object.values(cur).reduce((a, b) => a + b, 0);
+  const planTotal = Object.values(plan).reduce((a, b) => a + b, 0) || 1;
+  const barColors = { Chest: 'var(--red)', Back: 'var(--blue)', Legs: 'var(--green)', Shoulders: 'var(--purple)', Arms: 'var(--amber)', Core: 'var(--orange)' };
+  const mrows = CATS.filter(c => plan[c] || cur[c]).map(c => {
+    const p = plan[c] || 0, cu = cur[c] || 0, pct = p ? Math.min(100, (cu / p) * 100) : (cu ? 100 : 0), behind = p && cu < p * 0.6;
+    return `<div class="plan-mrow"><span class="plan-mcat${behind ? ' behind' : ''}">${c}</span>
+      <span class="plan-mtrack"><span class="plan-mfill" style="width:${pct.toFixed(0)}%;background:${behind ? 'var(--amber)' : (barColors[c] || 'var(--blue)')}"></span></span>
+      <span class="plan-mval${behind ? ' behind' : ''}">${cu}/${p}</span></div>`;
+  }).join('');
+  const volHTML = `<div class="plan-vcard">
+    <div class="plan-vtop"><span class="plan-vtitle">Weekly training volume</span><span class="plan-vsub">${curTotal} / ${planTotal} sets</span></div>
+    <div class="plan-vbar"><div class="plan-vfill" style="width:${Math.min(100, (curTotal / planTotal) * 100).toFixed(0)}%"></div></div>
+    ${mrows || '<div class="stats-empty">Add routines to see planned volume.</div>'}
+    <button class="plan-vlink" id="planToBalance">See full muscle balance ${icon('arrow-right', { size: 14 })}</button>
+  </div>`;
+
+  el.innerHTML = `
+    <div class="plan-head"><span class="plan-title">Plan</span>
+      <span class="plan-wknav"><button id="planPrev">${icon('chevron-left', { size: 16 })}</button><span>${rangeLbl}</span><button id="planNext">${icon('chevron-right', { size: 16 })}</button></span>
+    </div>
+    <div class="week-strip">${strip}</div>
+    <div class="section-heading" style="margin-bottom:10px">${planWeekOffset === 0 ? 'This week' : 'Week'}</div>
+    <div class="day-list">${dayCards}</div>
+    ${noteHTML}
+    ${volHTML}`;
+  refreshIcons();
+
+  document.getElementById('planPrev').onclick = () => { planWeekOffset--; renderPlan(); };
+  document.getElementById('planNext').onclick = () => { planWeekOffset++; renderPlan(); };
+  document.getElementById('planToBalance').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
+  el.querySelectorAll('.dstart').forEach(b => b.onclick = e => { e.stopPropagation(); const t = tById(b.dataset.start); if (t) startEmptyWorkout(t); });
+  el.querySelectorAll('.dcard[data-open]').forEach(c => c.onclick = () => openHistoryDetail(c.dataset.open));
+  el.querySelectorAll('.dcard[data-assign]').forEach(c => c.onclick = () => assignPlanDay(c.dataset.assign, templates));
+}
+
+function assignPlanDay(date, templates) {
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">Plan ${esc(fmtDate(date))}</p>
+    ${templates.map(t => `<button class="sheet-btn" data-tid="${esc(t.id)}">${esc(t.name)} — ${t.exercises.length} exercises</button>`).join('')}
+    <button class="sheet-btn" data-clear="1" style="color:var(--text-muted)">Clear / rest day</button>
+    <button class="sheet-btn" data-cancel="1" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', async e => {
+    const btn = e.target.closest('button');
+    if (e.target === back || btn?.dataset.cancel) return close();
+    if (btn?.dataset.clear) { await setPlanDay(date, null); close(); renderPlan(); return; }
+    if (btn?.dataset.tid)   { await setPlanDay(date, btn.dataset.tid); close(); renderPlan(); }
+  });
+}
+
 async function renderDashboard() {
   const dashTop = document.getElementById('dashTop');
   const recentEl0 = document.getElementById('recentList');
   if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(1);
 
-  const [templates, sessions, streakSettings] = await Promise.all([getTemplates(), loadSessions(), getStreakSettings()]);
+  const [templates, sessions, streakSettings, bodyLog, nutri] = await Promise.all([
+    getTemplates(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday()]);
+  const body = bodyStats(bodyLog);
   const next = computeNextTemplate(templates, sessions);
   renderRoutinesChooser(templates, next?.template?.id || null);
   renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
@@ -2756,16 +3122,33 @@ async function renderDashboard() {
   const heroHTML = next ? nextSessionCard(next, sessions) : emptyHeroCard();
 
   const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;
-  const streakLbl = weeks > 0 ? `Streak · ${thisWeekCount}/${target} this wk` : 'This week';
+  // Snapshot: the two halves of the app on one screen — training streak, body, nutrition.
+  const bodyTile = body
+    ? `<div><div class="snap-val">${body.latest} kg</div><div class="snap-lbl">Bodyweight</div></div>
+       <div class="snap-sub flat">${body.delta ? icon(body.delta < 0 ? 'trending-down' : 'trending-up', { size: 12 }) : ''}${body.delta ? Math.abs(body.delta) + ' kg' : 'steady'}</div>`
+    : `<div><div class="snap-val">Log</div><div class="snap-lbl">Bodyweight</div></div><div class="snap-sub flat">Tap to add</div>`;
+  const calRing = nutri && nutri.goal
+    ? (() => { const pct = Math.max(0, Math.min(1, nutri.kcal / nutri.goal)); const C = 81.7, off = C * (1 - pct);
+        return `<span class="snap-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="4"/><circle cx="15" cy="15" r="13" fill="none" stroke="var(--orange)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 15 15)"/></svg><span class="rc" style="color:var(--orange)">${Math.round(pct * 100)}%</span></span>`; })()
+    : `<span class="snap-ico" style="background:rgba(var(--orange-rgb),0.14);color:var(--orange)">${icon('utensils', { size: 15 })}</span>`;
+  const calTile = nutri
+    ? `<div><div class="snap-val">${nutri.kcal.toLocaleString()}</div><div class="snap-lbl">${nutri.goal ? `of ${nutri.goal.toLocaleString()} kcal` : 'kcal today'}</div></div>
+       <div class="snap-sub flat">${nutri.protein != null ? nutri.protein + 'g protein · ' : ''}CalorieAI</div>`
+    : `<div><div class="snap-val">Calories</div><div class="snap-lbl">via CalorieAI</div></div><div class="snap-sub flat">Open ${icon('arrow-right', { size: 11 })}</div>`;
   const tilesHTML = `
-    <div class="dash-tiles">
-      <div class="dash-tile" id="tileStreak">
-        <div class="dash-tile-top"><span style="color:var(--amber);display:inline-flex">${icon('flame', { size: 16 })}</span><span class="dash-tile-val">${streakVal}</span></div>
-        <div class="dash-tile-lbl">${streakLbl}</div>
+    <div class="dash-snapshot">
+      <div class="snap-tile" id="tileStreak">
+        <span class="snap-ico" style="background:rgba(var(--amber-rgb),0.14);color:var(--amber)">${icon('flame', { size: 16 })}</span>
+        <div><div class="snap-val">${streakVal}</div><div class="snap-lbl">Streak</div></div>
+        <div class="snap-sub flat">${thisWeekCount} / ${target} this week</div>
       </div>
-      <div class="dash-tile" id="tileVol">
-        <div class="dash-tile-top"><span class="dash-tile-val">${Math.round(monthVol).toLocaleString()} kg</span></div>
-        <div class="dash-tile-lbl">Lifted this month</div>
+      <div class="snap-tile" id="tileBody">
+        <span class="snap-ico" style="background:rgba(var(--blue-rgb),0.14);color:var(--blue)">${icon('scale', { size: 16 })}</span>
+        ${bodyTile}
+      </div>
+      <div class="snap-tile" id="tileCal">
+        ${calRing}
+        ${calTile}
       </div>
     </div>`;
 
@@ -2792,7 +3175,19 @@ async function renderDashboard() {
   dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
   dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
-  dashTop.querySelector('.dash-flag')?.addEventListener('click', () => document.querySelector('.tab[data-tab="Coach"]').click());
+  dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
+  dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
+  // Coach insight: primary action jumps to Coach and runs it; body/ghost just open Coach.
+  const flagFinding = actionable[0];
+  const goCoach = () => document.querySelector('.tab[data-tab="Coach"]').click();
+  dashTop.querySelector('[data-flag-open]')?.addEventListener('click', e => { e.stopPropagation(); goCoach(); });
+  dashTop.querySelector('[data-flag-primary]')?.addEventListener('click', e => {
+    e.stopPropagation();
+    const a = (flagFinding?.actions || []).find(x => x.kind === 'primary');
+    goCoach();
+    if (a?.prompt) sendCoach(a.prompt, a.force || false);
+  });
+  dashTop.querySelector('.dash-flag')?.addEventListener('click', goCoach);
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
@@ -2830,30 +3225,114 @@ function workoutCard(s, { tags = true } = {}) {
 // ── Stats tab ─────────────────────────────────────────────────────────────────
 let statsExercise = null;
 let statsMonth = null; // { y, m } — defaults to current month
+let statsView = 'training'; // 'training' | 'body'
+
+// PR timeline card — banked personal records, newest first, each opens the lift.
+function prTimelineHTML(prs) {
+  if (!prs.length) return '';
+  return `<div class="stats-card">
+    <div class="stats-card-title">Recent PRs <span class="stats-card-sub">${prs.length} banked</span></div>
+    ${prs.map((p, i) => `
+      <div class="pr-row">
+        <div class="pr-rail"><span class="pr-dot">${icon('trophy', { size: 15 })}</span>${i < prs.length - 1 ? '<span class="pr-line"></span>' : ''}</div>
+        <div class="pr-info" data-ex="${esc(p.exercise)}">
+          <div class="pr-l1"><span class="pr-name">${esc(p.exercise)}</span><span class="pr-date">${relTime(p.ts)}</span></div>
+          <div class="pr-detail">${esc(p.label || p.type || 'New personal record')}</div>
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+// Muscle-balance action strip — surfaces the top coach finding with a one-tap fix.
+function mbFixHTML(sessions) {
+  const f = generateCoachFindings(sessions).find(x => x.severity === 'warn' || x.severity === 'stalling');
+  if (!f) return '';
+  const a = (f.actions || []).find(x => x.kind === 'primary');
+  return `<div class="mb-fix">
+    <span class="mb-fix-txt"><b>${esc(f.eyebrow)}.</b> ${esc(f.body)}</span>
+    <button class="mb-fix-btn" data-mbprompt="${esc(a?.prompt || '')}" data-mbforce="${esc(a?.force || '')}">${icon('bot', { size: 14 })} Fix with coach</button>
+  </div>`;
+}
+
+function bwChartSVG(points) {
+  if (!points || points.length < 2) return '<div class="stats-empty">Log a few more weigh-ins to see a trend.</div>';
+  const w = 330, h = 96, pad = 6, min = Math.min(...points), max = Math.max(...points), span = (max - min) || 1;
+  const X = i => (i / (points.length - 1)) * (w - pad * 2) + pad;
+  const Y = v => (h - 14) - ((v - min) / span) * (h - 28);
+  const line = points.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const li = points.length - 1;
+  return `<svg class="bw-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${line} L${X(li).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z" fill="rgba(56,189,248,0.12)"/>
+    <path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(points[li]).toFixed(1)}" r="3.5" fill="var(--blue)"/>
+  </svg>`;
+}
+
+function bodyViewHTML(log) {
+  const st = bodyStats(log);
+  if (!st) {
+    return `<div class="stats-card">
+      <div class="stats-card-title">Bodyweight</div>
+      <div class="stats-empty">No weigh-ins yet — track your bodyweight alongside your lifts.</div>
+      <button class="bw-log" id="bwLogBtn">${icon('plus', { size: 16 })} Log today's weight</button>
+    </div>`;
+  }
+  const cls = st.delta < 0 ? 'down' : st.delta > 0 ? 'up' : 'flat';
+  const ico = st.delta ? icon(st.delta < 0 ? 'trending-down' : 'trending-up', { size: 13 }) : '';
+  const recent = log.slice(-10).reverse();
+  return `<div class="stats-card">
+    <div class="stats-card-title">Bodyweight <span class="stats-card-sub">${st.n} entr${st.n === 1 ? 'y' : 'ies'}</span></div>
+    <div class="bw-top"><span class="bw-val">${st.latest} kg</span><span class="bw-delta ${cls}">${ico}${st.delta ? Math.abs(st.delta) + ' kg' : 'steady'}</span></div>
+    ${bwChartSVG(st.points)}
+    <button class="bw-log" id="bwLogBtn">${icon('plus', { size: 16 })} Log today's weight</button>
+  </div>
+  <div class="stats-card">
+    <div class="stats-card-title">Recent weigh-ins</div>
+    ${recent.map(e => `<div class="ed-hrow"><span class="ed-hdate">${fmtDate(e.date)}</span><span class="ed-hsets">${e.kg} kg</span></div>`).join('')}
+  </div>`;
+}
+
 async function renderStats() {
   const el = document.getElementById('statsBody');
   if (el && !el.children.length) el.innerHTML = statsSkeleton();
-  const sessions = await loadSessions();
-  if (!sessions.length) {
+  const [sessions, bodyLog] = await Promise.all([loadSessions(), getBodyLog()]);
+  if (!sessions.length && !bodyLog.length) {
     el.innerHTML = `<div class="empty-state">No workouts yet — stats appear after your first logged session.</div>`;
     return;
   }
-  const chrono = [...sessions].reverse(); // oldest → newest for charts
+  const seg = `<div class="seg">
+    <button class="${statsView === 'training' ? 'on' : ''}" data-sview="training">Training</button>
+    <button class="${statsView === 'body' ? 'on' : ''}" data-sview="body">Body</button>
+  </div>`;
+  const wireSeg = () => el.querySelectorAll('[data-sview]').forEach(b => b.onclick = () => { statsView = b.dataset.sview; renderStats(); });
 
+  // ── Body view ──
+  if (statsView === 'body') {
+    el.innerHTML = seg + bodyViewHTML(bodyLog);
+    wireSeg();
+    el.querySelector('#bwLogBtn')?.addEventListener('click', () => openBodyweightModal());
+    return;
+  }
+
+  // ── Training view ──
+  if (!sessions.length) {
+    el.innerHTML = seg + `<div class="empty-state">No training logged yet — switch to Body to track weigh-ins, or start a workout.</div>`;
+    wireSeg();
+    return;
+  }
+  const chrono = [...sessions].reverse(); // oldest → newest for charts
   const totals = lifetimeTotals(sessions);
   const settings = await getStreakSettings();
   const streak = computeStreak(sessions, settings);
   const miles = computeMilestones(sessions, streak.weeks);
   const pbTotal = sessions.reduce((a, s) => a + (s.pbs?.length || 0), 0);
   const trophies = miles.earned.length + pbTotal;
-
   const freq = exerciseFrequency(sessions);
   if (!statsExercise && freq.length) statsExercise = freq[0].name;
-
   const now = new Date();
   if (!statsMonth) statsMonth = { y: now.getFullYear(), m: now.getMonth() };
 
-  el.innerHTML = `
+  el.innerHTML = seg + `
     ${monthlyViewHTML(sessions, statsMonth.y, statsMonth.m)}
 
     <div class="stats-totals">
@@ -2864,6 +3343,8 @@ async function renderStats() {
       <div class="stat-box"><div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 17 })}</span> ${trophies}</div><div class="stat-label">Trophies</div></div>
     </div>
 
+    ${prTimelineHTML(collectPRs(sessions, 6))}
+
     ${miles.earned.length ? `
       <div class="stats-card">
         <div class="stats-card-title">Milestones</div>
@@ -2872,6 +3353,7 @@ async function renderStats() {
 
     ${weeklyVolumeHTML(chrono)}
     ${muscleBalanceHTML(chrono)}
+    ${mbFixHTML(sessions)}
 
     <div class="stats-card">
       <div class="stats-card-title">Exercise progression</div>
@@ -2881,6 +3363,16 @@ async function renderStats() {
       <div id="statsProgression"></div>
     </div>
   `;
+  wireSeg();
+
+  // PR timeline rows → exercise detail
+  el.querySelectorAll('.pr-info[data-ex]').forEach(r => r.onclick = () => openExerciseDetail(r.dataset.ex));
+  // Muscle-balance fix → coach
+  el.querySelector('.mb-fix-btn')?.addEventListener('click', e => {
+    const b = e.currentTarget;
+    document.querySelector('.tab[data-tab="Coach"]').click();
+    if (b.dataset.mbprompt) sendCoach(b.dataset.mbprompt, b.dataset.mbforce || false);
+  });
 
   // Month navigation
   const shiftMonth = delta => {
@@ -3413,7 +3905,7 @@ async function renderLibrary() {
   }).join('');
 
   el.querySelectorAll('.lib-row').forEach(item => {
-    item.onclick = () => showCues(item.dataset.cue);
+    item.onclick = () => openExerciseDetail(item.dataset.cue);
   });
 }
 
@@ -3432,7 +3924,7 @@ function libraryRow(e, st) {
     <div class="lib-row" data-cue="${esc(e.name)}">
       <div class="lib-row-l1">
         <span class="lib-row-name">${esc(e.name)}</span>
-        <span class="lib-row-pb">🏆 ${fmtKg(st.pbWeight)} × ${st.pbReps}</span>
+        <span class="lib-row-pb">${icon('trophy', { size: 12 })} ${fmtKg(st.pbWeight)} × ${st.pbReps}</span>
       </div>
       <div class="lib-row-l2">
         <span>Last: ${relTime(st.lastTs)}</span>
@@ -3781,7 +4273,10 @@ function generateCoachFindings(sessions) {
       severity: 'good', eyebrow: 'Progressing', metric: `+${Math.round(prog.gain)} kg`,
       body: `${prog.name} is climbing — top set went from ${fmtKg(prog.first)} kg to ${fmtKg(prog.last)} kg over ${prog.m.series.length} sessions. Whatever you're doing, keep it.`,
       evidence: { type: 'spark', vals: prog.m.series },
-      actions: [{ label: 'Explain', kind: 'ghost', prompt: `How is my ${prog.name} progressing, and what should I do to keep it moving?` }],
+      actions: [
+        { label: 'Open lift', kind: 'open', exercise: prog.name },
+        { label: 'Explain', kind: 'ghost', prompt: `How is my ${prog.name} progressing, and what should I do to keep it moving?` },
+      ],
       key: 'find-progress',
     });
   }
@@ -3801,6 +4296,7 @@ function generateCoachFindings(sessions) {
       evidence: { type: 'spark', vals: stall.m.series.slice(-6) },
       actions: [
         { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.`, force: 'suggest_routine_edit' },
+        { label: 'Open lift', kind: 'open', exercise: stall.name },
         { label: 'Dismiss', kind: 'dismiss' },
       ],
       key: 'find-stall',
@@ -3881,6 +4377,7 @@ async function renderCoachFindings(threadEl) {
         refreshCoachBadge();              // the dot/count reflects the dismissal
         return;
       }
+      if (a.kind === 'open') { openExerciseDetail(a.exercise); return; }
       sendCoach(a.prompt, a.force || false);
     };
   });
