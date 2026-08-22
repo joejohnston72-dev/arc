@@ -157,6 +157,14 @@
     .dash-flag-eyebrow { font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; margin-bottom:3px; }
     .dash-flag-body { font-size:0.85rem; line-height:1.45; }
     .dash-flag-cta { font-size:0.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-top:6px; }
+    /* Home "Your coach" section — proactive picks + observations live here */
+    .dash-coach { margin-bottom:20px; }
+    .dash-coach:empty { display:none; }
+    .dash-coach-head { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+    .dash-coach-title { font-size:0.95rem; font-weight:700; letter-spacing:-0.2px; display:flex; align-items:center; gap:7px; }
+    .dash-coach-title .lc { color:var(--purple); }
+    .dash-coach-meta { font-size:0.66rem; color:var(--text-muted); margin-left:auto; }
+    .dash-coach-open { background:none; border:none; color:var(--blue); font-size:0.72rem; font-weight:700; cursor:pointer; padding:0; }
     .dash-last-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
     .dash-link { background:none; border:none; color:var(--blue); font-size:0.72rem; font-weight:700; cursor:pointer; padding:0; }
     .chooser-actions { display:flex; gap:8px; margin-top:12px; }
@@ -1079,6 +1087,8 @@
   <div class="section active" id="secDashboard">
     <button id="streakChip" data-tip="Streak settings" title="Streak settings" style="display:none"></button>
     <div id="dashTop"></div>
+
+    <div id="dashCoach"></div>
 
     <div class="dash-last-head">
       <span class="section-heading" style="margin:0" id="dashRecentHeading">Recent</span>

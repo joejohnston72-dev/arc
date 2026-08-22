@@ -2697,44 +2697,12 @@ function emptyHeroCard() {
     </div>`;
 }
 
-// Coach-flagged card: the top actionable finding, surfaced on the home screen
-// so the most important thing is visible without opening the Coach tab.
-function dashCoachFlag(finding) {
-  if (!finding) return '';
-  const color = _SEV_COLOR[finding.severity] || 'var(--purple)';
-  return `
-    <div class="dash-flag" style="border-left-color:${color}">
-      <span class="dash-flag-icon" style="color:${color}">${icon('bot', { size: 19 })}</span>
-      <div>
-        <div class="dash-flag-eyebrow" style="color:${color}">${esc(finding.eyebrow)}</div>
-        <div class="dash-flag-body">${esc(finding.body)}</div>
-        <div class="dash-flag-cta">Open coach →</div>
-      </div>
-    </div>`;
-}
-
-// Attention badge on the Coach tab: a small count of actionable findings.
-function updateCoachBadge(n) {
+// The Coach tab no longer carries an attention sticker — proactive coach content
+// lives on Home now, so there's nothing to badge here. Kept as a guaranteed
+// clear so any previously-stuck badge is removed on the next render.
+function updateCoachBadge() {
   const tab = document.querySelector('.tab[data-tab="Coach"]');
-  if (!tab) return;
-  let badge = tab.querySelector('.tab-badge');
-  if (n > 0) {
-    if (!badge) { badge = document.createElement('span'); badge.className = 'tab-badge'; tab.appendChild(badge); }
-    badge.textContent = n > 9 ? '9+' : String(n);
-  } else if (badge) {
-    badge.remove();
-  }
-}
-
-// Recompute the actionable-finding count (non-good, non-dismissed) and repaint
-// the Coach-tab badge. Cheap (one IndexedDB read); safe to call from anywhere.
-async function refreshCoachBadge() {
-  try {
-    const [sessions, dismissed] = await Promise.all([loadSessions(), db.get(STORE, 'suggestions-dismissed')]);
-    const skip = dismissed || [];
-    const n = generateCoachFindings(sessions).filter(f => f.severity !== 'good' && !skip.includes(f.key)).length;
-    updateCoachBadge(n + await dailyPendingCount());
-  } catch (_) {}
+  tab?.querySelector('.tab-badge')?.remove();
 }
 
 // Routines list lives in the "…" chooser sheet. It doubles as the order editor:
@@ -2875,30 +2843,27 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  // Coach findings drive both the home "flagged" card and the Coach-tab badge.
-  const dismissed = (await db.get(STORE, 'suggestions-dismissed')) || [];
-  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
-  const actionable = findings.filter(f => f.severity !== 'good');
-  const flagHTML = dashCoachFlag(actionable[0]);
-  updateCoachBadge(actionable.length + await dailyPendingCount());
-
   dashTop.innerHTML = `
     <div class="dash-datehead">
       <span class="dash-weekday">${weekday}</span>
       <span class="dash-weekmeta">Week ${weekNo} · day ${dayNo}</span>
     </div>
     ${heroHTML}
-    ${tilesHTML}
-    ${flagHTML}`;
+    ${tilesHTML}`;
 
-  // Wire the hero + tiles + flag
+  // Wire the hero + tiles
   const startBtn = dashTop.querySelector('.next-start[data-tid]');
   if (startBtn) startBtn.onclick = () => { const t = templates.find(x => x.id === startBtn.dataset.tid); startEmptyWorkout(t); };
   dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
   dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
   dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
-  dashTop.querySelector('.dash-flag')?.addEventListener('click', () => document.querySelector('.tab[data-tab="Coach"]').click());
+
+  // Proactive coach content (daily pick + observations) lives on Home now — the
+  // base of operations. The Coach tab is reserved for direct questions, so it
+  // carries no attention sticker.
+  renderDashCoach(sessions);
+  updateCoachBadge(0);
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
@@ -3827,14 +3792,14 @@ async function loadCoachThread() {
 }
 function persistCoachThread() { db.set('workout', 'coach-thread', coachThread); }
 
+// The Coach tab is a direct Q&A chat. Proactive coach content (the daily pick +
+// data-driven observations) lives on the Home screen (renderDashCoach) instead.
 async function renderCoach() {
   await loadCoachThread();
   const thread = document.getElementById('coachThread');
   thread.innerHTML = '';
   if (!coachThread.length) {
-    await renderCoachFindings(thread);      // analysis-first: findings before chat
-    requestAnimationFrame(() => { thread.scrollTop = 0; });
-    maybeShowDailySuggestion(thread);       // proactive AI pick — prepends when ready
+    thread.innerHTML = `<div class="coach-empty">Ask me anything — training, form, programming, progression, or “what should I train today?”.<br><br>I also post a daily pick and observations on your <strong>Home</strong> screen.</div>`;
     return;
   }
   coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
@@ -3948,68 +3913,13 @@ function coachFindingCard(f, fi) {
     </div>`;
 }
 
-async function renderCoachFindings(threadEl) {
-  const sessions = await loadSessions();
-  const dismissed = (await db.get('workout', 'suggestions-dismissed')) || [];
-  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
-  _coachFindings = findings;
-  updateCoachBadge(findings.filter(f => f.severity !== 'good').length + await dailyPendingCount());
-
-  const n = sessions.length;
-  const wrap = document.createElement('div');
-  wrap.className = 'coach-findings';
-  const head = `
-    <div class="coach-analysis-head">
-      <div class="coach-analysis-title">Coach</div>
-      <div class="coach-analysis-meta">Read ${n} session${n === 1 ? '' : 's'}${findings.length ? ' · just now' : ''}</div>
-    </div>`;
-
-  if (!findings.length) {
-    wrap.innerHTML = head +
-      `<div class="coach-analysis-sub">${n ? 'Nothing urgent this week — ask me anything below.' : "Log a workout and I'll analyse it here. Or ask me anything below."}</div>`;
-    threadEl.appendChild(wrap);
-    return;
-  }
-
-  wrap.innerHTML = head +
-    `<div class="coach-analysis-sub">${findings.length} thing${findings.length > 1 ? 's' : ''} worth acting on this week.</div>` +
-    findings.map((f, i) => coachFindingCard(f, i)).join('') +
-    `<div class="coach-findings-divider"><span>or ask something</span></div>`;
-  threadEl.appendChild(wrap);
-
-  wrap.querySelectorAll('.cf-btn').forEach(btn => {
-    btn.onclick = async () => {
-      const f = _coachFindings[+btn.dataset.fi];
-      const a = f?.actions?.[+btn.dataset.ai];
-      if (!a) return;
-      if (a.kind === 'dismiss') {
-        btn.closest('.coach-finding')?.remove();
-        await dismissSuggestion(f.key);   // persist first so the recount excludes it
-        refreshCoachBadge();              // the dot/count reflects the dismissal
-        return;
-      }
-      sendCoach(a.prompt, a.force || false);
-    };
-  });
-}
-
 // ── Coach's pick for today (proactive, once-per-day AI suggestion) ────────────
-// When the user opens the Coach tab, the coach reviews ALL their data on its own
-// and surfaces its single highest-value suggestion for today — an altered
-// session, a split swap, a routine tweak, or an observation. One API call per
-// calendar day (cached in 'coach-daily'); needs an API key; dismissible.
+// Generated on the Home screen (renderDashCoach) — the coach reviews ALL the
+// user's data on its own and surfaces its single highest-value suggestion for
+// today: an altered session, a split swap, a routine tweak, or an observation.
+// One API call per calendar day (cached in 'coach-daily'); needs an API key;
+// dismissible for the day.
 let _dailyBusy = false;
-
-async function dailyPendingCount() {
-  try {
-    if (!(await coachGetKey())) return 0;
-    const today = new Date().toISOString().slice(0, 10);
-    const d = await db.get(STORE, 'coach-daily');
-    if (d && d.date === today && d.dismissedDate !== today &&
-        (d.text || d.routine || d.split || d.suggestion)) return 1;
-    return 0;
-  } catch (_) { return 0; }
-}
 
 async function generateDailySuggestion(today) {
   try {
@@ -4046,6 +3956,43 @@ async function generateDailySuggestion(today) {
   } catch (_) { return null; }
 }
 
+// Today's cached daily pick (null if none / dismissed / not today).
+async function getCachedDaily() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const d = await db.get(STORE, 'coach-daily');
+    if (d && d.date === today && d.dismissedDate !== today &&
+        (d.text || d.routine || d.split || d.suggestion)) return d;
+  } catch (_) {}
+  return null;
+}
+
+// Ensure today's proactive pick exists (generate once/day if a key is set).
+// Returns the daily object or null. `onReady` fires after a fresh generation so
+// the Home coach section can refresh in place without blocking first paint.
+async function ensureDailySuggestion(onReady) {
+  const cached = await getCachedDaily();
+  if (cached) return cached;
+  if (_dailyBusy) return null;
+  if (!(await coachGetKey())) return null;                // no proactive AI without a key
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = await db.get(STORE, 'coach-daily');
+  if (existing?.dismissedDate === today) return null;     // dismissed for today
+  if (existing?.date === today) return null;              // already generated (and empty)
+  _dailyBusy = true;
+  const daily = await generateDailySuggestion(today);
+  _dailyBusy = false;
+  if (!daily) {
+    // Mark today attempted so a failure/empty result doesn't re-fire the API on
+    // every subsequent dashboard render. A fresh pick comes tomorrow.
+    await db.set(STORE, 'coach-daily', { date: today });
+    return null;
+  }
+  await db.set(STORE, 'coach-daily', daily);
+  if (onReady) onReady(daily);
+  return daily;
+}
+
 function renderDailyCard(daily) {
   const card = document.createElement('div');
   card.className = 'coach-daily';
@@ -4060,43 +4007,90 @@ function renderDailyCard(daily) {
   if (daily.split)      card.appendChild(renderSplitCard(daily.split));
   if (daily.suggestion) card.appendChild(renderSuggestionCard(daily.suggestion));
   card.querySelector('.coach-daily-x').onclick = async () => {
-    card.remove();
     const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
     d.dismissedDate = new Date().toISOString().slice(0, 10);
     await db.set(STORE, 'coach-daily', d);
-    refreshCoachBadge();
+    renderDashboard();   // re-render Home so the section reflows
   };
   return card;
 }
 
-async function maybeShowDailySuggestion(threadEl) {
-  if (_dailyBusy) return;
-  if (!(await coachGetKey())) return;                     // no proactive AI without a key
-  const today = new Date().toISOString().slice(0, 10);
-  let daily = await db.get(STORE, 'coach-daily');
-  if (daily?.dismissedDate === today) return;             // dismissed for today
+// Switch to the Coach tab and run a prompt there (used by Home action buttons).
+function askCoachFromHome(prompt, force) {
+  document.querySelector('.tab[data-tab="Coach"]').click();
+  setTimeout(() => sendCoach(prompt, force || false), 60);
+}
 
-  if (!daily || daily.date !== today) {
-    _dailyBusy = true;
-    const ph = document.createElement('div');
-    ph.className = 'coach-daily loading';
-    ph.id = 'coachDailyCard';
-    ph.innerHTML = `<div class="coach-daily-head"><span class="coach-daily-eyebrow">${icon('bot', { size: 14 })} Coach's pick for today</span></div>
-      <div class="coach-daily-body">Reading your training…</div>`;
-    threadEl.insertBefore(ph, threadEl.firstChild);
-    daily = await generateDailySuggestion(today);
-    _dailyBusy = false;
-    document.getElementById('coachDailyCard')?.remove();
-    if (!daily) return;
-    await db.set(STORE, 'coach-daily', daily);
+// ── Home "Your coach" section — proactive picks + observations, base of ops ───
+// This is where the coach talks TO the user (daily pick + data-driven findings).
+// The Coach tab itself is reserved for the user asking direct questions.
+async function renderDashCoach(sessions) {
+  const el = document.getElementById('dashCoach');
+  if (!el) return;
+  const dismissed = (await db.get(STORE, 'suggestions-dismissed')) || [];
+  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
+  _coachFindings = findings;
+
+  const cachedDaily = await getCachedDaily();
+  const hasKey = !!(await coachGetKey());
+  // Prompt to unlock the AI coach: shown only when there's no key AND nothing
+  // else to show yet, so the user learns why there are no AI picks and how to fix
+  // it. (Rule-based observations still appear without a key.)
+  const needsKeyHint = !hasKey && !cachedDaily && !findings.length && sessions.length > 0;
+
+  if (!findings.length && !cachedDaily && !needsKeyHint) { el.innerHTML = ''; }
+  else {
+    el.innerHTML = `
+      <div class="dash-coach-head">
+        <span class="dash-coach-title">${icon('bot', { size: 17 })} Your coach</span>
+        <button class="dash-coach-open">Ask →</button>
+      </div>
+      <div class="dash-coach-cards"></div>`;
+    el.querySelector('.dash-coach-open').onclick = () => document.querySelector('.tab[data-tab="Coach"]').click();
+    const cards = el.querySelector('.dash-coach-cards');
+    if (cachedDaily) cards.appendChild(renderDailyCard(cachedDaily));
+    cards.insertAdjacentHTML('beforeend', findings.map((f, i) => coachFindingCard(f, i)).join(''));
+    if (needsKeyHint) {
+      const hint = document.createElement('div');
+      hint.className = 'coach-finding';
+      hint.style.borderLeftColor = 'var(--purple)';
+      hint.innerHTML = `
+        <div class="cf-head"><span class="cf-eyebrow" style="color:var(--purple)">AI coach</span></div>
+        <div class="cf-body">Add your Anthropic API key to unlock proactive, data-driven picks here each day — an altered session, a split swap, or an observation from your training.</div>
+        <div class="cf-actions"><button class="cf-btn cf-btn-primary" id="dashCoachKey">Add API key</button></div>`;
+      cards.appendChild(hint);
+      hint.querySelector('#dashCoachKey').onclick = async () => {
+        document.getElementById('coachKeyInput').value = await coachGetKey();
+        document.getElementById('coachKeyModal').classList.add('open');
+      };
+    }
+    wireFindingButtons(cards);
+    refreshIcons();
   }
 
-  // Only surface on the analysis view (don't intrude on an active chat), and only
-  // if the Coach tab is still what's showing.
-  if (coachThread.length || activeTab !== 'Coach') return;
-  document.getElementById('coachDailyCard')?.remove();
-  threadEl.insertBefore(renderDailyCard(daily), threadEl.firstChild);
-  refreshCoachBadge();
+  // Kick off today's AI pick in the background (only while actually viewing Home,
+  // so a background dashboard re-render off-tab doesn't fire the API); refresh the
+  // section in place when it lands.
+  if (activeTab === 'Dashboard') {
+    ensureDailySuggestion(() => { if (activeTab === 'Dashboard') renderDashCoach(sessions); });
+  }
+}
+
+// Wire finding action buttons (shared by Home; findings live in _coachFindings).
+function wireFindingButtons(root) {
+  root.querySelectorAll('.cf-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const f = _coachFindings[+btn.dataset.fi];
+      const a = f?.actions?.[+btn.dataset.ai];
+      if (!a) return;
+      if (a.kind === 'dismiss') {
+        await dismissSuggestion(f.key);
+        renderDashboard();
+        return;
+      }
+      askCoachFromHome(a.prompt, a.force || false);
+    };
+  });
 }
 
 function scrollCoachDown() {
@@ -4452,6 +4446,7 @@ document.getElementById('coachKeySave').onclick = async () => {
   await db.set('workout', 'anthropic-key', document.getElementById('coachKeyInput').value.trim());
   document.getElementById('coachKeyModal').classList.remove('open');
   backfillCustomRepRanges(); // key just added — retry any exercises that had no range yet
+  renderDashboard();         // a fresh key unlocks the proactive daily pick on Home
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
