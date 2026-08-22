@@ -282,6 +282,102 @@ export const ROUTINE_LIBRARY = [
   },
 
   {
+    id: 'kettlebell-3day',
+    name: 'Kettlebell Strength & Conditioning (3-day)',
+    tagline: 'Rogan-style hardstyle kettlebell training — ballistic power, grinding strength and a full-body flow day. Minimal kit, high carryover.',
+    meta: '3 days/week · ~40-45 min/session',
+    days: [
+      {
+        name: 'KB Grind (Strength)',
+        exercises: [
+          ex('Kettlebell Turkish Get-Up',     'Core',      90,  [3,3,3]),
+          ex('Kettlebell Clean and Press',     'Shoulders', 90,  [6,6,6,6]),
+          ex('Kettlebell Front Squat',         'Quads',     90,  [8,8,8]),
+          ex('Kettlebell Row',                 'Back',      75,  [10,10,10]),
+          ex('Kettlebell Windmill',            'Core',      60,  [6,6]),
+        ],
+      },
+      {
+        name: 'KB Ballistic (Power)',
+        exercises: [
+          ex('Kettlebell Swing',               'Hamstrings',60,  [15,15,15,15,15]),
+          ex('Kettlebell Snatch',              'Shoulders', 75,  [8,8,8,8]),
+          ex('Kettlebell Clean and Jerk',      'Shoulders', 75,  [6,6,6]),
+          ex('Kettlebell Goblet Squat',        'Quads',     60,  [12,12,12]),
+          ex('Kettlebell High Pull',           'Shoulders', 60,  [12,12]),
+        ],
+      },
+      {
+        name: 'KB Full-Body Flow',
+        exercises: [
+          ex('Kettlebell Swing (American)',    'Shoulders', 60,  [15,15,15]),
+          ex('Kettlebell Thruster',            'Quads',     75,  [10,10,10]),
+          ex('Kettlebell Renegade Row',        'Back',      75,  [8,8,8]),
+          ex('Kettlebell Lunge',               'Quads',     60,  [10,10]),
+          ex('Kettlebell Halo',                'Shoulders', 45,  [10,10]),
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'circuit-metcon-3day',
+    name: 'Circuit / Metcon (3-day)',
+    tagline: 'Strength-endurance circuits — 3–5 rounds back-to-back, 30–60s rest only between rounds. Builds work capacity and burns while keeping muscle.',
+    meta: '3 days/week · ~35-45 min · circuit style',
+    days: [
+      {
+        name: 'Full-Body Circuit',
+        exercises: [
+          ex('Kettlebell Swing',               'Hamstrings',45,  [15,15,15,15]),
+          ex('Goblet Squat',                   'Quads',     45,  [15,15,15,15]),
+          ex('Push Up',                        'Chest',     45,  [15,15,15,15]),
+          ex('Burpee',                         'Core',      45,  [12,12,12,12]),
+          ex('Plank',                          'Core',      45,  [45,45,45,45]),
+        ],
+      },
+      {
+        name: 'Upper Circuit',
+        exercises: [
+          ex('Kettlebell Push Press',          'Shoulders', 45,  [12,12,12,12]),
+          ex('Kettlebell Renegade Row',        'Back',      45,  [10,10,10,10]),
+          ex('Medicine Ball Chest Pass',       'Chest',     45,  [15,15,15]),
+          ex('Battle Ropes',                   'Cardio',    45,  [30,30,30,30]),
+          ex('Mountain Climber',               'Core',      45,  [30,30,30]),
+        ],
+      },
+      {
+        name: 'Lower + Conditioning Circuit',
+        exercises: [
+          ex('Wall Ball',                      'Quads',     45,  [15,15,15,15]),
+          ex('Box Jump',                       'Quads',     45,  [12,12,12,12]),
+          ex('Jumping Lunge',                  'Quads',     45,  [16,16,16]),
+          ex('Kettlebell Sumo Deadlift High Pull', 'Shoulders', 45, [12,12,12]),
+          ex('Medicine Ball Slam',             'Core',      45,  [15,15,15]),
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'conditioning-finisher',
+    name: 'HIIT Conditioning Finisher',
+    tagline: 'A short, brutal 10–15 min metcon to bolt onto any session or run solo on an off day. Go through 4–5 rounds for time.',
+    meta: '1 day / add-on · ~12-15 min',
+    days: [
+      {
+        name: 'HIIT Finisher',
+        exercises: [
+          ex('Kettlebell Swing',               'Hamstrings',30,  [20,20,20,20,20]),
+          ex('Burpee',                         'Core',      30,  [10,10,10,10,10]),
+          ex('Jumping Jacks',                  'Cardio',    30,  [40,40,40,40,40]),
+          ex('High Knees',                     'Cardio',    30,  [30,30,30,30,30]),
+        ],
+      },
+    ],
+  },
+
+  {
     id: 'minimalist-2day',
     name: 'Minimalist Full Body (2-day)',
     tagline: 'Maximum time efficiency — 2 sessions/week hitting every muscle with proven minimum-effective-dose volume.',

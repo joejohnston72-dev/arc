@@ -58,6 +58,11 @@ const LOGTYPES = {
   duration:   { cols: ['time'],               head: ['Time'],        label: 'Time / hold' },
   cardio:     { cols: ['distance', 'time'],   head: ['km', 'Time'],  label: 'Distance & time (cardio)' },
 };
+// User edits to the core library (via the "…" → Edit exercise sheet). Keyed by
+// the built-in exercise's canonical name → { category?, logType? }. Loaded once
+// at init (loadExOverrides) and kept in sync on every edit. Custom exercises are
+// edited in place in `exercises-custom` instead, so they don't live here.
+let exOverrides = {};
 // NB: bare "hang" was removed — it false-matched "Leg Raise (Hanging)" (a
 // rep-based exercise) and forced it into time-tracking. "dead hang" alone
 // covers the actual isometric hold.
@@ -80,6 +85,11 @@ function exLogType(name, category) {
 // baked into old/imported data — including a 'duration' left over from when a
 // bare "hang" match wrongly forced "Hanging Leg Raise" into time-tracking.
 const resolveLogType = ex => {
+  // An explicit user edit to the library (built-in override, or a custom
+  // exercise's own stored type) is authoritative everywhere — that's the whole
+  // point of "Edit exercise writes to the core library".
+  const ov = exOverrides[ex?.name]?.logType;
+  if (ov && LOGTYPES[ov]) return ov;
   if (BODYWEIGHT_NAMES.test(ex?.name || '')) return 'bodyweight';
   const stored = ex?.logType;
   return LOGTYPES[stored] ? stored : exLogType(ex?.name, ex?.category);
@@ -1388,8 +1398,7 @@ async function openExerciseDetail(name) {
   document.getElementById('exDetailBody').querySelectorAll('.ed-note-link').forEach(b => b.onclick = () => {
     const p = b.dataset.prompt, f = b.dataset.force;
     closeExerciseDetail();
-    document.querySelector('.tab[data-tab="Coach"]').click();
-    if (p) sendCoach(p, f || false);
+    if (p) askCoachFromHome(p, f || false);
   });
 }
 document.getElementById('exDetailBack').onclick = closeExerciseDetail;
@@ -1519,6 +1528,10 @@ function openExMenuSheet(ei) {
 const exMenuSheet = document.getElementById('exMenuSheet');
 exMenuSheet.addEventListener('click', e => { if (e.target === exMenuSheet) exMenuSheet.classList.remove('open'); });
 document.getElementById('exMenuCancel').onclick  = () => exMenuSheet.classList.remove('open');
+document.getElementById('exMenuEdit').onclick = () => {
+  exMenuSheet.classList.remove('open');
+  openEditExerciseModal(menuEi);
+};
 document.getElementById('exMenuReplace').onclick = () => {
   exMenuSheet.classList.remove('open');
   openExPicker({ replaceEi: menuEi });
@@ -2158,7 +2171,24 @@ let epReplaceEi = null; // when set, picking replaces instead of appends
 
 async function getAllExercises() {
   const custom = (await db.get(STORE, 'exercises-custom')) || [];
-  return [...EXERCISES, ...custom.map(e => ({ ...e, custom: true }))];
+  // Apply any library edits to the built-in list (category / tracking type).
+  const builtin = EXERCISES.map(e => {
+    const ov = exOverrides[e.name];
+    if (!ov) return e;
+    const merged = { ...e };
+    if (ov.category && CATEGORIES.includes(ov.category)) merged.category = ov.category;
+    if (ov.logType && LOGTYPES[ov.logType]) merged.logType = ov.logType;
+    return merged;
+  });
+  return [...builtin, ...custom.map(e => ({ ...e, custom: true }))];
+}
+
+// Load the built-in library overrides into the module cache. Called at init
+// before the first render so resolveLogType/resolveCategory see them, and again
+// after each edit so they stay current.
+async function loadExOverrides() {
+  exOverrides = (await db.get(STORE, 'exercises-overrides')) || {};
+  return exOverrides;
 }
 
 document.getElementById('awAddExBtn').onclick   = () => openExPicker();
@@ -2436,6 +2466,81 @@ document.getElementById('customExSave').onclick = async () => {
   renderActiveSession();
   saveSoon();
   lookupRepRangeForCustom(entry); // background AI lookup — updates in place when it resolves
+};
+
+// ── Edit exercise (writes to the core library) ────────────────────────────────
+// Change an exercise's muscle group and tracking type (and, for custom exercises,
+// its name). Built-in exercises are edited via an overrides layer keyed by their
+// canonical name; custom exercises are edited in place in `exercises-custom`. The
+// change applies everywhere the exercise appears (resolveLogType/resolveCategory
+// + getAllExercises read the same overrides), not just this workout.
+let editExEi = null;
+async function openEditExerciseModal(ei) {
+  const ex = activeSession?.exercises?.[ei];
+  if (!ex) return;
+  editExEi = ei;
+  const custom = (await db.get(STORE, 'exercises-custom')) || [];
+  const isCustom = custom.some(e => e.name.toLowerCase() === ex.name.toLowerCase());
+
+  const nameEl = document.getElementById('editExName');
+  nameEl.value = ex.name;
+  nameEl.readOnly = !isCustom;                      // built-in names are fixed
+  document.getElementById('editExNameHint').style.display = isCustom ? 'none' : '';
+
+  const catSel = document.getElementById('editExCat');
+  catSel.innerHTML = CATEGORIES.map(c => `<option${c === ex.category ? ' selected' : ''}>${c}</option>`).join('');
+
+  const typeSel = document.getElementById('editExType');
+  const curType = resolveLogType(ex);
+  typeSel.innerHTML = Object.entries(LOGTYPES)
+    .map(([k, v]) => `<option value="${k}"${k === curType ? ' selected' : ''}>${v.label}</option>`).join('');
+
+  document.getElementById('editExModal').classList.add('open');
+}
+document.getElementById('editExCancel').onclick = () => document.getElementById('editExModal').classList.remove('open');
+document.getElementById('editExModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('editExModal')) document.getElementById('editExModal').classList.remove('open');
+});
+document.getElementById('editExSave').onclick = async () => {
+  if (editExEi == null || !activeSession?.exercises?.[editExEi]) {
+    document.getElementById('editExModal').classList.remove('open'); return;
+  }
+  const ex = activeSession.exercises[editExEi];
+  const oldName  = ex.name;
+  const newName  = document.getElementById('editExName').value.trim() || oldName;
+  const newCat   = document.getElementById('editExCat').value;
+  const newType  = document.getElementById('editExType').value || 'weighted';
+
+  const custom = (await db.get(STORE, 'exercises-custom')) || [];
+  const cIdx = custom.findIndex(e => e.name.toLowerCase() === oldName.toLowerCase());
+
+  if (cIdx !== -1) {
+    // Custom exercise — edit its library entry in place (name editable).
+    custom[cIdx] = { ...custom[cIdx], name: newName, category: newCat, logType: newType };
+    if (newType === 'duration' || newType === 'cardio') delete custom[cIdx].repRange;
+    await db.set(STORE, 'exercises-custom', custom);
+  } else {
+    // Built-in exercise — record a library override (name stays canonical).
+    exOverrides[oldName] = { ...(exOverrides[oldName] || {}), category: newCat, logType: newType };
+    await db.set(STORE, 'exercises-overrides', exOverrides);
+  }
+
+  // Reflect on the live exercise immediately.
+  ex.name = newName;
+  ex.category = newCat;
+  ex.logType = newType;
+  if (newType === 'duration' || newType === 'cardio') ex.repRange = null;
+  else ex.repRange = resolveRepRange({ name: newName, category: newCat, logType: newType, repRange: ex.repRange });
+
+  document.getElementById('editExModal').classList.remove('open');
+  renderActiveSession();
+  saveSoon();
+  db.backup();
+  if (activeTab === 'Library') renderLibrary();
+  // For a renamed custom exercise with no stored range yet, kick a background lookup.
+  if (cIdx !== -1 && !custom[cIdx].repRange && newType !== 'duration' && newType !== 'cardio') {
+    lookupRepRangeForCustom(custom[cIdx]);
+  }
 };
 
 // ── Ideal rep range for custom exercises: AI lookup + cache ───────────────────
@@ -2811,48 +2916,12 @@ function emptyHeroCard() {
     </div>`;
 }
 
-// Coach-flagged card: the top actionable finding, surfaced on the home screen
-// so the most important thing is visible without opening the Coach tab.
-function dashCoachFlag(finding) {
-  if (!finding) return '';
-  const color = _SEV_COLOR[finding.severity] || 'var(--purple)';
-  const primary = (finding.actions || []).find(a => a.kind === 'primary');
-  return `
-    <div class="dash-flag" style="border-left-color:${color}">
-      <span class="dash-flag-icon" style="color:${color}">${icon('bot', { size: 19 })}</span>
-      <div style="flex:1;min-width:0">
-        <div class="dash-flag-eyebrow" style="color:${color}">${esc(finding.eyebrow)}</div>
-        <div class="dash-flag-body">${esc(finding.body)}</div>
-        <div class="dash-flag-actions">
-          ${primary ? `<button class="dash-flag-btn p" data-flag-primary>${esc(primary.label)}</button>` : ''}
-          <button class="dash-flag-btn g" data-flag-open>Ask coach ${icon('arrow-right', { size: 14 })}</button>
-        </div>
-      </div>
-    </div>`;
-}
-
-// Attention badge on the Coach tab: a small count of actionable findings.
-function updateCoachBadge(n) {
+// The Coach tab no longer carries an attention sticker — proactive coach content
+// lives on Home now (renderDashCoach), so there's nothing to badge here. Kept as a
+// guaranteed clear so any previously-stuck badge is removed on the next render.
+function updateCoachBadge() {
   const tab = document.querySelector('.tab[data-tab="Coach"]');
-  if (!tab) return;
-  let badge = tab.querySelector('.tab-badge');
-  if (n > 0) {
-    if (!badge) { badge = document.createElement('span'); badge.className = 'tab-badge'; tab.appendChild(badge); }
-    badge.textContent = n > 9 ? '9+' : String(n);
-  } else if (badge) {
-    badge.remove();
-  }
-}
-
-// Recompute the actionable-finding count (non-good, non-dismissed) and repaint
-// the Coach-tab badge. Cheap (one IndexedDB read); safe to call from anywhere.
-async function refreshCoachBadge() {
-  try {
-    const [sessions, dismissed] = await Promise.all([loadSessions(), db.get(STORE, 'suggestions-dismissed')]);
-    const skip = dismissed || [];
-    const n = generateCoachFindings(sessions).filter(f => f.severity !== 'good' && !skip.includes(f.key)).length;
-    updateCoachBadge(n);
-  } catch (_) {}
+  tab?.querySelector('.tab-badge')?.remove();
 }
 
 // Routines list lives in the "…" chooser sheet. It doubles as the order editor:
@@ -3152,23 +3221,15 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  // Coach findings drive both the home "flagged" card and the Coach-tab badge.
-  const dismissed = (await db.get(STORE, 'suggestions-dismissed')) || [];
-  const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
-  const actionable = findings.filter(f => f.severity !== 'good');
-  const flagHTML = dashCoachFlag(actionable[0]);
-  updateCoachBadge(actionable.length);
-
   dashTop.innerHTML = `
     <div class="dash-datehead">
       <span class="dash-weekday">${weekday}</span>
       <span class="dash-weekmeta">Week ${weekNo} · day ${dayNo}</span>
     </div>
     ${heroHTML}
-    ${tilesHTML}
-    ${flagHTML}`;
+    ${tilesHTML}`;
 
-  // Wire the hero + tiles + flag
+  // Wire the hero + tiles
   const startBtn = dashTop.querySelector('.next-start[data-tid]');
   if (startBtn) startBtn.onclick = () => { const t = templates.find(x => x.id === startBtn.dataset.tid); startEmptyWorkout(t); };
   dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
@@ -3177,17 +3238,12 @@ async function renderDashboard() {
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
-  // Coach insight: primary action jumps to Coach and runs it; body/ghost just open Coach.
-  const flagFinding = actionable[0];
-  const goCoach = () => document.querySelector('.tab[data-tab="Coach"]').click();
-  dashTop.querySelector('[data-flag-open]')?.addEventListener('click', e => { e.stopPropagation(); goCoach(); });
-  dashTop.querySelector('[data-flag-primary]')?.addEventListener('click', e => {
-    e.stopPropagation();
-    const a = (flagFinding?.actions || []).find(x => x.kind === 'primary');
-    goCoach();
-    if (a?.prompt) sendCoach(a.prompt, a.force || false);
-  });
-  dashTop.querySelector('.dash-flag')?.addEventListener('click', goCoach);
+
+  // Proactive coach content (daily pick + observations) lives on Home now — the
+  // base of operations, rendered into #dashCoach below the snapshot. The Coach tab
+  // is reserved for direct questions, so it carries no attention sticker.
+  renderDashCoach(sessions);
+  updateCoachBadge();
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
@@ -3370,8 +3426,7 @@ async function renderStats() {
   // Muscle-balance fix → coach
   el.querySelector('.mb-fix-btn')?.addEventListener('click', e => {
     const b = e.currentTarget;
-    document.querySelector('.tab[data-tab="Coach"]').click();
-    if (b.dataset.mbprompt) sendCoach(b.dataset.mbprompt, b.dataset.mbforce || false);
+    if (b.dataset.mbprompt) askCoachFromHome(b.dataset.mbprompt, b.dataset.mbforce || false);
   });
 
   // Month navigation
@@ -4213,13 +4268,14 @@ async function loadCoachThread() {
 }
 function persistCoachThread() { db.set('workout', 'coach-thread', coachThread); }
 
+// The Coach tab is a direct Q&A chat. Proactive coach content (the daily pick +
+// data-driven observations) lives on the Home screen (renderDashCoach) instead.
 async function renderCoach() {
   await loadCoachThread();
   const thread = document.getElementById('coachThread');
   thread.innerHTML = '';
   if (!coachThread.length) {
-    await renderCoachFindings(thread);      // analysis-first: findings before chat
-    requestAnimationFrame(() => { thread.scrollTop = 0; });
+    thread.innerHTML = `<div class="coach-empty">Ask me anything — training, form, programming, progression, or “what should I train today?”.<br><br>I also post a daily pick and observations on your <strong>Home</strong> screen.</div>`;
     return;
   }
   coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
@@ -4337,48 +4393,183 @@ function coachFindingCard(f, fi) {
     </div>`;
 }
 
-async function renderCoachFindings(threadEl) {
-  const sessions = await loadSessions();
-  const dismissed = (await db.get('workout', 'suggestions-dismissed')) || [];
+// ── Coach's pick for today (proactive, once-per-day AI suggestion) ────────────
+// Generated on the Home screen (renderDashCoach) — the coach reviews ALL the
+// user's data on its own and surfaces its single highest-value suggestion for
+// today: an altered session, a split swap, a routine tweak, or an observation.
+// One API call per calendar day (cached in 'coach-daily'); needs an API key;
+// dismissible for the day.
+let _dailyBusy = false;
+
+async function generateDailySuggestion(today) {
+  try {
+    const system = await assembleContext({ loadSessions, getTemplates, getAllExercises, getStreakSettings });
+    const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do not add exercises or log workouts.`;
+    const result = await callCoach({
+      apiMessages: [{ role: 'user', content: prompt }],
+      system, forceTool: false, getKey: coachGetKey,
+    });
+    if (!result || result.error) return null;
+
+    const out = { date: today, text: result.text || '' };
+    const tool = result.tool;
+    if (tool?.name === 'draft_routine') {
+      try { out.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory }); } catch (_) {}
+    } else if (tool?.name === 'draft_split') {
+      try {
+        const days = Array.isArray(tool.input?.days) ? tool.input.days : [];
+        const routines = [];
+        for (const d of days) { try { routines.push(await validateRoutine(d, { getAllExercises, guessCategory })); } catch (_) {} }
+        if (routines.length) out.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
+      } catch (_) {}
+    } else if (tool?.name === 'suggest_routine_edit') {
+      out.suggestion = tool.input;
+    }
+    if (!out.text && !out.routine && !out.split && !out.suggestion) return null;
+    if (!out.text) {
+      out.text = out.routine ? `Here's what I'd train today — “${out.routine.name}”.`
+               : out.split ? `I'd reshape your week — “${out.split.name}”.`
+               : out.suggestion?.rationale || 'Here’s a change worth making.';
+    }
+    return out;
+  } catch (_) { return null; }
+}
+
+// Today's cached daily pick (null if none / dismissed / not today).
+async function getCachedDaily() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const d = await db.get(STORE, 'coach-daily');
+    if (d && d.date === today && d.dismissedDate !== today &&
+        (d.text || d.routine || d.split || d.suggestion)) return d;
+  } catch (_) {}
+  return null;
+}
+
+// Ensure today's proactive pick exists (generate once/day if a key is set).
+// Returns the daily object or null. `onReady` fires after a fresh generation so
+// the Home coach section can refresh in place without blocking first paint.
+async function ensureDailySuggestion(onReady) {
+  const cached = await getCachedDaily();
+  if (cached) return cached;
+  if (_dailyBusy) return null;
+  if (!(await coachGetKey())) return null;                // no proactive AI without a key
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = await db.get(STORE, 'coach-daily');
+  if (existing?.dismissedDate === today) return null;     // dismissed for today
+  if (existing?.date === today) return null;              // already generated (and empty)
+  _dailyBusy = true;
+  const daily = await generateDailySuggestion(today);
+  _dailyBusy = false;
+  if (!daily) {
+    // Mark today attempted so a failure/empty result doesn't re-fire the API on
+    // every subsequent dashboard render. A fresh pick comes tomorrow.
+    await db.set(STORE, 'coach-daily', { date: today });
+    return null;
+  }
+  await db.set(STORE, 'coach-daily', daily);
+  if (onReady) onReady(daily);
+  return daily;
+}
+
+function renderDailyCard(daily) {
+  const card = document.createElement('div');
+  card.className = 'coach-daily';
+  card.id = 'coachDailyCard';
+  card.innerHTML = `
+    <div class="coach-daily-head">
+      <span class="coach-daily-eyebrow">${icon('bot', { size: 14 })} Coach's pick for today</span>
+      <button class="coach-daily-x" aria-label="Dismiss" title="Dismiss">${icon('x', { size: 15 })}</button>
+    </div>
+    <div class="coach-daily-body">${esc(daily.text || '')}</div>`;
+  if (daily.routine)    card.appendChild(renderRoutineCard(daily.routine));
+  if (daily.split)      card.appendChild(renderSplitCard(daily.split));
+  if (daily.suggestion) card.appendChild(renderSuggestionCard(daily.suggestion));
+  card.querySelector('.coach-daily-x').onclick = async () => {
+    const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
+    d.dismissedDate = new Date().toISOString().slice(0, 10);
+    await db.set(STORE, 'coach-daily', d);
+    renderDashboard();   // re-render Home so the section reflows
+  };
+  return card;
+}
+
+// Switch to the Coach tab and run a prompt there (used by Home action buttons).
+function askCoachFromHome(prompt, force) {
+  document.querySelector('.tab[data-tab="Coach"]').click();
+  setTimeout(() => sendCoach(prompt, force || false), 60);
+}
+
+// ── Home "Your coach" section — proactive picks + observations, base of ops ───
+// This is where the coach talks TO the user (daily pick + data-driven findings).
+// The Coach tab itself is reserved for the user asking direct questions.
+async function renderDashCoach(sessions) {
+  const el = document.getElementById('dashCoach');
+  if (!el) return;
+  const dismissed = (await db.get(STORE, 'suggestions-dismissed')) || [];
   const findings = generateCoachFindings(sessions).filter(f => !dismissed.includes(f.key));
   _coachFindings = findings;
-  updateCoachBadge(findings.filter(f => f.severity !== 'good').length);
 
-  const n = sessions.length;
-  const wrap = document.createElement('div');
-  wrap.className = 'coach-findings';
-  const head = `
-    <div class="coach-analysis-head">
-      <div class="coach-analysis-title">Coach</div>
-      <div class="coach-analysis-meta">Read ${n} session${n === 1 ? '' : 's'}${findings.length ? ' · just now' : ''}</div>
-    </div>`;
+  const cachedDaily = await getCachedDaily();
+  const hasKey = !!(await coachGetKey());
+  // Prompt to unlock the AI coach: shown only when there's no key AND nothing
+  // else to show yet, so the user learns why there are no AI picks and how to fix
+  // it. (Rule-based observations still appear without a key.)
+  const needsKeyHint = !hasKey && !cachedDaily && !findings.length && sessions.length > 0;
 
-  if (!findings.length) {
-    wrap.innerHTML = head +
-      `<div class="coach-analysis-sub">${n ? 'Nothing urgent this week — ask me anything below.' : "Log a workout and I'll analyse it here. Or ask me anything below."}</div>`;
-    threadEl.appendChild(wrap);
-    return;
+  if (!findings.length && !cachedDaily && !needsKeyHint) { el.innerHTML = ''; }
+  else {
+    el.innerHTML = `
+      <div class="dash-coach-head">
+        <span class="dash-coach-title">${icon('bot', { size: 17 })} Your coach</span>
+        <button class="dash-coach-open">Ask →</button>
+      </div>
+      <div class="dash-coach-cards"></div>`;
+    el.querySelector('.dash-coach-open').onclick = () => document.querySelector('.tab[data-tab="Coach"]').click();
+    const cards = el.querySelector('.dash-coach-cards');
+    if (cachedDaily) cards.appendChild(renderDailyCard(cachedDaily));
+    cards.insertAdjacentHTML('beforeend', findings.map((f, i) => coachFindingCard(f, i)).join(''));
+    if (needsKeyHint) {
+      const hint = document.createElement('div');
+      hint.className = 'coach-finding';
+      hint.style.borderLeftColor = 'var(--purple)';
+      hint.innerHTML = `
+        <div class="cf-head"><span class="cf-eyebrow" style="color:var(--purple)">AI coach</span></div>
+        <div class="cf-body">Add your Anthropic API key to unlock proactive, data-driven picks here each day — an altered session, a split swap, or an observation from your training.</div>
+        <div class="cf-actions"><button class="cf-btn cf-btn-primary" id="dashCoachKey">Add API key</button></div>`;
+      cards.appendChild(hint);
+      hint.querySelector('#dashCoachKey').onclick = async () => {
+        document.getElementById('coachKeyInput').value = await coachGetKey();
+        document.getElementById('coachKeyModal').classList.add('open');
+      };
+    }
+    wireFindingButtons(cards);
+    refreshIcons();
   }
 
-  wrap.innerHTML = head +
-    `<div class="coach-analysis-sub">${findings.length} thing${findings.length > 1 ? 's' : ''} worth acting on this week.</div>` +
-    findings.map((f, i) => coachFindingCard(f, i)).join('') +
-    `<div class="coach-findings-divider"><span>or ask something</span></div>`;
-  threadEl.appendChild(wrap);
+  // Kick off today's AI pick in the background (only while actually viewing Home,
+  // so a background dashboard re-render off-tab doesn't fire the API); refresh the
+  // section in place when it lands.
+  if (activeTab === 'Dashboard') {
+    ensureDailySuggestion(() => { if (activeTab === 'Dashboard') renderDashCoach(sessions); });
+  }
+}
 
-  wrap.querySelectorAll('.cf-btn').forEach(btn => {
+// Wire finding action buttons (shared by Home; findings live in _coachFindings).
+function wireFindingButtons(root) {
+  root.querySelectorAll('.cf-btn').forEach(btn => {
     btn.onclick = async () => {
       const f = _coachFindings[+btn.dataset.fi];
       const a = f?.actions?.[+btn.dataset.ai];
       if (!a) return;
       if (a.kind === 'dismiss') {
-        btn.closest('.coach-finding')?.remove();
-        await dismissSuggestion(f.key);   // persist first so the recount excludes it
-        refreshCoachBadge();              // the dot/count reflects the dismissal
+        await dismissSuggestion(f.key);
+        renderDashboard();
         return;
       }
       if (a.kind === 'open') { openExerciseDetail(a.exercise); return; }
-      sendCoach(a.prompt, a.force || false);
+      askCoachFromHome(a.prompt, a.force || false);
     };
   });
 }
@@ -4736,6 +4927,7 @@ document.getElementById('coachKeySave').onclick = async () => {
   await db.set('workout', 'anthropic-key', document.getElementById('coachKeyInput').value.trim());
   document.getElementById('coachKeyModal').classList.remove('open');
   backfillCustomRepRanges(); // key just added — retry any exercises that had no range yet
+  renderDashboard();         // a fresh key unlocks the proactive daily pick on Home
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -4750,6 +4942,7 @@ if (document.getElementById('recentList')) {
 }
 try { await Promise.race([initialSync, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
+await loadExOverrides();   // library edits (exercise types/categories) before any render
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await checkForAbandonedSession();
