@@ -18,8 +18,63 @@ import { dismissSuggestion } from '../shared/suggestions.js';
 const refreshIcons = () => renderIcons(document);
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
-const { data: { session } } = await supabase.auth.getSession();
-if (!session) { window.location.href = '../'; throw new Error('unauthenticated'); }
+// Auth lives in Arc itself now (the shared hub was retired). With no session we
+// show the in-app login overlay and wait for it, instead of redirecting away.
+let { data: { session } } = await supabase.auth.getSession();
+if (!session) session = await showAuthGate();
+
+// In-app email-OTP login. Resolves with the session once the user signs in.
+function showAuthGate() {
+  return new Promise(resolve => {
+    const overlay       = document.getElementById('authOverlay');
+    const authForm      = document.getElementById('authForm');
+    const authCodeForm  = document.getElementById('authCodeForm');
+    const authEmail     = document.getElementById('authEmail');
+    const authCode      = document.getElementById('authCode');
+    const authBtn       = document.getElementById('authBtn');
+    const authVerifyBtn = document.getElementById('authVerifyBtn');
+    const authResendBtn = document.getElementById('authResendBtn');
+    let pendingEmail = '';
+    overlay.classList.add('visible');
+    refreshIcons();
+
+    const { data: authSub } = supabase.auth.onAuthStateChange((_e, sess) => {
+      if (!sess) return;
+      authSub.subscription.unsubscribe();
+      overlay.classList.remove('visible');
+      resolve(sess);
+    });
+
+    authBtn.onclick = async () => {
+      const email = authEmail.value.trim();
+      if (!email) { authEmail.focus(); return; }
+      authBtn.disabled = true; authBtn.textContent = 'Sending…';
+      const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+      authBtn.disabled = false; authBtn.textContent = 'Send code';
+      if (error) { alert(error.message); return; }
+      pendingEmail = email;
+      authForm.style.display = 'none';
+      authCodeForm.style.display = 'block';
+      authCode.focus();
+    };
+    authVerifyBtn.onclick = async () => {
+      const token = authCode.value.trim();
+      if (token.length < 6) { authCode.focus(); return; }   // 6–8 digit codes
+      authVerifyBtn.disabled = true; authVerifyBtn.textContent = 'Verifying…';
+      const { error } = await supabase.auth.verifyOtp({ email: pendingEmail, token, type: 'email' });
+      authVerifyBtn.disabled = false; authVerifyBtn.textContent = 'Verify & sign in';
+      if (error) { alert(error.message); authCode.select(); return; }
+      // onAuthStateChange above resolves the promise once the session lands.
+    };
+    authCode.addEventListener('keydown', e => { if (e.key === 'Enter') authVerifyBtn.click(); });
+    authResendBtn.onclick = () => {
+      authCodeForm.style.display = 'none';
+      authForm.style.display = 'block';
+      authCode.value = '';
+      authEmail.focus();
+    };
+  });
+}
 
 // ── Constants & helpers ───────────────────────────────────────────────────────
 const STORE = 'workout';
@@ -5088,6 +5143,17 @@ await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
+
+// Account panel (Progress → Data & backup) — auth lives in Arc now.
+{
+  const emailEl = document.getElementById('acctEmail');
+  if (emailEl && session?.user?.email) emailEl.textContent = session.user.email;
+  document.getElementById('signOutBtn')?.addEventListener('click', async () => {
+    await supabase.auth.signOut();   // getSession() is null on reload → auth gate shows
+    location.reload();
+  });
+}
+
 renderDashboard();
 renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one

@@ -1267,8 +1267,45 @@
     .ex-name.linked { display:inline-flex; align-items:center; gap:5px; }
     .ex-name .ex-chev { color:var(--text-muted); display:inline-flex; }
   </style>
+  <style>
+    /* Auth gate — moved into Arc when the shared hub was retired. Shown by
+       app.js showAuthGate() when there's no Supabase session. */
+    .auth-overlay { display:none; position:fixed; inset:0; background:var(--bg); z-index:200;
+      align-items:center; justify-content:center; padding:var(--gap); }
+    .auth-overlay.visible { display:flex; }
+    .auth-card { width:100%; max-width:360px; text-align:center; }
+    .auth-icon { color:var(--blue); margin-bottom:16px; display:flex; justify-content:center; }
+    .auth-title { font-size:1.6rem; font-weight:700; margin-bottom:8px; }
+    .auth-sub { color:var(--text-muted); font-size:0.9rem; margin-bottom:32px; line-height:1.5; }
+    .auth-input { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      padding:14px 16px; color:var(--text); font-size:1rem; outline:none; margin-bottom:12px; text-align:center; }
+    .auth-input:focus { border-color:var(--blue); }
+    .auth-btn { width:100%; padding:14px; border-radius:12px; border:none; background:var(--blue); color:#04131c;
+      font-size:1rem; font-weight:700; cursor:pointer; }
+    .auth-btn:disabled { opacity:0.6; }
+    .auth-btn.ghost { background:none; color:var(--text-muted); margin-top:8px; }
+  </style>
 </head>
 <body>
+  <!-- Auth overlay (self-contained login; no more redirect to the retired hub) -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-icon"><i data-lucide="dumbbell" data-size="44"></i></div>
+      <h2 class="auth-title">Arc</h2>
+      <p class="auth-sub">Sign in with your email to keep your training synced across all your devices.</p>
+      <div id="authForm">
+        <input class="auth-input" id="authEmail" type="email" placeholder="your@email.com" autocomplete="email">
+        <button class="auth-btn" id="authBtn">Send code</button>
+      </div>
+      <div id="authCodeForm" style="display:none">
+        <p class="auth-sub" style="margin-bottom:16px">Enter the 6-digit code sent to your email.</p>
+        <input class="auth-input" id="authCode" type="text" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="8" placeholder="12345678" style="letter-spacing:6px;font-size:1.4rem">
+        <button class="auth-btn" id="authVerifyBtn">Verify &amp; sign in</button>
+        <button class="auth-btn ghost" id="authResendBtn">Use a different email</button>
+      </div>
+    </div>
+  </div>
 
 <!-- ── Main app ── -->
 <!-- No per-tab title bar: the bottom nav already names each tab, so the top
@@ -1349,6 +1386,10 @@
         <button class="import-btn" id="importBtn"><i data-lucide="list-plus" data-size="16"></i> Import workouts (CSV / JSON)</button>
         <div class="import-progress" id="importProgress"></div>
         <input type="file" id="csvInput" accept=".csv,.json,.txt" style="display:none">
+        <div id="ddAccount" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:0.74rem;color:var(--text-muted);margin-bottom:9px">Signed in as <span id="acctEmail" style="color:var(--text)">—</span></div>
+          <button class="import-btn" id="signOutBtn" style="border-color:rgba(244,63,94,0.4);color:var(--red)">Sign out</button>
+        </div>
       </div>
     </details>
 

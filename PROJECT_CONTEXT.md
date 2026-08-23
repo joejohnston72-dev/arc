@@ -2,23 +2,32 @@
 
 Personal PWA. Read this first to avoid re-reading the whole codebase.
 
-**Naming (2026-08, scope pivot):** the project is now **gym-only, branded "Arc"**.
-The displayed app name is **"Arc"** everywhere user-facing (root hub title/manifest/
-header/auth screen, and the `workout/` app which was already "ARC"). The
-repo/folder/deploy slug **stays `life-dashboard`** (repo name, `/life-dashboard/`
-paths, `sw.js` cache prefix, and the local IndexedDB `DB_NAME`) — the display
-rename is done; the **slug rename → `arc`** and **retiring the root hub** (moving
-shared auth into Arc) are agreed but **deferred**, to be done as a separate
-coordinated change (needs the GitHub repo renamed too, or the live URL breaks).
-The IndexedDB `DB_NAME` in particular must **not** be renamed casually — it's
-local-only and renaming it blanks every install until cloud restore.
+**Naming (2026-08, scope pivot — DONE):** the project is **gym-only, branded "Arc"**.
+Display name is **"Arc"** everywhere. The **hub was retired**: root `index.html`
+is now a tiny slug-independent redirect into `workout/`, and **auth moved into
+Arc itself** (`showAuthGate()` in `app.js` + the `#authOverlay` in
+`workout/index.html`; the old `location.href='../'` redirect is gone). Sign-out
+lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`).
+- **Slug decoupled from the code:** the hardcoded `/life-dashboard/` absolute
+  paths (in `sw.js` precache + root `manifest.json`) were converted to
+  **relative** paths, so the app works at `/life-dashboard/` today **and** at
+  `/arc/` with no code change and no breakage window. `sw.js` cache renamed to
+  the `arc-` prefix.
+- **The one remaining step is manual + external:** rename the GitHub repo
+  `life-dashboard → arc` in repo settings. That flips GitHub Pages to
+  `…github.io/arc/`; relative paths keep resolving either way. Until then the
+  live URL stays `/life-dashboard/` and everything still works.
+- **`DB_NAME` stays `life-dashboard`** (in `shared/db.js`) — local-only;
+  renaming it blanks every install until the cloud pull restores it. Do NOT.
+- **`.claude/launch.json`** still names the local preview `life-dashboard` and
+  points at the local checkout path — untouched (local dev only, not deployed).
 
-- **Live:** https://joejohnston72-dev.github.io/life-dashboard/
-- **Repo:** github.com/joejohnston72-dev/life-dashboard (public) · **Local:** `/Users/joejohnston/life-dashboard`
+- **Live:** https://joejohnston72-dev.github.io/life-dashboard/ (→ `…/arc/` once the repo is renamed). Root path redirects into `workout/`.
+- **Repo:** github.com/joejohnston72-dev/life-dashboard (public; rename → `arc` pending) · **Local:** `/Users/joejohnston/life-dashboard`
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **v63**.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v64** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
@@ -33,8 +42,9 @@ local-only and renaming it blanks every install until cloud restore.
 `preview_start` name `life-dashboard` (port 3457, in `~/.claude/launch.json`). Then `preview_eval` to set a fake Supabase token in localStorage and navigate to `/workout/`. Drive the UI via dispatched events; assert via IndexedDB reads. Screenshot for visual checks.
 
 ## Modules
-- **NB (2026-07): the user no longer uses the Home/hub page** — they run **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and the **Gym App** (`workout/`, installed standalone from `/life-dashboard/workout/`) as independent home-screen PWAs. The hub still exists (it hosts the shared auth entry the workout app redirects to when unauthenticated) but don't invest UI effort there; icon/branding work matters for `workout/icon.png` and the calorieAI repo.
-- **Home** (`index.html`) — the root PWA, displayed name **"Arc"** (title, manifest, apple-mobile-web-app-title, header, auth-screen title). 2 tiles (Calories→external CalorieAI app, Arc/`workout/`) + Suggestions panel (`shared/suggestions.js`, workout only) + auth overlay. The hub is slated to be **retired** (gym-only pivot) — don't invest in it; the workout app is the product. Both the hub and the workout tile now read "Arc".
+- **Architecture:** **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and **Arc** (`workout/`) are independent home-screen PWAs on a shared Supabase project. Arc reads today's nutrition from the shared `calories` store and links out to CalorieAI (`CALORIE_APP_URL`, `getNutritionToday()`), but is otherwise standalone.
+- **Home / hub — RETIRED (2026-08).** Root `index.html` is now just a slug-independent redirect into `workout/` (meta-refresh + `location.replace('workout/…')`); its old tiles/suggestions/auth were removed. Root `manifest.json` `start_url` points at `workout/`. Auth + the suggestions engine no longer live here.
+- **Arc** (`workout/`) — **the product; self-authenticating.** `showAuthGate()` (`app.js`) shows `#authOverlay` (in `workout/index.html`) and awaits Supabase email-OTP login instead of redirecting to the dead hub; sign-out is in Progress → Data & backup → Account. See the Gym App section below.
 - **Habits — REMOVED** (never adopted). Deleted the `habits/` module, `shared/push.js`, and the reminders backend (`supabase/functions/send-reminders`, schema/cron SQL). The `'habits'` IndexedDB store is intentionally KEPT in `db.js` STORES so the user's saved Anthropic key (`db.get('habits','anthropic-key')`) still resolves for the coach. Note: any deployed Supabase `send-reminders` pg_cron job / `reminders` table still exist server-side until torn down (`select cron.unschedule('send-reminders-every-minute');`), but harmless with no UI to create reminders.
 - **Arc** (`workout/`, folder/route unchanged — branding is **"Arc"**: tab title, PWA install name/manifest, apple-web-app-title, home-tile label) — the big one; see below. (Formerly labelled "Gym App".)
 - Removed: Finance module + GoCardless (deleted; user uses external budget tracker).

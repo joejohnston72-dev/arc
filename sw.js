@@ -1,26 +1,30 @@
-const CACHE = 'life-dashboard-v63';
+const CACHE = 'arc-v64';
+// Paths are RELATIVE to this service worker's URL (its own directory is the SW
+// scope), so they resolve correctly whatever the repo/deploy slug is —
+// /life-dashboard/ today, /arc/ once the GitHub repo is renamed — with no code
+// change and no breakage window.
 const PRECACHE = [
-  '/life-dashboard/',
-  '/life-dashboard/index.html',
-  '/life-dashboard/styles.css',
-  '/life-dashboard/shared/db.js',
-  '/life-dashboard/shared/supabase.js',
-  '/life-dashboard/shared/suggestions.js',
-  '/life-dashboard/shared/icons.js',
-  '/life-dashboard/manifest.json',
-  '/life-dashboard/icon.png',
-  '/life-dashboard/workout/index.html',
-  '/life-dashboard/workout/app.js',
-  '/life-dashboard/workout/exercises.js',
-  '/life-dashboard/workout/repRanges.js',
-  '/life-dashboard/workout/cues.js',
-  '/life-dashboard/workout/routineLibrary.js',
-  '/life-dashboard/workout/myRoutines.js',
-  '/life-dashboard/workout/stats.js',
-  '/life-dashboard/workout/achievements.js',
-  '/life-dashboard/workout/coach.js',
-  '/life-dashboard/workout/manifest.json',
-  '/life-dashboard/workout/icon.png',
+  './',
+  './index.html',
+  './styles.css',
+  './shared/db.js',
+  './shared/supabase.js',
+  './shared/suggestions.js',
+  './shared/icons.js',
+  './manifest.json',
+  './icon.png',
+  './workout/index.html',
+  './workout/app.js',
+  './workout/exercises.js',
+  './workout/repRanges.js',
+  './workout/cues.js',
+  './workout/routineLibrary.js',
+  './workout/myRoutines.js',
+  './workout/stats.js',
+  './workout/achievements.js',
+  './workout/coach.js',
+  './workout/manifest.json',
+  './workout/icon.png',
 ];
 
 self.addEventListener('install', e => {

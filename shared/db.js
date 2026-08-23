@@ -8,6 +8,10 @@
 
 import { supabase } from './supabase.js';
 
+// Local-only IndexedDB database name. Kept as 'life-dashboard' on purpose even
+// after the Arc rename / slug change — renaming it orphans every existing
+// install's local data (it would start empty until the Supabase pull restores
+// it). It never leaves the device, so the name is invisible to users.
 const DB_NAME    = 'life-dashboard';
 const DB_VERSION = 1;
 const STORES     = ['calories', 'workout', 'habits'];
