@@ -122,6 +122,9 @@ function canonicalizeSessions(sessions) {
     }),
   }));
 }
+// Session loader yielding merged identities — fed to the AI coach so it reasons
+// over the same consolidated per-lift history the user sees.
+const loadSessionsCanonical = async () => canonicalizeSessions(await loadSessions());
 // Persist a merge (rawName -> canonical) or, with target=null, a "separate".
 async function setExerciseAlias(rawName, canonical) {
   const key = rawName.toLowerCase();
@@ -282,7 +285,7 @@ function collectPRs(sessions, limit = 40) {
     const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
     for (const pb of (s.pbs || [])) {
       if (!pb?.exercise) continue;
-      out.push({ exercise: pb.exercise, type: pb.type || '', label: pb.label || '', ts,
+      out.push({ exercise: canonicalName(pb.exercise), type: pb.type || '', label: pb.label || '', ts,
                  date: s.date || (s.startTime || '').slice(0, 10) });
     }
   }
@@ -3508,13 +3511,15 @@ async function renderStats() {
     return;
   }
   const chrono = [...sessions].reverse(); // oldest → newest for charts
+  const cchrono = canonicalizeSessions(chrono); // merged identities for the per-lift progression chart
   const totals = lifetimeTotals(sessions);
   const settings = await getStreakSettings();
   const streak = computeStreak(sessions, settings);
   const miles = computeMilestones(sessions, streak.weeks);
   const pbTotal = sessions.reduce((a, s) => a + (s.pbs?.length || 0), 0);
   const trophies = miles.earned.length + pbTotal;
-  const freq = exerciseFrequency(sessions);
+  const freq = exerciseFrequency(canonicalizeSessions(sessions)); // dropdown lists merged identities
+  if (statsExercise) statsExercise = canonicalName(statsExercise); // a prior pick may now be a merged-in name
   if (!statsExercise && freq.length) statsExercise = freq[0].name;
   const now = new Date();
   if (!statsMonth) statsMonth = { y: now.getFullYear(), m: now.getMonth() };
@@ -3580,7 +3585,7 @@ async function renderStats() {
 
   const renderProg = () => {
     document.getElementById('statsProgression').innerHTML =
-      statsExercise ? progressionHTML(chrono, statsExercise) : '';
+      statsExercise ? progressionHTML(cchrono, statsExercise) : '';
   };
   document.getElementById('statsExSelect').onchange = e => { statsExercise = e.target.value; renderProg(); };
   renderProg();
@@ -4013,14 +4018,17 @@ async function renderLibrary() {
       `<div class="skeleton" style="height:56px;margin-bottom:8px;border-radius:14px"></div>`).join('');
 
   const [all, sessions, templates] = await Promise.all([getAllExercises(), loadSessions(), getTemplates()]);
+  // Hide exercises that have been merged into another identity — they show under
+  // the canonical exercise now, not as their own library row.
+  const visible = all.filter(e => canonicalName(e.name) === e.name);
   const stats = buildExerciseStatsMap(sessions);
   const setsByCat = {};
   weeklySetsByCategory(sessions).rows.forEach(r => { setsByCat[r.cat] = r.perWk; });
   const inRoutines = new Set(templates.flatMap(t => (t.exercises || []).map(e => e.name)));
 
   // Count line
-  const loggedCount = all.filter(e => stats.has(e.name)).length;
-  document.getElementById('libCount').textContent = `${all.length} exercises · ${loggedCount} logged`;
+  const loggedCount = visible.filter(e => stats.has(e.name)).length;
+  document.getElementById('libCount').textContent = `${visible.length} exercises · ${loggedCount} logged`;
 
   // Your routines — start any of them straight from the Library (tap to begin).
   const libRoutinesEl = document.getElementById('libRoutines');
@@ -4062,7 +4070,7 @@ async function renderLibrary() {
     libFilter === 'never' ? !stats.has(e.name) :
     libFilter === 'custom' ? !!e.custom : true;
 
-  const filtered = all.filter(e =>
+  const filtered = visible.filter(e =>
     matchesFilter(e) && matchesSearch(`${e.name} ${e.category}`, q));
 
   const el = document.getElementById('libraryList2');
@@ -4535,7 +4543,7 @@ let _dailyBusy = false;
 
 async function generateDailySuggestion(today) {
   try {
-    const system = await assembleContext({ loadSessions, getTemplates, getAllExercises, getStreakSettings });
+    const system = await assembleContext({ loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
     const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do not add exercises or log workouts.`;
     const result = await callCoach({
@@ -4960,7 +4968,7 @@ async function sendCoach(text, forceTool = false) {
 
   try {
     const system = await assembleContext({
-      loadSessions, getTemplates, getAllExercises, getStreakSettings,
+      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
     });
     const apiMessages = coachThread.map(m =>
       m.role === 'assistant'
