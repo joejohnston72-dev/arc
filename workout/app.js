@@ -21,7 +21,18 @@ const refreshIcons = () => renderIcons(document);
 // Auth lives in Arc itself now (the shared hub was retired). With no session we
 // show the in-app login overlay and wait for it, instead of redirecting away.
 let { data: { session } } = await supabase.auth.getSession();
+const hadSessionAtImport = !!session;   // did db.js's import-time initialSync pull?
 if (!session) session = await showAuthGate();
+
+// db.js kicks off the cloud pull (`initialSync`) at IMPORT time, but it only
+// pulls when a session already exists then. When the hub existed, auth happened
+// before this app loaded, so that was always true. Now that auth lives in-app,
+// a fresh sign-in via the gate means initialSync already resolved to 0 (no
+// session at import) and never pulled — which would render an EMPTY history and
+// look like data loss. So: reuse initialSync only if we were already signed in;
+// otherwise run the pull now, post-login. Everything below awaits `restore`, so
+// history is restored before the first render AND before any mirror-up to cloud.
+const restore = hadSessionAtImport ? initialSync : db.sync();
 
 // In-app email-OTP login. Resolves with the session once the user signs in.
 function showAuthGate() {
@@ -2325,7 +2336,7 @@ async function autoBackupIfStale() {
   try {
     const last = +(localStorage.getItem('arc-last-backup') || 0);
     if (Date.now() - last < AUTO_BACKUP_MS) return;
-    await initialSync.catch(() => {});   // never race the initial restore
+    await restore.catch(() => {});   // never race the initial restore (post-login pull included)
     await db.backup();
     localStorage.setItem('arc-last-backup', String(Date.now()));
   } catch (_) { /* offline / no session — try again next open */ }
@@ -5135,7 +5146,7 @@ if (document.getElementById('recentList')) {
   document.getElementById('recentList').innerHTML =
     `<div style="display:flex;align-items:center;gap:6px;justify-content:center;color:var(--text-muted);font-size:0.8rem;padding:6px 0 12px">${icon('refresh-cw', { size: 13 })} Restoring your data…</div>` + skeletonCards(3);
 }
-try { await Promise.race([initialSync, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
+try { await Promise.race([restore, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
 await loadExOverrides();   // library edits (exercise types/categories) before any render
 await loadExAliases();     // exercise identity merges — before any history render
@@ -5159,6 +5170,6 @@ renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one
 
 // If the cloud pull finished AFTER the cap (slow network), refresh once it lands.
-initialSync.then(n => { if (n) { renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
+restore.then(n => { if (n) { renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h
