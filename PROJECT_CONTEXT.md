@@ -13,17 +13,18 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
   **relative** paths, so the app works at `/life-dashboard/` today **and** at
   `/arc/` with no code change and no breakage window. `sw.js` cache renamed to
   the `arc-` prefix.
-- **The one remaining step is manual + external:** rename the GitHub repo
-  `life-dashboard → arc` in repo settings. That flips GitHub Pages to
-  `…github.io/arc/`; relative paths keep resolving either way. Until then the
-  live URL stays `/life-dashboard/` and everything still works.
+- **GitHub repo renamed → `arc` (DONE, 2026-08).** Pages now serves at
+  `…github.io/arc/`; the relative paths resolve there unchanged. GitHub keeps
+  the old `/life-dashboard/` URL as a redirect for a while, and relative paths
+  make both work. Point your local `git remote` origin at `…/arc.git` (GitHub
+  redirects pushes to the old URL too, so either resolves).
 - **`DB_NAME` stays `life-dashboard`** (in `shared/db.js`) — local-only;
   renaming it blanks every install until the cloud pull restores it. Do NOT.
 - **`.claude/launch.json`** still names the local preview `life-dashboard` and
   points at the local checkout path — untouched (local dev only, not deployed).
 
-- **Live:** https://joejohnston72-dev.github.io/life-dashboard/ (→ `…/arc/` once the repo is renamed). Root path redirects into `workout/`.
-- **Repo:** github.com/joejohnston72-dev/life-dashboard (public; rename → `arc` pending) · **Local:** `/Users/joejohnston/life-dashboard`
+- **Live:** https://joejohnston72-dev.github.io/arc/ (old `/life-dashboard/` still redirects). Root path redirects into `workout/`.
+- **Repo:** github.com/joejohnston72-dev/arc (public; renamed from `life-dashboard`) · **Local:** `/Users/joejohnston/life-dashboard`
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
