@@ -1,16 +1,24 @@
-# Gym and Calorie App — Project Context (source of truth)
+# Arc — Project Context (source of truth)
 
-Personal PWA. Read this first to avoid re-reading the whole codebase. (Displayed
-app name is "Gym and Calorie App"; the repo/folder/deploy path stays
-`life-dashboard` — renaming those is a separate, much bigger operation and
-wasn't asked for.)
+Personal PWA. Read this first to avoid re-reading the whole codebase.
+
+**Naming (2026-08, scope pivot):** the project is now **gym-only, branded "Arc"**.
+The displayed app name is **"Arc"** everywhere user-facing (root hub title/manifest/
+header/auth screen, and the `workout/` app which was already "ARC"). The
+repo/folder/deploy slug **stays `life-dashboard`** (repo name, `/life-dashboard/`
+paths, `sw.js` cache prefix, and the local IndexedDB `DB_NAME`) — the display
+rename is done; the **slug rename → `arc`** and **retiring the root hub** (moving
+shared auth into Arc) are agreed but **deferred**, to be done as a separate
+coordinated change (needs the GitHub repo renamed too, or the live URL breaks).
+The IndexedDB `DB_NAME` in particular must **not** be renamed casually — it's
+local-only and renaming it blanks every install until cloud restore.
 
 - **Live:** https://joejohnston72-dev.github.io/life-dashboard/
 - **Repo:** github.com/joejohnston72-dev/life-dashboard (public) · **Local:** `/Users/joejohnston/life-dashboard`
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **v60**.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **v61**.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
@@ -26,9 +34,9 @@ wasn't asked for.)
 
 ## Modules
 - **NB (2026-07): the user no longer uses the Home/hub page** — they run **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and the **Gym App** (`workout/`, installed standalone from `/life-dashboard/workout/`) as independent home-screen PWAs. The hub still exists (it hosts the shared auth entry the workout app redirects to when unauthenticated) but don't invest UI effort there; icon/branding work matters for `workout/icon.png` and the calorieAI repo.
-- **Home** (`index.html`) — the root PWA, displayed name **"Gym and Calorie App"** (title, manifest, apple-mobile-web-app-title, header, auth-screen title). 2 tiles (Calories→external CalorieAI app, Gym App/`workout/`) + Suggestions panel (`shared/suggestions.js`, workout only) + auth overlay. Note the two-tier naming: the root app is "Gym and Calorie App", the workout tile/module within it is separately branded "Gym App" — that's intentional, per how each rename was requested.
+- **Home** (`index.html`) — the root PWA, displayed name **"Arc"** (title, manifest, apple-mobile-web-app-title, header, auth-screen title). 2 tiles (Calories→external CalorieAI app, Arc/`workout/`) + Suggestions panel (`shared/suggestions.js`, workout only) + auth overlay. The hub is slated to be **retired** (gym-only pivot) — don't invest in it; the workout app is the product. Both the hub and the workout tile now read "Arc".
 - **Habits — REMOVED** (never adopted). Deleted the `habits/` module, `shared/push.js`, and the reminders backend (`supabase/functions/send-reminders`, schema/cron SQL). The `'habits'` IndexedDB store is intentionally KEPT in `db.js` STORES so the user's saved Anthropic key (`db.get('habits','anthropic-key')`) still resolves for the coach. Note: any deployed Supabase `send-reminders` pg_cron job / `reminders` table still exist server-side until torn down (`select cron.unschedule('send-reminders-every-minute');`), but harmless with no UI to create reminders.
-- **Gym App** (`workout/`, folder/route unchanged — only the branding is "Gym App" now: tab title, PWA install name, in-app header, home-tile label) — the big one; see below.
+- **Arc** (`workout/`, folder/route unchanged — branding is **"Arc"**: tab title, PWA install name/manifest, apple-web-app-title, home-tile label) — the big one; see below. (Formerly labelled "Gym App".)
 - Removed: Finance module + GoCardless (deleted; user uses external budget tracker).
 - **Design tokens (v36 sleek-dark palette):** neutral near-black — `--bg #0b0b10`, `--surface #15151c`, `--surface2 #1e1e26`, `--text #f2f2f7`, `--text-muted #8e8e9a`, `--border rgba(255,255,255,0.07)` (hairline on every raised card/tile/modal). Accents: blue `#38bdf8` (rgb 56,189,248 — also in many rgba() literals), red/accent `#f43f5e` (244,63,94), purple `#a78bfa` (167,139,250), green `#34d399`, amber `#fbbf24` unchanged. Manifests + `theme-color` metas match `#0b0b10`. Tab bar is frosted glass (`backdrop-filter: blur`), primary CTA is a subtle blue gradient with glow. If retheming again, sweep the rgba **triplets** too, not just hex.
 - **Shared UI kit** (`shared/icons.js`) — vendored subset of [Lucide](https://lucide.dev) icons (inline SVG bodies for the ~40 names actually used, ~6 KB — the full pack is 400 KB, and the CDN is blocked in CI anyway). `icon(name,{size,stroke,cls})` returns an `<svg>` string to drop straight into template literals; `renderIcons(root)` fills static `<i data-lucide="name">` placeholders (idempotent). Used across **both** apps. Fonts: **Google Sans** loaded from the Google Fonts v1 CSS API in both `<head>`s (`css?family=Google+Sans:400,500,700`); a single weight hierarchy lives in `styles.css` tokens `--fw-regular/medium/bold` (400/500/700) — all in-repo weights were normalised onto those three. Tooltips (`[data-tip]` CSS + native `title`) and `.skeleton` shimmer loaders are also in `styles.css`.

@@ -1,7 +1,7 @@
 {
-  "name": "Gym and Calorie App",
-  "short_name": "Gym & Cal",
-  "description": "Personal gym and calorie tracking app",
+  "name": "Arc",
+  "short_name": "Arc",
+  "description": "Arc — personal gym tracking app",
   "start_url": "/life-dashboard/",
   "scope": "/life-dashboard/",
   "display": "standalone",
