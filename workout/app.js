@@ -63,6 +63,73 @@ const LOGTYPES = {
 // at init (loadExOverrides) and kept in sync on every edit. Custom exercises are
 // edited in place in `exercises-custom` instead, so they don't live here.
 let exOverrides = {};
+// ── Exercise identity / alias map ─────────────────────────────────────────────
+// User-declared "these logged names are the same lift" merges, applied at READ
+// time so nothing stored is ever rewritten (fully reversible). Store key
+// `exercise-aliases` in the workout store = { rawNameLower: canonicalName }.
+// `canonicalName(name)` folds any logged/variation name onto the identity the
+// user picked; it's applied wherever history is grouped by name (stats map,
+// exercise detail, PR timeline, frequency, progression) so a merged exercise
+// reads as one continuous history. Removing an entry ("Separate") splits it back
+// out. Chains are followed one hop at a time with a cycle guard.
+let exAliases = {};
+async function loadExAliases() {
+  exAliases = (await db.get(STORE, 'exercise-aliases')) || {};
+  return exAliases;
+}
+function canonicalName(name) {
+  if (!name) return name;
+  let cur = name;
+  const seen = new Set();
+  while (true) {
+    const key = cur.toLowerCase();
+    if (seen.has(key)) break;                 // cycle guard
+    seen.add(key);
+    const next = exAliases[key];
+    if (!next || next.toLowerCase() === key) break;
+    cur = next;
+  }
+  return cur;
+}
+// The distinct raw logged names that currently fold onto `canon` (excluding the
+// canonical name itself), gathered from history + the stored alias map.
+function aliasMembers(canon, sessions) {
+  const out = new Map();                       // lowerName -> display name
+  const canonLc = canon.toLowerCase();
+  // History first — real, properly-cased logged names (first occurrence wins).
+  for (const s of sessions || []) {
+    for (const ex of s.exercises || []) {
+      const k = ex.name.toLowerCase();
+      if (k !== canonLc && !out.has(k) && canonicalName(ex.name) === canon) out.set(k, ex.name);
+    }
+  }
+  // Then any merged names that have never been logged yet (fall back to the key).
+  for (const [raw, target] of Object.entries(exAliases)) {
+    const k = raw.toLowerCase();
+    if (k !== canonLc && !out.has(k) && canonicalName(target) === canon) out.set(k, raw);
+  }
+  return [...out.values()];
+}
+// A read-only view of sessions with every exercise name replaced by its canonical
+// identity (shallow clones — never written back). Feed this to name-grouping
+// helpers in stats.js (progressionHTML etc.) so merged variations aggregate too.
+function canonicalizeSessions(sessions) {
+  return (sessions || []).map(s => ({
+    ...s,
+    exercises: (s.exercises || []).map(e => {
+      const c = canonicalName(e.name);
+      return c === e.name ? e : { ...e, name: c };
+    }),
+  }));
+}
+// Persist a merge (rawName -> canonical) or, with target=null, a "separate".
+async function setExerciseAlias(rawName, canonical) {
+  const key = rawName.toLowerCase();
+  if (!canonical || canonical.toLowerCase() === key) delete exAliases[key];
+  else exAliases[key] = canonical;
+  await db.set(STORE, 'exercise-aliases', exAliases);
+  db.backup();
+}
 // NB: bare "hang" was removed — it false-matched "Leg Raise (Hanging)" (a
 // rep-based exercise) and forced it into time-tracking. "dead hang" alone
 // covers the actual isometric hold.
@@ -1309,20 +1376,22 @@ function closeExerciseDetail() {
 }
 async function openExerciseDetail(name) {
   if (!name) return;
+  name = canonicalName(name);                  // always show the merged identity
   const [sessions, allEx] = await Promise.all([loadSessions(), getAllExercises()]);
   const def = allEx.find(x => x.name === name) || { name, category: guessCategory(name) };
   const st = buildExerciseStatsMap(sessions).get(name);
+  const members = aliasMembers(name, sessions); // other logged names folded into this one
 
-  // Recent sessions of this lift + best single-set volume.
+  // Recent sessions of this lift + best single-set volume (across all merged names).
   const history = [];
   let bestVol = 0;
   for (const s of sessions) {
-    const ex = (s.exercises || []).find(e => e.name === name);
+    const ex = (s.exercises || []).find(e => canonicalName(e.name) === name);
     if (!ex) continue;
     const sets = (ex.sets || []).filter(x => x.done || x.weight || x.reps || x.duration || x.distance);
     if (!sets.length) continue;
     sets.forEach(x => { const v = (x.weight || 0) * (x.reps || 0); if (v > bestVol) bestVol = v; });
-    if (history.length < 6) history.push({ date: s.date || (s.startTime || '').slice(0, 10), lt: resolveLogType(ex), sets, pb: (s.pbs || []).some(p => p.exercise === name) });
+    if (history.length < 6) history.push({ date: s.date || (s.startTime || '').slice(0, 10), lt: resolveLogType(ex), sets, raw: ex.name !== name ? ex.name : null, pb: (s.pbs || []).some(p => canonicalName(p.exercise) === name) });
   }
 
   // Header
@@ -1341,8 +1410,8 @@ async function openExerciseDetail(name) {
     <div class="ed-hbox"><div class="ed-hval">${st ? st.count : 0}</div><div class="ed-hlbl">Sessions</div></div>
   </div>`;
 
-  // Progression chart
-  const chrono = [...sessions].reverse();
+  // Progression chart (canonicalized so merged variations show on the same line)
+  const chrono = canonicalizeSessions([...sessions].reverse());
   const progCard = st && st.series.length > 1
     ? `<div class="ed-card"><div class="ed-card-title">Top set over time <span class="sub">${st.series.length} sessions</span></div>${progressionHTML(chrono, name)}</div>`
     : '';
@@ -1367,15 +1436,23 @@ async function openExerciseDetail(name) {
     ? `<div class="ed-card"><div class="ed-card-title">Form cues</div><ul class="ed-cues">${cues.map((c, i) => `<li class="ed-cue"><span class="ed-cue-n">${i + 1}</span><span>${esc(c)}</span></li>`).join('')}</ul></div>`
     : '';
 
-  // Recent sets
+  // Recent sets (a merged-in variation is tagged with the name it was logged as)
   const histHTML = history.length
-    ? `<div class="ed-card"><div class="ed-card-title">Recent sets</div>${history.map(h => `<div class="ed-hrow"><span class="ed-hdate">${fmtDate(h.date)}</span><span class="ed-hsets">${h.pb ? `<span class="pbmark">${icon('trophy', { size: 11 })}</span> ` : ''}${h.sets.map(x => esc(setPrevText(h.lt, x))).join(' · ')}</span></div>`).join('')}</div>`
+    ? `<div class="ed-card"><div class="ed-card-title">Recent sets</div>${history.map(h => `<div class="ed-hrow"><span class="ed-hdate">${fmtDate(h.date)}${h.raw ? ` <span class="ed-raw-tag" data-tip="Logged as “${esc(h.raw)}”">${esc(h.raw)}</span>` : ''}</span><span class="ed-hsets">${h.pb ? `<span class="pbmark">${icon('trophy', { size: 11 })}</span> ` : ''}${h.sets.map(x => esc(setPrevText(h.lt, x))).join(' · ')}</span></div>`).join('')}</div>`
     : '<div class="ed-card"><div class="stats-empty">No logged sets yet — add it to a workout to start tracking.</div></div>';
 
-  document.getElementById('exDetailBody').innerHTML = heroHTML + progCard + note + targetHTML + cuesHTML + histHTML;
+  // Identity / history mapping — merge variations & customs into one lift, or split back out.
+  const idCard = `<div class="ed-card"><div class="ed-card-title">Identity <span class="sub">history mapping</span></div>`
+    + (members.length
+        ? `<div class="ed-id-sub">Merging the history of ${members.length} other logged name${members.length > 1 ? 's' : ''}. Tap ✕ to separate one back out.</div>`
+          + `<div class="ed-id-chips">${members.map(m => `<span class="ed-id-chip">${esc(m)}<button class="ed-id-x" data-sep="${esc(m)}" aria-label="Separate">${icon('x', { size: 12 })}</button></span>`).join('')}</div>`
+        : `<div class="ed-id-sub">If the app is splitting this lift across different names — a variation or one of your customs — merge them so their history counts as one.</div>`)
+    + `<button class="ed-id-merge" id="edMerge">${icon('plus-circle', { size: 15 })} Merge another exercise into this</button></div>`;
 
-  // Actions (context-aware)
-  const ei = activeSession ? (activeSession.exercises || []).findIndex(e => e.name === name) : -1;
+  document.getElementById('exDetailBody').innerHTML = heroHTML + progCard + note + targetHTML + idCard + cuesHTML + histHTML;
+
+  // Actions (context-aware) — match by canonical so a merged identity still resolves to the live exercise
+  const ei = activeSession ? (activeSession.exercises || []).findIndex(e => canonicalName(e.name) === name) : -1;
   const actEl = document.getElementById('exDetailActions');
   if (ei >= 0) {
     actEl.innerHTML = `<button class="ed-abtn p" id="edBack2">${icon('arrow-left', { size: 17 })} Back to workout</button>
@@ -1400,8 +1477,62 @@ async function openExerciseDetail(name) {
     closeExerciseDetail();
     if (p) askCoachFromHome(p, f || false);
   });
+  // Identity mapping
+  document.getElementById('edMerge')?.addEventListener('click', () => openMergePicker(name));
+  document.getElementById('exDetailBody').querySelectorAll('.ed-id-x').forEach(b => b.onclick = async () => {
+    await setExerciseAlias(b.dataset.sep, null);   // remove the alias → split back out
+    openExerciseDetail(name);                       // re-render the detail in place
+  });
 }
 document.getElementById('exDetailBack').onclick = closeExerciseDetail;
+
+// ── Merge picker: choose an exercise whose history folds into `canon` ──────────
+// Lists every other known identity (built-ins, customs, and any name seen in
+// history) minus those already merged here. Selecting one writes an alias
+// (picked → canon) so its past sets count toward `canon` everywhere.
+let mergeTargetCanon = null;
+async function openMergePicker(canon) {
+  mergeTargetCanon = canon;
+  const [sessions, allEx] = await Promise.all([loadSessions(), getAllExercises()]);
+  const seen = new Map();                          // lowerName -> display + category
+  for (const e of allEx) seen.set(e.name.toLowerCase(), { name: e.name, category: e.category });
+  for (const s of sessions) for (const ex of s.exercises || []) {
+    if (!seen.has(ex.name.toLowerCase())) seen.set(ex.name.toLowerCase(), { name: ex.name, category: ex.category });
+  }
+  // Exclude the canonical itself and anything already resolving to it.
+  const options = [...seen.values()]
+    .filter(o => canonicalName(o.name) !== canon)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById('mergeExTitle').textContent = `Merge into “${canon}”`;
+  document.getElementById('mergeExSearch').value = '';
+  renderMergeOptions(options);
+  window._mergeOptions = options;
+  document.getElementById('mergeExModal').classList.add('open');
+  syncScrollLock();
+  setTimeout(() => document.getElementById('mergeExSearch').focus(), 120);
+}
+function renderMergeOptions(options) {
+  const q = (document.getElementById('mergeExSearch').value || '').trim().toLowerCase();
+  const list = q ? options.filter(o => o.name.toLowerCase().includes(q)) : options;
+  const el = document.getElementById('mergeExList');
+  el.innerHTML = list.length
+    ? list.slice(0, 60).map(o => `<div class="ep-item" data-name="${esc(o.name)}"><span class="ep-cat-pill" style="background:${CATEGORY_COLORS[o.category] || '#8e8e9a'}">${esc(o.category || '')}</span><span class="ep-ex-name">${esc(o.name)}</span></div>`).join('')
+    : `<div class="stats-empty" style="padding:18px">No matching exercise.</div>`;
+  el.querySelectorAll('.ep-item').forEach(row => row.onclick = async () => {
+    await setExerciseAlias(row.dataset.name, mergeTargetCanon);   // picked → canon
+    closeMergePicker();
+    openExerciseDetail(mergeTargetCanon);
+  });
+}
+function closeMergePicker() {
+  document.getElementById('mergeExModal').classList.remove('open');
+  syncScrollLock();
+}
+document.getElementById('mergeExCancel').onclick = closeMergePicker;
+document.getElementById('mergeExModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('mergeExModal')) closeMergePicker();
+});
+document.getElementById('mergeExSearch').oninput = () => renderMergeOptions(window._mergeOptions || []);
 
 // ── Supersets ─────────────────────────────────────────────────────────────────
 // Contiguous exercises that share a supersetId are performed back-to-back; rest
@@ -3821,8 +3952,9 @@ function buildExerciseStatsMap(sessions) {
     for (const ex of s.exercises || []) {
       const working = (ex.sets || []).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
       if (!working.length) continue;
-      const existed = map.has(ex.name);
-      const m = map.get(ex.name) || { pbWeight: 0, pbReps: 0, e1rm: 0, lastTs: 0, lastWeight: 0, lastReps: 0, count: 0, _series: [] };
+      const key = canonicalName(ex.name);      // fold merged variations into one identity
+      const existed = map.has(key);
+      const m = map.get(key) || { pbWeight: 0, pbReps: 0, e1rm: 0, lastTs: 0, lastWeight: 0, lastReps: 0, count: 0, _series: [] };
       const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
       if (!existed) { m.lastWeight = top.weight; m.lastReps = top.reps || 0; } // sessions newest-first → first hit is latest
       for (const st of working) {
@@ -3835,7 +3967,7 @@ function buildExerciseStatsMap(sessions) {
       m.count++;
       if (t > m.lastTs) m.lastTs = t;
       if (t) m._series.push({ t, w: top.weight });
-      map.set(ex.name, m);
+      map.set(key, m);
     }
   }
   for (const m of map.values()) {
@@ -4943,6 +5075,7 @@ if (document.getElementById('recentList')) {
 try { await Promise.race([initialSync, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
 await loadExOverrides();   // library edits (exercise types/categories) before any render
+await loadExAliases();     // exercise identity merges — before any history render
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await checkForAbandonedSession();

@@ -1239,6 +1239,21 @@
     .ed-hrow { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--border); }
     .ed-hrow:first-child { border-top:none; }
     .ed-hdate { font-size:0.74rem; color:var(--text-muted); flex:0 0 auto; }
+    .ed-raw-tag { display:inline-block; font-size:0.62rem; font-weight:700; color:var(--purple); background:rgba(var(--purple-rgb),0.14);
+      border-radius:6px; padding:1px 6px; margin-left:6px; vertical-align:middle; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Identity / history-mapping card */
+    .ed-id-sub { font-size:0.8rem; line-height:1.45; color:var(--text-muted); margin-bottom:12px; }
+    .ed-id-chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .ed-id-chip { display:inline-flex; align-items:center; gap:5px; font-size:0.8rem; font-weight:600; color:var(--text);
+      background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:6px 6px 6px 11px; }
+    .ed-id-x { display:inline-flex; align-items:center; justify-content:center; background:none; border:none; color:var(--text-muted);
+      cursor:pointer; padding:2px; border-radius:6px; -webkit-tap-highlight-color:transparent; }
+    .ed-id-x:active { color:var(--red); background:rgba(var(--red-rgb),0.12); }
+    .ed-id-merge { display:inline-flex; align-items:center; gap:7px; font-size:0.82rem; font-weight:700; color:var(--blue);
+      background:rgba(var(--blue-rgb),0.10); border:1px solid rgba(var(--blue-rgb),0.3); border-radius:11px; padding:10px 13px; cursor:pointer;
+      -webkit-tap-highlight-color:transparent; }
+    /* Merge-picker modal list */
+    #mergeExList { max-height:46vh; overflow-y:auto; -webkit-overflow-scrolling:touch; margin:4px -4px 0; }
     .ed-hsets { font-size:0.82rem; font-variant-numeric:tabular-nums; text-align:right; }
     .ed-hsets .pbmark { color:var(--amber); font-weight:700; }
     .ed-actionbar { position:fixed; left:0; right:0; bottom:0; display:none; gap:10px; padding:12px var(--gap) calc(env(safe-area-inset-bottom) + 14px);
@@ -1577,6 +1592,19 @@
     <div class="modal-btns">
       <button class="btn btn-g" id="editExCancel">Cancel</button>
       <button class="btn btn-p" id="editExSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Merge-exercise picker (identity mapping) ── -->
+<div class="modal-backdrop" id="mergeExModal">
+  <div class="modal">
+    <p class="modal-title" id="mergeExTitle">Merge into</p>
+    <div class="form-hint" style="font-size:0.72rem;color:var(--text-muted);margin:-4px 0 10px">Its past sets will count toward this lift everywhere — history, PBs and charts. You can separate it again anytime.</div>
+    <input class="form-input" id="mergeExSearch" placeholder="Search exercises…" autocomplete="off" style="margin-bottom:6px">
+    <div id="mergeExList"></div>
+    <div class="modal-btns" style="margin-top:14px">
+      <button class="btn btn-g" id="mergeExCancel">Cancel</button>
     </div>
   </div>
 </div>
