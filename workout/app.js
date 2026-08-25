@@ -4519,10 +4519,86 @@ async function coachSetProfile(input) {
            summary: { title: 'Updated your coach profile', items } };
 }
 
+// ── Coach memory strip (top of the Coach tab) ────────────────────────────────
+async function renderCoachMemory() {
+  const el = document.getElementById('coachMem');
+  if (!el) return;
+  const p = await getCoachProfile();
+  const parts = [];
+  if (p) {
+    if (p.goal)             parts.push(p.goal);
+    if (p.experience)       parts.push(p.experience);
+    if (p.daysPerWeek)      parts.push(`${p.daysPerWeek}d/wk`);
+    if (p.injuries?.length) parts.push('avoid ' + p.injuries.join(', '));
+    if (p.bodyweightKg)     parts.push(`${p.bodyweightKg}kg`);
+  }
+  if (parts.length) {
+    el.innerHTML =
+      `<span class="coach-mem-ic">${icon('notebook-pen', { size: 16 })}</span>` +
+      `<span class="coach-mem-txt"><b>Remembers you:</b> ${esc(parts.join(' · '))}</span>` +
+      `<span class="coach-mem-edit">Edit</span>`;
+  } else {
+    el.innerHTML =
+      `<span class="coach-mem-ic">${icon('notebook-pen', { size: 16 })}</span>` +
+      `<span class="coach-mem-txt">Set your goals, kit &amp; injuries so I can tailor everything to you.</span>` +
+      `<span class="coach-mem-edit">Set up</span>`;
+  }
+}
+
+// ── Coach profile sheet (view/edit the persistent profile directly) ──────────
+let cpDays = 0;
+let cpInjuries = [];
+function renderCpInjuries() {
+  const wrap = document.getElementById('cpInjTags');
+  wrap.innerHTML = cpInjuries.map((t, i) =>
+    `<span class="cp-tag">${esc(t)} <button type="button" data-i="${i}" aria-label="Remove">✕</button></span>`).join('');
+  wrap.querySelectorAll('button').forEach(b =>
+    b.onclick = () => { cpInjuries.splice(+b.dataset.i, 1); renderCpInjuries(); });
+}
+async function openCoachProfile() {
+  const p = (await getCoachProfile()) || {};
+  document.getElementById('cpGoal').value  = p.goal || '';
+  document.getElementById('cpEquip').value = p.equipment || '';
+  document.getElementById('cpBw').value    = p.bodyweightKg || '';
+  cpDays = p.daysPerWeek || 0;
+  document.getElementById('cpDaysVal').textContent = cpDays || '—';
+  document.querySelectorAll('#cpExp button').forEach(b =>
+    b.classList.toggle('on', b.dataset.v === (p.experience || '')));
+  cpInjuries = Array.isArray(p.injuries) ? [...p.injuries] : [];
+  renderCpInjuries();
+  document.getElementById('coachProfileModal').classList.add('open');
+  syncScrollLock();
+}
+function closeCoachProfile() {
+  document.getElementById('coachProfileModal').classList.remove('open');
+  syncScrollLock();
+}
+async function saveCoachProfileSheet() {
+  const goal      = document.getElementById('cpGoal').value.trim();
+  const equipment = document.getElementById('cpEquip').value.trim();
+  const bw        = parseFloat(document.getElementById('cpBw').value);
+  const expBtn    = document.querySelector('#cpExp button.on');
+
+  const next = { ...((await getCoachProfile()) || {}) };
+  if (goal) next.goal = goal; else delete next.goal;
+  if (equipment) next.equipment = equipment; else delete next.equipment;
+  if (expBtn) next.experience = expBtn.dataset.v; else delete next.experience;
+  if (cpDays > 0) next.daysPerWeek = cpDays; else delete next.daysPerWeek;
+  if (bw > 0) { next.bodyweightKg = +bw.toFixed(1); try { await logBodyweight(+bw.toFixed(1)); } catch (_) {} }
+  next.injuries = cpInjuries.slice();
+  if (!next.injuries.length) delete next.injuries;
+  next.updatedAt = new Date().toISOString();
+
+  await db.set(STORE, 'coach-profile', next);
+  closeCoachProfile();
+  renderCoachMemory();
+}
+
 // The Coach tab is a direct Q&A chat. Proactive coach content (the daily pick +
 // data-driven observations) lives on the Home screen (renderDashCoach) instead.
 async function renderCoach() {
   await loadCoachThread();
+  renderCoachMemory();
   const thread = document.getElementById('coachThread');
   thread.innerHTML = '';
   if (!coachThread.length) {
@@ -4755,6 +4831,60 @@ function askCoachFromHome(prompt, force) {
   setTimeout(() => sendCoach(prompt, force || false), 60);
 }
 
+// ── Weekly review — rule-based, no API needed (this-week vs last-week + balance)
+function computeWeeklyReview(sessions) {
+  const now = new Date();
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((now.getDay() + 6) % 7));   // back to Monday
+  const monMs = monday.getTime();
+  const prevMonMs = monMs - 7 * 86400000;
+
+  let cntThis = 0, cntPrev = 0, volThis = 0, pbThis = 0;
+  for (const s of sessions) {
+    const t = new Date(s.date || s.startTime || 0).getTime();
+    if (isNaN(t)) continue;
+    if (t >= monMs) {
+      cntThis++;
+      pbThis += (s.pbs || []).length;
+      for (const ex of s.exercises || []) for (const st of ex.sets || [])
+        if (st.done) volThis += (st.weight || 0) * (st.reps || 0);
+    } else if (t >= prevMonMs) { cntPrev++; }
+  }
+  if (!cntThis && !cntPrev) return null;   // nothing this or last week — skip the card
+
+  let note = '';
+  try {
+    const rows = weeklySetsByCategory(sessions, 4).rows || [];
+    const low  = rows.filter(r => r.status === 'low').map(r => r.cat);
+    const high = rows.filter(r => r.status === 'high').map(r => r.cat);
+    if (low.length)  note = `<b>${esc(low[0])}</b> is under 10 sets/wk — add a set or two to bring it up.`;
+    else if (high.length) note = `<b>${esc(high[0])}</b> is over 20 sets/wk — you could trim it without losing progress.`;
+  } catch (_) {}
+  if (!note) {
+    note = cntThis >= cntPrev
+      ? `On track — <b>${cntThis}</b> session${cntThis === 1 ? '' : 's'} logged this week.`
+      : `Down from <b>${cntPrev}</b> last week — a session or two keeps the streak alive.`;
+  }
+  return { sessions: cntThis, tonnes: +(volThis / 1000).toFixed(1), pbs: pbThis, note, delta: cntThis - cntPrev };
+}
+
+function renderWeeklyCard(wk) {
+  const card = document.createElement('div');
+  card.className = 'dash-weekly';
+  card.innerHTML = `
+    <span class="dw-eyebrow">${icon('chart-line', { size: 13 })} Weekly review</span>
+    <div class="dw-grid">
+      <div class="dw-stat"><div class="dw-n ${wk.delta >= 0 ? 'up' : ''}">${wk.sessions}</div><div class="dw-k">sessions</div></div>
+      <div class="dw-stat"><div class="dw-n">${wk.tonnes}t</div><div class="dw-k">volume</div></div>
+      <div class="dw-stat"><div class="dw-n ${wk.pbs ? 'up' : ''}">${wk.pbs}</div><div class="dw-k">PBs</div></div>
+    </div>
+    <div class="dw-note">${wk.note}</div>
+    <button class="dw-cta">${icon('bot', { size: 15 })} Ask for a full review</button>`;
+  card.querySelector('.dw-cta').onclick = () =>
+    askCoachFromHome('Give me a full weekly review: what went well, what lagged, and the single most important change for next week — cite my numbers.', false);
+  return card;
+}
+
 // ── Home "Your coach" section — proactive picks + observations, base of ops ───
 // This is where the coach talks TO the user (daily pick + data-driven findings).
 // The Coach tab itself is reserved for the user asking direct questions.
@@ -4766,13 +4896,14 @@ async function renderDashCoach(sessions) {
   _coachFindings = findings;
 
   const cachedDaily = await getCachedDaily();
+  const weekly = computeWeeklyReview(sessions);
   const hasKey = !!(await coachGetKey());
   // Prompt to unlock the AI coach: shown only when there's no key AND nothing
   // else to show yet, so the user learns why there are no AI picks and how to fix
   // it. (Rule-based observations still appear without a key.)
   const needsKeyHint = !hasKey && !cachedDaily && !findings.length && sessions.length > 0;
 
-  if (!findings.length && !cachedDaily && !needsKeyHint) { el.innerHTML = ''; }
+  if (!findings.length && !cachedDaily && !needsKeyHint && !weekly) { el.innerHTML = ''; }
   else {
     el.innerHTML = `
       <div class="dash-coach-head">
@@ -4783,6 +4914,7 @@ async function renderDashCoach(sessions) {
     el.querySelector('.dash-coach-open').onclick = () => document.querySelector('.tab[data-tab="Coach"]').click();
     const cards = el.querySelector('.dash-coach-cards');
     if (cachedDaily) cards.appendChild(renderDailyCard(cachedDaily));
+    if (weekly)      cards.appendChild(renderWeeklyCard(weekly));
     cards.insertAdjacentHTML('beforeend', findings.map((f, i) => coachFindingCard(f, i)).join(''));
     if (needsKeyHint) {
       const hint = document.createElement('div');
@@ -5302,6 +5434,37 @@ document.getElementById('coachKeySave').onclick = async () => {
   backfillCustomRepRanges(); // key just added — retry any exercises that had no range yet
   renderDashboard();         // a fresh key unlocks the proactive daily pick on Home
 };
+
+// ── Coach profile sheet wiring ────────────────────────────────────────────────
+document.getElementById('coachMem').onclick = openCoachProfile;
+document.getElementById('cpCancel').onclick = closeCoachProfile;
+document.getElementById('coachProfileModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('coachProfileModal')) closeCoachProfile();
+});
+document.querySelectorAll('#cpExp button').forEach(b => b.onclick = () => {
+  const on = b.classList.contains('on');
+  document.querySelectorAll('#cpExp button').forEach(x => x.classList.remove('on'));
+  if (!on) b.classList.add('on');   // tap again to clear
+});
+document.getElementById('cpDaysMinus').onclick = () => {
+  cpDays = Math.max(0, cpDays - 1);
+  document.getElementById('cpDaysVal').textContent = cpDays || '—';
+};
+document.getElementById('cpDaysPlus').onclick = () => {
+  cpDays = Math.min(14, (cpDays || 0) + 1);
+  document.getElementById('cpDaysVal').textContent = cpDays;
+};
+function addCpInjury() {
+  const inp = document.getElementById('cpInjInput');
+  const v = inp.value.trim();
+  if (!v) return;
+  cpInjuries.push(v); inp.value = ''; renderCpInjuries();
+}
+document.getElementById('cpInjAdd').onclick = addCpInjury;
+document.getElementById('cpInjInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); addCpInjury(); }
+});
+document.getElementById('cpSave').onclick = saveCoachProfileSheet;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 // Wait for the cloud restore BEFORE the first render / seeding, so a reinstalled

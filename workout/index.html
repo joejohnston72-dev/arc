@@ -831,6 +831,48 @@
       color:#000; font-size:1.1rem; cursor:pointer; flex-shrink:0;
     }
 
+    /* ── Coach identity header + persistent-memory strip ── */
+    .coach-head { flex-shrink:0; display:flex; align-items:center; gap:11px; padding:2px var(--gap) 8px; }
+    .coach-badge { width:36px; height:36px; border-radius:11px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(150deg,rgba(56,189,248,0.22),rgba(167,139,250,0.22)); border:1px solid rgba(56,189,248,0.35); color:var(--blue); }
+    .coach-head-title { font-size:1.02rem; font-weight:700; letter-spacing:-.2px; }
+    .coach-head-sub { font-size:0.72rem; color:var(--text-muted); display:flex; align-items:center; gap:5px; margin-top:1px; }
+    .coach-live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); }
+    .coach-mem { flex-shrink:0; display:flex; align-items:center; gap:9px; margin:0 var(--gap) 8px; padding:9px 12px; border-radius:12px;
+      background:var(--surface); border:1px solid var(--border); text-align:left; color:inherit; font:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; width:calc(100% - 2*var(--gap)); }
+    .coach-mem:active { background:var(--surface2); }
+    .coach-mem-ic { color:var(--purple); flex:0 0 auto; display:flex; }
+    .coach-mem-txt { font-size:0.73rem; color:var(--text-muted); line-height:1.35; flex:1; min-width:0; }
+    .coach-mem-txt b { color:var(--text); font-weight:500; }
+    .coach-mem-edit { font-size:0.7rem; color:var(--blue); font-weight:500; flex:0 0 auto; }
+
+    /* ── Coach profile sheet controls ── */
+    .cp-seg { display:flex; background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:3px; gap:3px; }
+    .cp-seg button { flex:1; padding:9px 0; border:none; border-radius:8px; font-size:0.82rem; font-weight:500; color:var(--text-muted); background:none; cursor:pointer; }
+    .cp-seg button.on { background:var(--blue); color:#000; font-weight:700; }
+    .cp-row2 { display:flex; gap:12px; } .cp-row2>div { flex:1; }
+    .cp-stepper { display:flex; align-items:center; justify-content:space-between; background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:6px 8px; }
+    .cp-stepper button { width:34px; height:34px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .cp-val { font-size:1rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .cp-tags { display:flex; flex-wrap:wrap; gap:7px; min-height:2px; }
+    .cp-tag { display:inline-flex; align-items:center; gap:6px; padding:7px 11px; border-radius:999px; font-size:0.78rem;
+      background:rgba(244,63,94,0.12); border:1px solid rgba(244,63,94,0.35); color:#fda4af; font-weight:500; }
+    .cp-tag button { background:none; border:none; color:#fda4af; opacity:.8; cursor:pointer; font-size:0.85rem; line-height:1; padding:0; }
+    .cp-addwrap { display:flex; gap:8px; margin-top:8px; }
+
+    /* ── Home: weekly-review card ── */
+    .dash-weekly { background:var(--surface); border:1px solid rgba(52,211,153,0.28); border-radius:var(--radius); padding:16px; }
+    .dw-eyebrow { display:inline-flex; align-items:center; gap:6px; font-size:0.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--green); }
+    .dw-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:12px; }
+    .dw-stat { background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:10px 8px; text-align:center; }
+    .dw-n { font-size:1.15rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .dw-n.up { color:var(--green); } .dw-n.warn { color:var(--amber); }
+    .dw-k { font-size:0.6rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-top:3px; }
+    .dw-note { font-size:0.82rem; line-height:1.5; color:var(--text-muted); margin-top:12px; }
+    .dw-note b { color:var(--text); font-weight:500; }
+    .dw-cta { margin-top:13px; width:100%; padding:11px; border:none; border-radius:11px; background:var(--surface2); color:var(--text);
+      font-size:0.84rem; font-weight:700; display:flex; align-items:center; justify-content:center; gap:7px; cursor:pointer; }
+
     /* ── PB decorations ── */
     .wc-pb { font-size:0.72rem; color:var(--amber); font-weight:700; }
     .hd-pb-list {
@@ -1417,6 +1459,14 @@
 
   <!-- Coach (AI) -->
   <div class="section" id="secCoach">
+    <div class="coach-head">
+      <div class="coach-badge"><i data-lucide="bot" data-size="20"></i></div>
+      <div class="coach-head-txt">
+        <div class="coach-head-title">Coach</div>
+        <div class="coach-head-sub"><span class="coach-live-dot"></span> Reads your training data live</div>
+      </div>
+    </div>
+    <button class="coach-mem" id="coachMem" type="button"></button>
     <div class="coach-thread" id="coachThread"></div>
     <div class="coach-chips" id="coachChips">
       <button class="coach-chip" data-prompt="Analyse my routines, history, PBs and the exercises I keep swapping, then suggest one concrete improvement to a routine." data-force="suggest_routine_edit"><i data-lucide="zap" data-size="15"></i> Improve my routines</button>
@@ -1721,6 +1771,50 @@
     <div class="modal-btns">
       <button class="btn btn-g" id="coachKeyCancel">Cancel</button>
       <button class="btn btn-p" id="coachKeySave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Coach profile sheet (the coach's persistent memory) ── -->
+<div class="modal-backdrop" id="coachProfileModal">
+  <div class="modal">
+    <p class="modal-title" style="display:flex;align-items:center;gap:7px"><span style="color:var(--purple);display:flex"><i data-lucide="notebook-pen" data-size="18"></i></span> Your training profile</p>
+    <p style="font-size:0.8rem;color:var(--text-muted);margin:-8px 0 16px;line-height:1.45">The coach remembers this across every chat — so it programs around your goal, kit and injuries without being told twice.</p>
+
+    <label class="form-label">Primary goal</label>
+    <input class="form-input" id="cpGoal" placeholder="e.g. Hypertrophy — bring up a lagging back" autocomplete="off">
+
+    <label class="form-label" style="margin-top:13px">Experience</label>
+    <div class="cp-seg" id="cpExp">
+      <button type="button" data-v="beginner">Beginner</button>
+      <button type="button" data-v="intermediate">Intermediate</button>
+      <button type="button" data-v="advanced">Advanced</button>
+    </div>
+
+    <div class="cp-row2" style="margin-top:13px">
+      <div>
+        <label class="form-label">Days / week</label>
+        <div class="cp-stepper"><button type="button" id="cpDaysMinus">−</button><span class="cp-val" id="cpDaysVal">—</span><button type="button" id="cpDaysPlus">+</button></div>
+      </div>
+      <div>
+        <label class="form-label">Bodyweight (kg)</label>
+        <input class="form-input" id="cpBw" inputmode="decimal" placeholder="—" style="text-align:center;font-weight:700" autocomplete="off">
+      </div>
+    </div>
+
+    <label class="form-label" style="margin-top:13px">Equipment / gym</label>
+    <input class="form-input" id="cpEquip" placeholder="e.g. Full commercial gym" autocomplete="off">
+
+    <label class="form-label" style="margin-top:13px">Injuries &amp; movements to avoid</label>
+    <div class="cp-tags" id="cpInjTags"></div>
+    <div class="cp-addwrap">
+      <input class="form-input" id="cpInjInput" placeholder="e.g. Right shoulder — no barbell OHP" autocomplete="off">
+      <button class="btn btn-g" id="cpInjAdd" type="button" style="flex:0 0 auto;padding:11px 16px">Add</button>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-g" id="cpCancel">Cancel</button>
+      <button class="btn btn-p" id="cpSave">Save profile</button>
     </div>
   </div>
 </div>
