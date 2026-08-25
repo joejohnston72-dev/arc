@@ -4461,6 +4461,7 @@ document.getElementById('awTitle').addEventListener('input', e => {
 // ════════════════════════════════════════════════════════════════════════════
 let coachThread = null;   // [{role, text, routine?}]
 let coachBusy = false;
+let lastCoachSend = null; // {text, forceTool} — for one-tap Retry after an error
 
 // Coach API key: workout-store key, falling back to any key previously saved
 // under the (now-removed) habits store so it carries over seamlessly.
@@ -4468,11 +4469,55 @@ async function coachGetKey() {
   return (await db.get('workout', 'anthropic-key')) || (await db.get('habits', 'anthropic-key')) || '';
 }
 
+// The coach can run if the user pasted a key OR is logged in (the Edge Function
+// proxy serves logged-in users). Only when neither holds do we hard-stop 'nokey'.
+async function coachHasTransport() {
+  if (await coachGetKey()) return true;
+  try { return !!(await supabase.auth.getSession())?.data?.session?.access_token; } catch (_) { return false; }
+}
+
 async function loadCoachThread() {
   if (!coachThread) coachThread = (await db.get('workout', 'coach-thread')) || [];
   return coachThread;
 }
 function persistCoachThread() { db.set('workout', 'coach-thread', coachThread); }
+
+// ── Coach memory: the persistent athlete profile the coach reads & writes ──────
+async function getCoachProfile() { return (await db.get(STORE, 'coach-profile')) || null; }
+// Computed bodyweight snapshot for the coach context (latest + trend).
+async function getCoachBodyStats() { try { return bodyStats(await getBodyLog()); } catch (_) { return null; } }
+
+// Merge the model's set_coach_profile input into the stored profile. Fields are
+// merged (only what changed is sent); array fields replace. A supplied bodyweight
+// is also written to the weigh-in log so the weight chart stays in sync.
+async function coachSetProfile(input) {
+  const cur = (await db.get(STORE, 'coach-profile')) || {};
+  const merged = { ...cur };
+  const str = v => (typeof v === 'string' ? v.trim() : '');
+  for (const k of ['goal', 'experience', 'equipment', 'notes']) if (str(input?.[k])) merged[k] = str(input[k]);
+  const dpw = parseInt(input?.daysPerWeek);
+  if (dpw > 0) merged.daysPerWeek = Math.min(14, dpw);
+  const bw = Number(input?.bodyweightKg);
+  if (bw > 0) { merged.bodyweightKg = bw; try { await logBodyweight(bw); } catch (_) {} }
+  for (const k of ['injuries', 'dislikes', 'preferences']) {
+    if (Array.isArray(input?.[k])) {
+      const arr = input[k].map(str).filter(Boolean);
+      if (arr.length) merged[k] = arr;
+    }
+  }
+  merged.updatedAt = new Date().toISOString();
+  await db.set(STORE, 'coach-profile', merged);
+  const items = [];
+  if (merged.goal) items.push(`Goal: ${merged.goal}`);
+  if (merged.experience) items.push(`Experience: ${merged.experience}`);
+  if (merged.daysPerWeek) items.push(`${merged.daysPerWeek} day(s)/week`);
+  if (merged.equipment) items.push(`Equipment: ${merged.equipment}`);
+  if (merged.injuries?.length) items.push(`Avoid: ${merged.injuries.join('; ')}`);
+  if (merged.preferences?.length) items.push(`Prefers: ${merged.preferences.join('; ')}`);
+  if (merged.bodyweightKg) items.push(`Bodyweight: ${merged.bodyweightKg}kg`);
+  return { text: "Saved to your profile — I'll remember that.",
+           summary: { title: 'Updated your coach profile', items } };
+}
 
 // The Coach tab is a direct Q&A chat. Proactive coach content (the daily pick +
 // data-driven observations) lives on the Home screen (renderDashCoach) instead.
@@ -4609,9 +4654,12 @@ let _dailyBusy = false;
 
 async function generateDailySuggestion(today) {
   try {
-    const system = await assembleContext({ loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings });
+    const system = await assembleContext({
+      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
+    });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-    const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do not add exercises or log workouts.`;
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my ATHLETE PROFILE, TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
     const result = await callCoach({
       apiMessages: [{ role: 'user', content: prompt }],
       system, forceTool: false, getKey: coachGetKey,
@@ -4792,6 +4840,13 @@ function renderCoachMessage(m) {
     const b = document.createElement('div');
     b.className = 'coach-msg ' + (m.role === 'user' ? 'user' : 'bot') + (m.error ? ' err' : '');
     b.textContent = m.text;
+    // Truncated answer: a hairline note so the user knows to ask for the rest.
+    if (m.incomplete) {
+      const note = document.createElement('div');
+      note.className = 'coach-cut';
+      note.textContent = '⚠︎ cut off — ask me to continue';
+      b.appendChild(note);
+    }
     wrap.appendChild(b);
   }
   if (m.routine) wrap.appendChild(renderRoutineCard(m.routine));
@@ -4993,21 +5048,26 @@ function renderSplitCard(split) {
 }
 
 const COACH_ERRORS = {
-  nokey:     'Add your Anthropic API key to use the coach — tap 🔑 below.',
-  auth:      'That API key was rejected (401). Tap 🔑 to update it.',
-  ratelimit: 'Rate limited — wait a moment and try again.',
-  network:   'Network error — check your connection and try again.',
-  toolarge:  'That request was too large. Try a shorter message.',
-  api:       'The AI service returned an error. Try again shortly.',
+  nokey:       'The coach isn\'t set up yet — add your Anthropic API key (tap 🔑 below) or deploy the coach service.',
+  unavailable: 'The coach service is unavailable right now. Add your own API key (🔑) as a fallback, or try again shortly.',
+  auth:        'That API key was rejected (401). Tap 🔑 to update it.',
+  ratelimit:   'Rate limited — wait a moment and try again.',
+  network:     'Network error — check your connection and try again.',
+  toolarge:    'That request was too large. Try a shorter message.',
+  empty:       'The coach didn\'t send anything back that time. Give it another go.',
+  api:         'The AI service returned an error. Try again shortly.',
 };
+// Errors worth a one-tap retry (transient / no user action needed).
+const COACH_RETRYABLE = new Set(['unavailable', 'ratelimit', 'network', 'empty', 'api']);
 
 async function sendCoach(text, forceTool = false) {
   if (coachBusy) return;
   text = text.trim();
   if (!text) return;
+  lastCoachSend = { text, forceTool };
   await loadCoachThread();
 
-  const key = await coachGetKey();
+  const available = await coachHasTransport();
   const thread = document.getElementById('coachThread');
   if (thread.querySelector('.coach-empty') || thread.querySelector('.coach-findings')) thread.innerHTML = '';
 
@@ -5019,7 +5079,7 @@ async function sendCoach(text, forceTool = false) {
   document.getElementById('coachInput').value = '';
   scrollCoachDown();
 
-  if (!key) {
+  if (!available) {
     pushCoachError('nokey');
     return;
   }
@@ -5032,78 +5092,185 @@ async function sendCoach(text, forceTool = false) {
   thread.appendChild(typing);
   scrollCoachDown();
 
+  // Live streaming bubble: swap the typing dots for a growing text bubble as soon
+  // as the first token arrives (tool-only replies keep the dots until the card).
+  const streamMsg = document.createElement('div');
+  streamMsg.className = 'coach-msg bot streaming';
+  let streamText = '', streamStarted = false;
+  const onDelta = chunk => {
+    if (!chunk) return;
+    if (!streamStarted) { streamStarted = true; typing.remove(); thread.appendChild(streamMsg); }
+    streamText += chunk;
+    streamMsg.textContent = streamText;
+    scrollCoachDown();
+  };
+
   try {
     const system = await assembleContext({
       loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
     const apiMessages = coachThread.map(m =>
       m.role === 'assistant'
         ? { role: 'assistant', content: m.text
             || (m.routine ? `[Drafted routine: ${m.routine.name}]` : '')
             || (m.split ? `[Drafted split: ${m.split.name} — ${(m.split.routines||[]).map(r=>r.name).join(', ')}]` : '')
-            || '…' }
+            || (m.action ? `[${m.action.title}]` : '')
+            || '' }   // empty → dropped by sanitizeMessages (no more '…' placeholders)
         : { role: 'user', content: m.text }
     );
-    const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey });
+    const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey, onDelta });
     typing.remove();
+    streamMsg.remove();   // re-rendered properly below (with cards/markup)
 
-    if (result.error) { pushCoachError(result.error); coachBusy = false; return; }
+    if (result.error) { pushCoachError(result.error, true); coachBusy = false; return; }
 
-    const botMsg = { role: 'assistant', text: result.text || '' };
-    const tool = result.tool;
-    if (tool?.name === 'draft_routine') {
-      try {
-        botMsg.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory });
-        if (!botMsg.text) botMsg.text = `Here's a routine — “${botMsg.routine.name}”:`;
-      } catch (_) {
-        if (!botMsg.text) botMsg.text = "I drafted something but couldn't structure it — try rephrasing.";
-      }
-    } else if (tool?.name === 'add_library_exercises') {
-      const res = await coachAddExercises(tool.input);
-      botMsg.action = res.summary;
-      if (!botMsg.text) botMsg.text = res.text;
-    } else if (tool?.name === 'log_workouts') {
-      const res = await coachLogWorkouts(tool.input);
-      botMsg.action = res.summary;
-      if (!botMsg.text) botMsg.text = res.text;
-    } else if (tool?.name === 'suggest_routine_edit') {
-      botMsg.suggestion = tool.input;
-      if (!botMsg.text) botMsg.text = tool.input?.rationale || 'Here’s a change I’d suggest:';
-    } else if (tool?.name === 'draft_split') {
-      try {
-        const days = Array.isArray(tool.input?.days) ? tool.input.days : [];
-        const routines = [];
-        for (const d of days) {
-          try { routines.push(await validateRoutine(d, { getAllExercises, guessCategory })); } catch (_) {}
-        }
-        if (routines.length) {
-          botMsg.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
-          if (!botMsg.text) botMsg.text = `Here's a ${routines.length}-day split — “${botMsg.split.name}”:`;
-        } else if (!botMsg.text) {
-          botMsg.text = "I planned a split but couldn't structure it — try rephrasing.";
-        }
-      } catch (_) {
-        if (!botMsg.text) botMsg.text = "I planned a split but couldn't structure it — try rephrasing.";
-      }
+    const botMsg = await buildCoachBotMsg(result);
+    if (!botMsg) {
+      // Genuinely nothing usable came back — offer a retry, never a dead "(no response)".
+      pushCoachError('empty', true);
+      coachBusy = false;
+      return;
     }
-    if (!botMsg.text && !botMsg.routine && !botMsg.split && !botMsg.action && !botMsg.suggestion) botMsg.text = '(no response)';
     coachThread.push(botMsg);
     thread.appendChild(renderCoachMessage(botMsg));
     persistCoachThread();
     scrollCoachDown();
   } catch (_) {
     typing.remove();
-    pushCoachError('network');
+    streamMsg.remove();
+    pushCoachError('network', true);
   }
   coachBusy = false;
 }
 
-function pushCoachError(code) {
+// Turn a callCoach result into a renderable assistant message, executing any tool
+// the model called (draft/split/edit/log/add/profile). Returns null when the
+// result carries nothing usable (caller shows a retryable error). Shared by
+// sendCoach and resendCoach so the two paths never drift.
+async function buildCoachBotMsg(result) {
+  const botMsg = { role: 'assistant', text: result.text || '' };
+  if (result.incomplete) botMsg.incomplete = true;
+  const tool = result.tool;
+  if (tool?.name === 'set_coach_profile') {
+    const res = await coachSetProfile(tool.input);
+    botMsg.action = res.summary;
+    if (!botMsg.text) botMsg.text = res.text;
+  } else if (tool?.name === 'draft_routine') {
+    try {
+      botMsg.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory });
+      if (!botMsg.text) botMsg.text = `Here's a routine — “${botMsg.routine.name}”:`;
+    } catch (_) {
+      if (!botMsg.text) botMsg.text = "I drafted something but couldn't structure it — try rephrasing.";
+    }
+  } else if (tool?.name === 'add_library_exercises') {
+    const res = await coachAddExercises(tool.input);
+    botMsg.action = res.summary;
+    if (!botMsg.text) botMsg.text = res.text;
+  } else if (tool?.name === 'log_workouts') {
+    const res = await coachLogWorkouts(tool.input);
+    botMsg.action = res.summary;
+    if (!botMsg.text) botMsg.text = res.text;
+  } else if (tool?.name === 'suggest_routine_edit') {
+    botMsg.suggestion = tool.input;
+    if (!botMsg.text) botMsg.text = tool.input?.rationale || 'Here’s a change I’d suggest:';
+  } else if (tool?.name === 'draft_split') {
+    try {
+      const days = Array.isArray(tool.input?.days) ? tool.input.days : [];
+      const routines = [];
+      for (const d of days) {
+        try { routines.push(await validateRoutine(d, { getAllExercises, guessCategory })); } catch (_) {}
+      }
+      if (routines.length) {
+        botMsg.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
+        if (!botMsg.text) botMsg.text = `Here's a ${routines.length}-day split — “${botMsg.split.name}”:`;
+      } else if (!botMsg.text) {
+        botMsg.text = "I planned a split but couldn't structure it — try rephrasing.";
+      }
+    } catch (_) {
+      if (!botMsg.text) botMsg.text = "I planned a split but couldn't structure it — try rephrasing.";
+    }
+  }
+  if (!botMsg.text && !botMsg.routine && !botMsg.split && !botMsg.action && !botMsg.suggestion) return null;
+  return botMsg;
+}
+
+function pushCoachError(code, allowRetry = false) {
   const msg = { role: 'assistant', text: COACH_ERRORS[code] || COACH_ERRORS.api, error: true };
   coachThread.push(msg);
-  document.getElementById('coachThread').appendChild(renderCoachMessage(msg));
+  const thread = document.getElementById('coachThread');
+  const el = renderCoachMessage(msg);
+  thread.appendChild(el);
+  // Offer a one-tap Retry for transient failures (ephemeral — not persisted).
+  if (allowRetry && COACH_RETRYABLE.has(code) && lastCoachSend) {
+    const retry = document.createElement('button');
+    retry.className = 'coach-retry';
+    retry.innerHTML = `${icon('refresh-cw', { size: 14 })} Retry`;
+    retry.onclick = () => {
+      retry.remove();
+      const { text, forceTool } = lastCoachSend;
+      // Drop the failed user turn's echo won't happen — resend re-adds a bubble;
+      // instead re-run the same request without duplicating the user message.
+      resendCoach(text, forceTool);
+    };
+    thread.appendChild(retry);
+  }
   persistCoachThread();
   scrollCoachDown();
+}
+
+// Retry the last request WITHOUT re-appending the user's bubble (it's already in
+// the thread). Mirrors sendCoach's send path but skips pushing a new user turn.
+async function resendCoach(text, forceTool = false) {
+  if (coachBusy) return;
+  const key = await coachGetKey();
+  let token = null;
+  try { token = (await supabase.auth.getSession())?.data?.session?.access_token || null; } catch (_) {}
+  if (!key && !token) { pushCoachError('nokey'); return; }
+  const thread = document.getElementById('coachThread');
+  coachBusy = true;
+  const typing = document.createElement('div');
+  typing.className = 'coach-typing';
+  typing.innerHTML = '<span></span><span></span><span></span>';
+  thread.appendChild(typing);
+  scrollCoachDown();
+
+  const streamMsg = document.createElement('div');
+  streamMsg.className = 'coach-msg bot streaming';
+  let streamText = '', streamStarted = false;
+  const onDelta = chunk => {
+    if (!chunk) return;
+    if (!streamStarted) { streamStarted = true; typing.remove(); thread.appendChild(streamMsg); }
+    streamText += chunk; streamMsg.textContent = streamText; scrollCoachDown();
+  };
+
+  try {
+    const system = await assembleContext({
+      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
+    });
+    const apiMessages = coachThread
+      .filter(m => !m.error)
+      .map(m => m.role === 'assistant'
+        ? { role: 'assistant', content: m.text
+            || (m.routine ? `[Drafted routine: ${m.routine.name}]` : '')
+            || (m.split ? `[Drafted split: ${m.split.name}]` : '')
+            || (m.action ? `[${m.action.title}]` : '') || '' }
+        : { role: 'user', content: m.text });
+    const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey, onDelta });
+    typing.remove(); streamMsg.remove();
+    if (result.error) { pushCoachError(result.error, true); coachBusy = false; return; }
+    const botMsg = await buildCoachBotMsg(result);
+    if (!botMsg) { pushCoachError('empty', true); coachBusy = false; return; }
+    coachThread.push(botMsg);
+    thread.appendChild(renderCoachMessage(botMsg));
+    persistCoachThread();
+    scrollCoachDown();
+  } catch (_) {
+    typing.remove(); streamMsg.remove();
+    pushCoachError('network', true);
+  }
+  coachBusy = false;
 }
 
 // ── Coach wiring ──────────────────────────────────────────────────────────────

@@ -718,6 +718,16 @@
     .coach-msg.user { align-self:flex-end; background:var(--blue); color:#000; border-bottom-right-radius:4px; }
     .coach-msg.bot  { align-self:flex-start; background:var(--surface); color:var(--text); border-bottom-left-radius:4px; }
     .coach-msg.bot.err { border:1px solid rgba(244,63,94,0.4); }
+    /* Streaming bubble: a soft blinking caret while tokens arrive. */
+    .coach-msg.bot.streaming::after { content:'▍'; margin-left:1px; color:var(--blue); animation:coachCaret 1s steps(1) infinite; }
+    @keyframes coachCaret { 0%,50%{ opacity:1; } 50.01%,100%{ opacity:0; } }
+    /* Truncated-answer note inside a bot bubble. */
+    .coach-cut { margin-top:6px; font-size:0.72rem; color:var(--amber); opacity:0.9; }
+    /* One-tap retry after a transient error. */
+    .coach-retry { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; margin:2px 0 4px; padding:7px 13px;
+      background:var(--surface2); color:var(--text); border:1px solid var(--border); border-radius:999px; font-size:0.82rem; cursor:pointer; }
+    .coach-retry:hover { border-color:var(--blue); color:var(--blue); }
+    .coach-retry svg { width:14px; height:14px; }
     .coach-empty { color:var(--text-muted); font-size:0.85rem; text-align:center; padding:24px 10px; line-height:1.6; }
     /* ── Coach: analysis-first findings ── */
     .coach-findings { display:flex; flex-direction:column; }
