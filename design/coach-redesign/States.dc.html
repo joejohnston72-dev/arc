@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    :root{
+      --bg:#0c0c0d; --surface:#1c1c1e; --surface2:#2c2c2e; --text:#f5f5f7; --muted:#98989f;
+      --blue:#38bdf8; --orange:#fb923c; --green:#34d399; --amber:#fbbf24; --purple:#a78bfa; --red:#f43f5e;
+      --border:rgba(255,255,255,0.10); --radius:16px;
+      --font:'Google Sans','Product Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+    a{color:var(--blue);} a:hover{color:#7dd3fc;}
+    .board{width:430px;min-height:1240px;background:var(--bg);padding:26px 20px;display:flex;flex-direction:column;gap:22px;}
+    .cap{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:-8px;}
+    .row{display:flex;flex-direction:column;gap:9px;align-items:flex-start;}
+    /* bubbles */
+    .msg{max-width:88%;padding:10px 13px;border-radius:14px;font-size:.9rem;line-height:1.5;}
+    .msg.bot{align-self:flex-start;background:var(--surface);color:var(--text);border:1px solid var(--border);border-bottom-left-radius:4px;}
+    .msg.bot.err{border:1px solid rgba(244,63,94,0.4);background:rgba(244,63,94,0.06);}
+    .cut{margin-top:7px;font-size:.72rem;color:var(--amber);}
+    .retry{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;
+      background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:.82rem;font-weight:500;}
+    .retry svg{color:var(--blue);}
+    /* empty */
+    .empty{background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);padding:26px 20px;text-align:center;width:100%;}
+    .empty .ic{width:46px;height:46px;border-radius:13px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(150deg,rgba(56,189,248,0.2),rgba(167,139,250,0.2));color:var(--blue);}
+    .empty h4{font-size:.98rem;font-weight:700;margin-bottom:6px;}
+    .empty p{font-size:.82rem;color:var(--muted);line-height:1.55;}
+    /* green action card */
+    .action{width:100%;background:rgba(52,211,153,0.07);border:1px solid rgba(52,211,153,0.35);border-radius:14px;padding:13px 14px;}
+    .action-head{display:flex;align-items:center;gap:7px;font-size:.88rem;font-weight:700;color:var(--green);}
+    .action-list{margin:8px 0 0 4px;list-style:none;font-size:.8rem;color:var(--text);line-height:1.75;}
+    .action-list li::before{content:'· ';color:var(--muted);}
+    /* split card */
+    .split{width:100%;background:var(--surface);border:1px solid rgba(251,146,60,0.4);border-radius:14px;padding:14px;}
+    .split-name{display:flex;align-items:center;gap:7px;font-size:.95rem;font-weight:700;margin-bottom:6px;}
+    .split-name svg{color:var(--orange);}
+    .day{padding:8px 0;border-top:1px solid var(--border);}
+    .day:first-of-type{border-top:none;}
+    .day-name{font-size:.82rem;font-weight:700;color:var(--orange);}
+    .day-ex{font-size:.75rem;color:var(--muted);margin-top:2px;line-height:1.4;}
+    .split-btn{margin-top:12px;width:100%;padding:11px;border:none;border-radius:10px;background:var(--orange);color:#000;font-weight:700;font-size:.85rem;display:flex;align-items:center;justify-content:center;gap:6px;}
+    /* suggestion card */
+    .sugg{width:100%;background:var(--surface);border:1px solid rgba(167,139,250,0.4);border-radius:14px;padding:14px;}
+    .sugg-head{display:flex;align-items:center;gap:7px;font-size:.86rem;font-weight:700;color:var(--purple);margin-bottom:8px;}
+    .sugg-body{font-size:.82rem;line-height:1.6;color:var(--text);}
+    .sugg-body b{font-weight:700;}
+    .sugg-btns{display:flex;gap:8px;margin-top:12px;}
+    .sugg-btns button{flex:1;padding:10px;border:none;border-radius:10px;font-size:.82rem;font-weight:700;}
+    .apply{background:var(--blue);color:#000;} .dismiss{background:var(--surface2);color:var(--text);}
+  </style>
+</helmet>
+
+<div class="board">
+  <div class="cap">Error → one-tap retry (replaces “(no response)”)</div>
+  <div class="row">
+    <div class="msg bot err">The coach service is unavailable right now. Add your own API key as a fallback, or try again shortly.</div>
+    <div class="retry"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M3 8a9 9 0 1 0 2.5-3.5L3 8"/></svg> Retry</div>
+  </div>
+
+  <div class="cap">Truncated answer — never an empty bubble</div>
+  <div class="row">
+    <div class="msg bot">…so for the squat, drive the knees out and brace before you unrack. Next block I'd run a wave —
+      <div class="cut">⚠︎ cut off — ask me to continue</div>
+    </div>
+  </div>
+
+  <div class="cap">Empty state</div>
+  <div class="empty">
+    <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg></div>
+    <h4>Ask me anything</h4>
+    <p>Training, form, programming, progression, recovery — or “what should I train today?”. I read your history, PBs and recovery, and post a daily pick on Home.</p>
+  </div>
+
+  <div class="cap">Action confirmed (logging / library / profile)</div>
+  <div class="action">
+    <div class="action-head"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg> Updated your coach profile</div>
+    <ul class="action-list">
+      <li>Goal: hypertrophy, lagging back</li>
+      <li>Experience: advanced</li>
+      <li>Avoid: right shoulder — no barbell OHP</li>
+      <li>Bodyweight: 84kg</li>
+    </ul>
+  </div>
+
+  <div class="cap">Full split (saved in one tap)</div>
+  <div class="split">
+    <div class="split-name"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> PPL — rebalanced · 3 days</div>
+    <div class="day"><div class="day-name">Push</div><div class="day-ex">Bench · Incline DB · Lateral Raise · Overhead Rope · Dips</div></div>
+    <div class="day"><div class="day-name">Pull (priority)</div><div class="day-ex">Pull-up · Barbell Row · Chest-Supported Row · Face Pull · Curl</div></div>
+    <div class="day"><div class="day-name">Legs</div><div class="day-ex">Squat · RDL · Leg Press · Leg Curl · Calf Raise</div></div>
+    <button class="split-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Save all 3 routines</button>
+  </div>
+
+  <div class="cap">Routine-edit suggestion (apply with one tap)</div>
+  <div class="sugg">
+    <div class="sugg-head"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg> Suggested change · Upper A</div>
+    <div class="sugg-body">Your lateral delts lag and OHP is out (shoulder). Swap <b>Barbell OHP → Cable Lateral Raise</b> (3×15) — loads the side delt at the stretch without the pressing your shoulder can't take.</div>
+    <div class="sugg-btns"><button class="apply">✓ Apply</button><button class="dismiss">Dismiss</button></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

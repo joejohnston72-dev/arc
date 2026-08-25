@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",    "x": 0,    "y": 0, "w": 390, "h": 844,  "title": "Coach — chat" },
+    { "file": "Profile.dc.html", "x": 490,  "y": 0, "w": 390, "h": 844,  "title": "Athlete profile sheet" },
+    { "file": "Home.dc.html",    "x": 980,  "y": 0, "w": 390, "h": 844,  "title": "Home — daily + weekly" },
+    { "file": "States.dc.html",  "x": 1470, "y": 0, "w": 430, "h": 1240, "title": "Cards & states" }
+  ],
+  "annotations": [
+    { "id": "intro", "x": 0, "y": -150, "w": 600,
+      "text": "Arc AI Coach — redesign\nStreaming chat with persistent memory. Left→right: the chat (live-streaming reply + routine card + the new 'remembers you' strip), the athlete-profile sheet, the Home daily pick + new weekly review, and the card/state library (incl. the retry state that replaces '(no response)')." }
+  ],
+  "launch": { "view": "canvas" }
+}
