@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    :root{
+      --bg:#0c0c0d; --surface:#1c1c1e; --surface2:#2c2c2e; --text:#f5f5f7; --muted:#98989f;
+      --blue:#38bdf8; --orange:#fb923c; --green:#34d399; --amber:#fbbf24; --purple:#a78bfa; --red:#f43f5e;
+      --border:rgba(255,255,255,0.10); --radius:16px;
+      --font:'Google Sans','Product Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);
+      -webkit-font-smoothing:antialiased;font-weight:400;}
+    a{color:var(--blue);} a:hover{color:#7dd3fc;}
+    .screen{width:390px;height:844px;background:var(--bg);display:flex;flex-direction:column;overflow:hidden;}
+    /* header */
+    .head{padding:52px 16px 12px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--border);}
+    .badge{width:38px;height:38px;border-radius:11px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(150deg,rgba(56,189,248,0.22),rgba(167,139,250,0.22));border:1px solid rgba(56,189,248,0.35);color:var(--blue);}
+    .htitle{font-size:1.02rem;font-weight:700;letter-spacing:-.2px;}
+    .hsub{font-size:.72rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin-top:1px;}
+    .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);}
+    .hicon{margin-left:auto;color:var(--muted);}
+    /* persistent profile memory strip — the new "coach remembers you" affordance */
+    .mem{margin:10px 16px 2px;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;
+      background:var(--surface);border:1px solid var(--border);}
+    .mem-ic{color:var(--purple);flex:0 0 auto;}
+    .mem-txt{font-size:.73rem;color:var(--muted);line-height:1.35;flex:1;min-width:0;}
+    .mem-txt b{color:var(--text);font-weight:500;}
+    .mem-edit{font-size:.7rem;color:var(--blue);font-weight:500;flex:0 0 auto;}
+    /* thread */
+    .thread{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:11px;padding:14px 16px;}
+    .msg{max-width:85%;padding:10px 13px;border-radius:14px;font-size:.9rem;line-height:1.5;white-space:pre-wrap;}
+    .msg.user{align-self:flex-end;background:var(--blue);color:#000;border-bottom-right-radius:4px;font-weight:500;}
+    .msg.bot{align-self:flex-start;background:var(--surface);color:var(--text);border-bottom-left-radius:4px;border:1px solid var(--border);}
+    .msg.bot .em{color:var(--amber);font-weight:500;}
+    .caret{display:inline-block;width:8px;height:1.05em;vertical-align:-2px;margin-left:2px;background:var(--blue);
+      animation:blink 1s steps(1) infinite;border-radius:1px;}
+    @keyframes blink{0%,50%{opacity:1;}50.01%,100%{opacity:0;}}
+    /* routine card */
+    .routine{align-self:flex-start;background:var(--surface);border:1px solid rgba(56,189,248,0.3);border-radius:14px;padding:14px;max-width:92%;width:92%;}
+    .r-name{font-size:.95rem;font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:7px;}
+    .r-ex{display:flex;justify-content:space-between;gap:10px;font-size:.8rem;padding:3.5px 0;color:var(--muted);border-top:1px solid rgba(255,255,255,0.05);}
+    .r-ex:first-of-type{border-top:none;}
+    .r-ex b{color:var(--text);font-weight:500;}
+    .r-why{font-size:.72rem;color:var(--muted);line-height:1.4;margin:9px 0 0;padding-top:9px;border-top:1px solid var(--border);}
+    .r-why b{color:var(--blue);font-weight:500;}
+    .r-btns{display:flex;gap:8px;margin-top:12px;}
+    .r-btns button{flex:1;padding:11px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+    .cr-start{background:var(--blue);color:#000;} .cr-save{background:var(--surface2);color:var(--text);}
+    /* chips + input */
+    .chips{flex:0 0 auto;display:flex;gap:7px;padding:8px 16px 4px;overflow:hidden;}
+    .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;
+      background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:.78rem;font-weight:500;white-space:nowrap;}
+    .chip svg{color:var(--blue);}
+    .composer{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:8px 16px 22px;}
+    .field{flex:1;display:flex;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:11px 16px;color:var(--muted);font-size:.9rem;}
+    .send{width:42px;height:42px;flex:0 0 auto;border-radius:50%;background:var(--blue);color:#000;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(56,189,248,0.35);}
+  </style>
+</helmet>
+
+<div class="screen">
+  <div class="head">
+    <div class="badge">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+    </div>
+    <div>
+      <div class="htitle">Coach</div>
+      <div class="hsub"><span class="dot"></span> Reads your training data live</div>
+    </div>
+    <div class="hicon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+  </div>
+
+  <div class="mem">
+    <span class="mem-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 0-5 5c0 1 .3 1.8.7 2.5A5 5 0 0 0 5 14a5 5 0 0 0 4 4.9V22"/><path d="M12 2a5 5 0 0 1 5 5c0 1-.3 1.8-.7 2.5A5 5 0 0 1 19 14a5 5 0 0 1-4 4.9"/></svg></span>
+    <div class="mem-txt"><b>Remembers you:</b> hypertrophy · advanced · avoid R-shoulder barbell OHP · 84kg</div>
+    <span class="mem-edit">Edit</span>
+  </div>
+
+  <div class="thread">
+    <div class="msg bot">Your back's your lagging group — 7.5 sets/wk vs 19 for chest. Chest is also 22 sets/wk, over the productive ceiling. I'd pull a chest movement and add rowing volume. Here's today, built around your freshest groups:</div>
+
+    <div class="routine">
+      <div class="r-name">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5M3 7l4-4M17 21l4-4M7 3l14 14M3 17l4 4"/></svg>
+        Pull A — back priority
+      </div>
+      <div class="r-ex"><b>Pull-up</b><span>4 × 6</span></div>
+      <div class="r-ex"><b>Barbell Row</b><span>4 × 8</span></div>
+      <div class="r-ex"><b>Chest-Supported Row</b><span>3 × 12</span></div>
+      <div class="r-ex"><b>Lat Pulldown</b><span>3 × 12</span></div>
+      <div class="r-ex"><b>Face Pull</b><span>3 × 15</span></div>
+      <div class="r-why"><b>Why:</b> back last trained 4 days ago (freshest); rows drive the 3:1 lat:mid-trap ratio you're short on.</div>
+      <div class="r-btns">
+        <button class="cr-start"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Start</button>
+        <button class="cr-save"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Save</button>
+      </div>
+    </div>
+
+    <div class="msg user">Swap the pulldown for a machine — my grip's fried today</div>
+
+    <div class="msg bot">Done — Iso-Lateral Row keeps the lats loaded without grip demand.<span class="caret"></span></div>
+  </div>
+
+  <div class="chips">
+    <div class="chip"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg> Improve routines</div>
+    <div class="chip"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> Build a split</div>
+    <div class="chip"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> Today's session</div>
+  </div>
+
+  <div class="composer">
+    <div class="field">Ask your coach…</div>
+    <div class="send"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

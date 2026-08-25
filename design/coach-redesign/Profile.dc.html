@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    :root{
+      --bg:#0c0c0d; --surface:#1c1c1e; --surface2:#2c2c2e; --text:#f5f5f7; --muted:#98989f;
+      --blue:#38bdf8; --green:#34d399; --amber:#fbbf24; --purple:#a78bfa; --red:#f43f5e;
+      --border:rgba(255,255,255,0.10); --radius:16px;
+      --font:'Google Sans','Product Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+    a{color:var(--blue);} a:hover{color:#7dd3fc;}
+    .screen{width:390px;height:844px;background:var(--bg);position:relative;overflow:hidden;}
+    /* dimmed backdrop hint of the coach behind the sheet */
+    .backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.55);}
+    .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:22px 22px 0 0;
+      border-top:1px solid var(--border);padding:10px 18px 26px;box-shadow:0 -20px 50px rgba(0,0,0,0.5);}
+    .grab{width:38px;height:4px;border-radius:2px;background:#48484a;margin:6px auto 14px;}
+    .s-head{display:flex;align-items:center;gap:9px;margin-bottom:4px;}
+    .s-ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+      background:rgba(167,139,250,0.15);color:var(--purple);flex:0 0 auto;}
+    .s-title{font-size:1.05rem;font-weight:700;letter-spacing:-.2px;}
+    .s-sub{font-size:.75rem;color:var(--muted);line-height:1.4;margin:2px 0 16px;}
+    .lbl{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 7px;}
+    .input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:12px 13px;color:var(--text);font-size:.9rem;}
+    .input.ph{color:var(--muted);}
+    /* segmented */
+    .seg{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:3px;gap:3px;}
+    .seg div{flex:1;text-align:center;padding:9px 0;border-radius:8px;font-size:.82rem;font-weight:500;color:var(--muted);}
+    .seg .on{background:var(--blue);color:#000;font-weight:700;}
+    /* stepper */
+    .row2{display:flex;gap:12px;}
+    .row2>div{flex:1;}
+    .stepper{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:6px 8px;}
+    .stepper button{width:34px;height:34px;border-radius:8px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-size:1.1rem;display:flex;align-items:center;justify-content:center;}
+    .stepper .val{font-size:1rem;font-weight:700;font-variant-numeric:tabular-nums;}
+    /* injury chips */
+    .tags{display:flex;flex-wrap:wrap;gap:7px;}
+    .tag{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;font-size:.78rem;
+      background:rgba(244,63,94,0.12);border:1px solid rgba(244,63,94,0.35);color:#fda4af;font-weight:500;}
+    .tag .x{color:#fda4af;opacity:.8;}
+    .tag.add{background:var(--surface2);border:1px dashed var(--border);color:var(--muted);}
+    .save{margin-top:22px;width:100%;padding:15px;border:none;border-radius:13px;background:var(--blue);color:#000;
+      font-size:.95rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 18px rgba(56,189,248,0.3);}
+    .hint{text-align:center;font-size:.7rem;color:var(--muted);margin-top:11px;line-height:1.45;}
+  </style>
+</helmet>
+
+<div class="screen">
+  <div class="backdrop"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="s-head">
+      <div class="s-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+      <div class="s-title">Your training profile</div>
+    </div>
+    <div class="s-sub">The coach remembers this across every chat — so it programs around your goal, kit and injuries without being told twice.</div>
+
+    <div class="lbl">Primary goal</div>
+    <div class="input">Hypertrophy — bring up a lagging back</div>
+
+    <div class="lbl">Experience</div>
+    <div class="seg"><div>Beginner</div><div>Intermediate</div><div class="on">Advanced</div></div>
+
+    <div class="row2">
+      <div>
+        <div class="lbl">Days / week</div>
+        <div class="stepper"><button>−</button><span class="val">4</span><button>+</button></div>
+      </div>
+      <div>
+        <div class="lbl">Bodyweight</div>
+        <div class="input" style="text-align:center;font-weight:700;">84.0 kg</div>
+      </div>
+    </div>
+
+    <div class="lbl">Equipment</div>
+    <div class="input">Full commercial gym</div>
+
+    <div class="lbl">Injuries &amp; movements to avoid</div>
+    <div class="tags">
+      <span class="tag"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg> R shoulder — no barbell OHP</span>
+      <span class="tag">Low back — cautious deadlifts <span class="x">✕</span></span>
+      <span class="tag add">+ Add</span>
+    </div>
+
+    <button class="save"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Save profile</button>
+    <div class="hint">You can also just tell the coach in chat — “I tweaked my knee” — and it updates this for you.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

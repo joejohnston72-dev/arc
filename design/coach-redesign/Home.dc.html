@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    :root{
+      --bg:#0c0c0d; --surface:#1c1c1e; --surface2:#2c2c2e; --text:#f5f5f7; --muted:#98989f;
+      --blue:#38bdf8; --orange:#fb923c; --green:#34d399; --amber:#fbbf24; --purple:#a78bfa; --red:#f43f5e;
+      --border:rgba(255,255,255,0.10); --radius:16px;
+      --font:'Google Sans','Product Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+    a{color:var(--blue);} a:hover{color:#7dd3fc;}
+    .screen{width:390px;height:844px;background:var(--bg);overflow:hidden;padding:52px 16px 0;}
+    .greet{font-size:1.5rem;font-weight:700;letter-spacing:-.4px;}
+    .greet span{color:var(--muted);font-weight:400;}
+    .date{font-size:.78rem;color:var(--muted);margin:3px 0 18px;}
+    .sec-head{display:flex;align-items:center;gap:8px;margin:4px 0 10px;}
+    .sec-title{display:inline-flex;align-items:center;gap:7px;font-size:.95rem;font-weight:700;}
+    .sec-title svg{color:var(--blue);}
+    .ask{margin-left:auto;font-size:.78rem;color:var(--blue);font-weight:500;}
+    /* daily pick */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:13px;}
+    .eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--purple);}
+    .daily-body{font-size:.9rem;line-height:1.55;margin-top:9px;color:var(--text);}
+    .daily-body b{color:var(--amber);font-weight:500;}
+    .mini{display:flex;align-items:center;gap:10px;margin-top:13px;padding-top:13px;border-top:1px solid var(--border);}
+    .mini-ic{width:38px;height:38px;border-radius:10px;flex:0 0 auto;background:rgba(56,189,248,0.14);color:var(--blue);display:flex;align-items:center;justify-content:center;}
+    .mini-name{font-size:.85rem;font-weight:700;}
+    .mini-meta{font-size:.72rem;color:var(--muted);margin-top:1px;}
+    .mini-go{margin-left:auto;color:var(--muted);}
+    /* weekly review — the new proactive cadence */
+    .card.weekly{border-color:rgba(52,211,153,0.28);}
+    .eyebrow.wk{color:var(--green);}
+    .wk-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px;}
+    .stat{background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:10px 8px;text-align:center;}
+    .stat .n{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums;}
+    .stat .n.up{color:var(--green);} .stat .n.warn{color:var(--amber);}
+    .stat .k{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:3px;}
+    .wk-note{font-size:.82rem;line-height:1.5;color:var(--muted);margin-top:12px;}
+    .wk-note b{color:var(--text);font-weight:500;}
+    .wk-cta{margin-top:13px;width:100%;padding:12px;border:none;border-radius:11px;background:var(--surface2);color:var(--text);font-size:.85rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;}
+  </style>
+</helmet>
+
+<div class="screen">
+  <div class="greet">Evening, Joe<span> 👋</span></div>
+  <div class="date">Tuesday, 25 August · week streak 6</div>
+
+  <div class="sec-head">
+    <span class="sec-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg>
+      Your coach
+    </span>
+    <span class="ask">Ask →</span>
+  </div>
+
+  <div class="card">
+    <span class="eyebrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/></svg> Coach's pick for today</span>
+    <div class="daily-body">Bench has been <b>flat at 100kg for 4 sessions</b> — that's a stall, not a plateau. Drop to 3×5 at 92.5kg this week to resensitise, then build back. Chest is fresh (5 days) so today's the day.</div>
+    <div class="mini">
+      <div class="mini-ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5M3 7l4-4M17 21l4-4M7 3l14 14M3 17l4 4"/></svg></div>
+      <div>
+        <div class="mini-name">Push A — deload bench</div>
+        <div class="mini-meta">5 exercises · ~52 min</div>
+      </div>
+      <span class="mini-go"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+    </div>
+  </div>
+
+  <div class="card weekly">
+    <span class="eyebrow wk"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Weekly review · 18–24 Aug</span>
+    <div class="wk-grid">
+      <div class="stat"><div class="n up">4</div><div class="k">sessions</div></div>
+      <div class="stat"><div class="n">11.2t</div><div class="k">volume</div></div>
+      <div class="stat"><div class="n warn">2</div><div class="k">stalls</div></div>
+    </div>
+    <div class="wk-note"><b>Back volume up 40%</b> — the rebalance is working. Chest still runs 3:1 over back; hold the swap another fortnight. Squat e1RM <b>+4%</b>.</div>
+    <button class="wk-cta"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 8h8M8 16h5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg> See full review</button>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
