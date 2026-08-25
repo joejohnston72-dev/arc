@@ -722,24 +722,73 @@ function setInputCell(col, set, ex, ei, prev) {
   }
   return '<td></td>';
 }
+// Warm-up and drop sets each carry a second logged entry so the pairing is
+// explicit and self-documenting (was: a bare colour with no second value —
+// "unclear how it's intended to be used"):
+//   warm-up  = the lighter warm-up load  →  the actual working set
+//   drop set = the main working set       →  the lighter drop
+// Only weighted lifts get the dual entry; the labels below name each line.
+const DUAL_LABELS = {
+  warmup:  { primary: 'Warm', secondary: 'Work' },
+  dropset: { primary: 'Set',  secondary: 'Drop' },
+};
+function isDualSet(set, lt) {
+  return lt === 'weighted' && (set.type === 'warmup' || set.type === 'dropset');
+}
+// One stacked cell for a dual set: primary input over a secondary (…2) input,
+// each tagged with its label so the two loads are never ambiguous.
+function dualSetCell(field, set, ei, labels) {
+  const common = `data-ei="${ei}" data-set-id="${set.id}"`;
+  const isW = field === 'weight';
+  const step = isW ? '0.5' : '1';
+  const mode = isW ? 'decimal' : 'numeric';
+  const line = (f, val, lbl) => `
+    <div class="dual-line">
+      <span class="dual-lbl">${lbl}</span>
+      <input class="set-input" type="number" min="0" step="${step}" value="${val || ''}" inputmode="${mode}" ${common} data-field="${f}">
+    </div>`;
+  return `<td class="set-dual-cell">
+    ${line(field, set[field], labels.primary)}
+    ${line(field + '2', set[field + '2'], labels.secondary)}
+  </td>`;
+}
+
 function buildSetRow(ex, ei, set) {
   const si = ex.sets.indexOf(set);
   const lt = resolveLogType(ex);
   const cfg = LOGTYPES[lt];
   const prev = ex.prevSets?.[si] ?? null;
+  const dual = isDualSet(set, lt);
   const tr = document.createElement('tr');
   tr.className = 'set-row'
     + (set.done ? ' done' : '')
     + (set.type === 'warmup' ? ' set-warmup' : '')
-    + (set.type === 'dropset' ? ' set-dropset' : '');
+    + (set.type === 'dropset' ? ' set-dropset' : '')
+    + (dual ? ' set-dual' : '');
   tr.dataset.ei = ei;
   tr.dataset.setId = set.id;
+  const labels = DUAL_LABELS[set.type];
   tr.innerHTML = `
     <td class="set-num" title="Tap to cycle: warm-up → drop set → normal">${si + 1}</td>
-    ${cfg.cols.map(c => setInputCell(c, set, ex, ei, prev)).join('')}
+    ${dual
+      ? dualSetCell('weight', set, ei, labels) + dualSetCell('reps', set, ei, labels)
+      : cfg.cols.map(c => setInputCell(c, set, ex, ei, prev)).join('')}
     <td class="set-check-cell"><button class="set-check" data-ei="${ei}" data-set-id="${set.id}">${set.done ? icon('check', { size: 16 }) : ''}</button></td>
   `;
   return tr;
+}
+
+// Rebuild a single set row in place — used when a set's type changes so the
+// dual warm-up / drop-set inputs appear or disappear without a full re-render
+// (which would drop keyboard focus and scroll position).
+function replaceSetRow(ei, setId) {
+  const { ex, set } = findSet(ei, setId);
+  if (!ex || !set) return;
+  const old = awBody.querySelector(`.set-row[data-set-id="${setId}"]`);
+  if (!old) return;
+  old.replaceWith(buildSetRow(ex, ei, set));
+  if (!routineMode) refreshExercisePBs(ei);
+  refreshIcons();
 }
 
 // Target rep-range badge markup (icon + text), shared by the block build and
@@ -785,6 +834,7 @@ function buildExerciseBlock(ex, ei) {
       <button class="ex-rest-step" data-ei="${ei}" data-delta="15">+</button>
     </div>
     <input class="ex-notes-input" placeholder="Notes…" value="${esc(ex.notes||'')}" data-ei="${ei}" data-field="notes">
+    ${ex.coachNote ? coachNoteBubbleHTML(ex.coachNote) : ''}
     <table class="sets-table">
       <thead><tr><th>#</th>${headCols}<th></th></tr></thead>
       <tbody class="sets-body" data-ei="${ei}"></tbody>
@@ -1047,6 +1097,8 @@ awBody.addEventListener('input', e => {
     const { ex, set } = findSet(ei, setId);
     if (!set) return;
     if (field === 'reps')          set.reps = parseInt(t.value) || 0;
+    else if (field === 'reps2')    set.reps2 = parseInt(t.value) || 0;      // warm-up→work / drop-set secondary reps
+    else if (field === 'weight2')  set.weight2 = parseFloat(t.value) || 0;  // secondary load
     else if (field === 'distance') set.distance = parseFloat(t.value) || 0;
     else if (field === 'time')     { const m = maskTime(t.value); t.value = m.text; set.duration = m.secs; }
     else                           set[field] = parseFloat(t.value) || 0;   // weight
@@ -1073,6 +1125,15 @@ awBody.addEventListener('focusout', e => {
 });
 
 awBody.addEventListener('click', e => {
+  // Dismiss a coach note bubble (clears it so it won't re-render).
+  const ecnClose = e.target.closest('.ecn-close');
+  if (ecnClose) {
+    const block = ecnClose.closest('.ex-block');
+    const ex = activeSession?.exercises[block?.dataset.ei];
+    if (ex) { ex.coachNote = ''; saveSoon(); }
+    block?.querySelector('.ex-coach-note')?.remove();
+    return;
+  }
   // Tap the set number to cycle its type: normal → warmup → dropset → normal.
   // (Swipe-right still toggles drop set; this adds a discoverable path and the
   // only way to mark a warm-up mid-workout.)
@@ -1083,8 +1144,7 @@ awBody.addEventListener('click', e => {
       const { set } = findSet(row.dataset.ei, row.dataset.setId);
       if (set) {
         set.type = set.type === 'normal' ? 'warmup' : set.type === 'warmup' ? 'dropset' : 'normal';
-        row.classList.toggle('set-warmup',  set.type === 'warmup');
-        row.classList.toggle('set-dropset', set.type === 'dropset');
+        replaceSetRow(row.dataset.ei, row.dataset.setId);   // show/hide the dual entry
         saveSoon();
       }
     }
@@ -1249,16 +1309,44 @@ function exerciseNotable(ex) {
   return { notable: pb || offRange, pb, offRange, dir };
 }
 
+// ── Coach note bubble (live, in-workout AI note) ──────────────────────────────
+// The coach's note pops into a distinct speech bubble on the exercise (NOT the
+// plain notes field — that stays yours), so an AI observation never eats your
+// own note or bloats the notes box. Persists on `ex.coachNote`, dismissible.
+function coachNoteBubbleHTML(note, loading = false) {
+  return `<div class="ex-coach-note${loading ? ' loading' : ''}">
+    <span class="ecn-icon">${icon('zap', { size: 13 })}</span>
+    <span class="ecn-text">${loading ? 'Coach is noting…' : esc(note)}</span>
+    ${loading ? '' : `<button class="ecn-close" aria-label="Dismiss note">${icon('x', { size: 12 })}</button>`}
+  </div>`;
+}
+function showCoachNoteBubble(ei, note, loading = false) {
+  const block = awBody.querySelector(`.ex-block[data-ei="${ei}"]`);
+  if (!block) return;
+  const html = coachNoteBubbleHTML(note, loading);
+  const existing = block.querySelector('.ex-coach-note');
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    const anchor = block.querySelector('.ex-notes-input') || block.querySelector('.ex-block-header');
+    anchor?.insertAdjacentHTML('afterend', html);
+  }
+  if (!loading) block.querySelector('.ex-coach-note')?.classList.add('pop');
+}
+function removeCoachNoteBubble(ei) {
+  awBody.querySelector(`.ex-block[data-ei="${ei}"] .ex-coach-note`)?.remove();
+}
+
 // When every set of an exercise is completed AND it was notable (a PB or a
-// top set off the rep target), ask the coach for a one-line note and drop it
-// into the notes field. Fires once per exercise, only with an API key, and
-// never overwrites a note you've typed yourself.
+// top set off the rep target), ask the coach for a one-line note and pop it
+// into a coach bubble on the exercise. Fires once per exercise, only with an
+// API key, and never touches the notes field you type into yourself.
 const autoNotedEx = new Set();
 async function maybeAutoCoachNote(ei) {
   if (routineMode) return;
   const ex = activeSession?.exercises[ei];
   if (!ex || autoNotedEx.has(ex.id)) return;
-  if ((ex.notes || '').trim()) return;                       // don't clobber a user note
+  if ((ex.coachNote || '').trim()) return;                   // already have a coach note
   const working = ex.sets.filter(s => s.type !== 'warmup');  // dropsets count as effort
   if (!working.length || working.some(s => !s.done)) return; // not fully complete yet
   if (!working.some(s => s.done && ((s.weight || 0) > 0 || (s.reps || 0) > 0))) return;
@@ -1282,20 +1370,19 @@ async function maybeAutoCoachNote(ei) {
     + `Write ONE short coaching note (max 16 words) on this performance — whether to add load or reps next time, or a form/tempo cue. Note text only, no preamble.`;
   const system = 'You are a concise strength coach. Reply with a single short note (≤16 words), plain text, British English, numbers over adjectives, at most one emoji.';
 
-  const inputEl = () => awBody.querySelector(`.ex-notes-input[data-ei="${ei}"]`);
-  const loading = inputEl(); if (loading) loading.placeholder = 'Coach is noting…';
+  showCoachNoteBubble(ei, '', true);   // transient "Coach is noting…" bubble
   let res;
   try { res = await callCoach({ apiMessages: [{ role: 'user', content: prompt }], system, getKey: coachGetKey }); }
   catch (_) { res = { error: 'network' }; }
-  const ph = inputEl(); if (ph) ph.placeholder = 'Notes…';
 
   const note = (res?.text || '').replace(/\s+/g, ' ').trim().replace(/^["']|["']$/g, '').slice(0, 140);
-  if (!note || res?.error) { autoNotedEx.delete(ex.id); return; }   // allow a retry later
+  if (!note || res?.error) { autoNotedEx.delete(ex.id); removeCoachNoteBubble(ei); return; }   // allow a retry later
   // Write it back only if the exercise is still here and still un-noted.
   const cur = activeSession?.exercises[ei];
-  if (!cur || cur.id !== ex.id || (cur.notes || '').trim()) return;
-  cur.notes = note;
-  const target = inputEl(); if (target) target.value = note;   // focus view has no notes field; it persists to the table + save
+  if (!cur || cur.id !== ex.id || (cur.coachNote || '').trim()) { removeCoachNoteBubble(ei); return; }
+  cur.coachNote = note;
+  const curEi = activeSession.exercises.indexOf(cur);   // index may have shifted
+  showCoachNoteBubble(curEi, note);
   saveSoon();
 }
 
@@ -1365,8 +1452,7 @@ function toggleDropSet(ei, setId) {
   const { set } = findSet(ei, setId);
   if (!set || set.type === 'warmup') return;
   set.type = set.type === 'dropset' ? 'normal' : 'dropset';
-  const row = awBody.querySelector(`.set-row[data-set-id="${setId}"]`);
-  row?.classList.toggle('set-dropset', set.type === 'dropset');
+  replaceSetRow(ei, setId);   // show/hide the drop-set dual entry
   saveSoon();
 }
 
@@ -3739,7 +3825,12 @@ function hdSetVal(ex, st) {
   if (lt === 'bodyweight') return `${st.reps || 0} reps`;
   if (lt === 'duration')   return st.duration ? fmtDuration(st.duration) : (st.reps ? `${st.reps} min` : '—');
   if (lt === 'cardio')     return `${st.distance || 0} km · ${st.duration ? fmtDuration(st.duration) : (st.reps ? st.reps + ' min' : '0:00')}`;
-  return `${fmtKg(st.weight)} kg × ${st.reps} reps`;
+  let out = `${fmtKg(st.weight)} kg × ${st.reps} reps`;
+  if ((st.type === 'warmup' || st.type === 'dropset') && (st.weight2 || st.reps2)) {
+    const lbl = st.type === 'warmup' ? 'work' : 'drop';
+    out += ` <span style="color:var(--text-muted)">→ ${fmtKg(st.weight2)} kg × ${st.reps2 || 0} (${lbl})</span>`;
+  }
+  return out;
 }
 // Inputs for one editable set (history amend mode); mapped back by real indices.
 function hdSetEditInputs(ex, ei, st, si) {
@@ -3752,7 +3843,12 @@ function hdSetEditInputs(ex, ei, st, si) {
   if (lt === 'duration')   return inp('time', st.duration ? fmtDuration(st.duration) : '', '00:00', '1', 'numeric');
   if (lt === 'cardio')     return inp('distance', st.distance || '', 'km', '0.01', 'decimal') +
                                   inp('time', st.duration ? fmtDuration(st.duration) : '', '00:00', '1', 'numeric');
-  return inp('weight', st.weight || '', 'kg', '0.5', 'decimal') + inp('reps', st.reps || '', 'reps', '1', 'numeric');
+  let out = inp('weight', st.weight || '', 'kg', '0.5', 'decimal') + inp('reps', st.reps || '', 'reps', '1', 'numeric');
+  if (st.type === 'warmup' || st.type === 'dropset') {
+    const lbl = st.type === 'warmup' ? 'work' : 'drop';
+    out += inp('weight2', st.weight2 || '', `${lbl} kg`, '0.5', 'decimal') + inp('reps2', st.reps2 || '', `${lbl} reps`, '1', 'numeric');
+  }
+  return out;
 }
 
 let hdSession   = null;
@@ -3794,6 +3890,7 @@ function renderHistoryDetailBody() {
       <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid ${CATEGORY_COLORS[ex.category]||'#38bdf8'}">
         <div style="font-size:0.95rem;font-weight:700;margin-bottom:10px">${esc(ex.name)}</div>
         ${ex.notes ? `<div style="font-size:0.75rem;color:var(--text-muted);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('notebook-pen', { size: 13 })} <span>${esc(ex.notes)}</span></div>` : ''}
+        ${ex.coachNote ? `<div style="font-size:0.75rem;color:var(--purple);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('zap', { size: 13 })} <span>${esc(ex.coachNote)}</span></div>` : ''}
         ${hdEditMode
           ? (ex.sets||[]).map((st, si) => `
             <div class="hd-set-row hd-set-edit">
@@ -3857,6 +3954,8 @@ async function saveHistoryEdits() {
     const st = ex?.sets?.[si];
     if (!st) return;
     if (field === 'reps')          st.reps = parseInt(inp.value) || 0;
+    else if (field === 'reps2')    st.reps2 = parseInt(inp.value) || 0;
+    else if (field === 'weight2')  st.weight2 = parseFloat(inp.value) || 0;
     else if (field === 'distance') st.distance = parseFloat(inp.value) || 0;
     else if (field === 'time')     st.duration = maskTime(inp.value).secs;
     else                           st.weight = parseFloat(inp.value) || 0;   // weight
