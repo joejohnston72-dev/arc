@@ -478,6 +478,18 @@
     .set-row.done .set-input { background:rgba(52,211,153,0.16); border-color:rgba(52,211,153,0.5); color:var(--text); }
     .set-row.done .set-check { background:var(--green); border-color:var(--green); color:#04150e; transform:scale(1.08); }
 
+    /* In-set weight nudge — a small tap-to-apply arrow floating above the next set's weight. */
+    .set-nudge {
+      position:absolute; top:-9px; right:0; z-index:4;
+      display:inline-flex; align-items:center; gap:2px; padding:2px 6px; border-radius:8px;
+      font-size:0.62rem; font-weight:700; line-height:1; border:1px solid; cursor:pointer;
+      background:var(--surface); font-variant-numeric:tabular-nums; box-shadow:0 1px 5px rgba(0,0,0,0.45);
+      -webkit-tap-highlight-color:transparent; animation:nudgeIn .18s ease;
+    }
+    .set-nudge.up   { color:var(--green); border-color:rgba(52,211,153,0.55); }
+    .set-nudge.down { color:var(--amber); border-color:rgba(251,191,36,0.55); }
+    @keyframes nudgeIn { from{ opacity:0; transform:translateY(3px) scale(.85);} to{ opacity:1; transform:translateY(0) scale(1);} }
+
     /* Swipe mechanics: rows follow the finger horizontally, scroll stays vertical */
     .set-row { touch-action: pan-y; }
     .set-row.snapping { transition: transform .18s cubic-bezier(.2,.8,.3,1); }
@@ -1147,6 +1159,16 @@
     .btn-p { background:var(--blue); color:#000; }
     .btn-g { background:var(--surface2); color:var(--text); }
     .btn-d { background:var(--red); color:#fff; }
+
+    /* Merge-suggestion sheet options */
+    .merge-opts { display:flex; flex-direction:column; gap:9px; }
+    .merge-opt { display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left;
+      background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+      color:var(--text); font-size:0.9rem; font-weight:700; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .merge-opt svg { color:var(--blue); vertical-align:-2px; margin-right:6px; }
+    .merge-opt span { font-size:0.72rem; font-weight:400; color:var(--text-muted); }
+    .merge-opt:active { background:var(--bg); }
+    .merge-opt.subtle { align-items:center; font-weight:500; color:var(--text-muted); }
 
     /* ── Active workout mini-bar (shown in other tabs) ── */
     #miniBar {

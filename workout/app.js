@@ -8,7 +8,7 @@ import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
-import { assembleContext, callCoach, validateRoutine } from './coach.js';
+import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
@@ -1014,7 +1014,8 @@ function fmToggleSet(ei, setId) {
     else if (lt === 'duration')   commit('time', prev?.duration);
     else if (lt === 'cardio')   { commit('distance', prev?.distance); commit('time', prev?.duration); }
     const next = ex.sets[si + 1];
-    if (next && !next.done && lt === 'weighted' && !next.touched?.weight && set.weight) next.weight = set.weight;
+    const carry = nextSetCarryWeight(set, next);
+    if (next && !next.done && lt === 'weighted' && !next.touched?.weight && carry) next.weight = carry;
     unlockAudio();
     if (!routineMode && isLastSupersetMember(ei)) startRest(ex.restTime ?? 60, ex.name);
   }
@@ -1103,7 +1104,7 @@ awBody.addEventListener('input', e => {
     else if (field === 'time')     { const m = maskTime(t.value); t.value = m.text; set.duration = m.secs; }
     else                           set[field] = parseFloat(t.value) || 0;   // weight
     (set.touched ||= {})[field] = true;
-    if (field === 'weight') queueSanityCheck(ex, set, t.closest('.set-row'));
+    if (field === 'weight') { t.closest('td')?.querySelector('.set-nudge')?.remove(); queueSanityCheck(ex, set, t.closest('.set-row')); }
     // Editing a completed set's weight/reps re-checks its trophy live, so a
     // mistyped PB disappears the moment the number is corrected.
     if (!routineMode && set.done && (field === 'weight' || field === 'reps')) refreshExercisePBs(ei);
@@ -1125,6 +1126,22 @@ awBody.addEventListener('focusout', e => {
 });
 
 awBody.addEventListener('click', e => {
+  // Apply an in-set weight nudge to the next set's weight.
+  const nudge = e.target.closest('.set-nudge');
+  if (nudge) {
+    const { ei, setId, target } = nudge.dataset;
+    const { set } = findSet(ei, setId);
+    if (set) {
+      set.weight = parseFloat(target) || 0;
+      (set.touched ||= {}).weight = true;
+      const wi = awBody.querySelector(`.set-input[data-ei="${ei}"][data-set-id="${setId}"][data-field="weight"]`);
+      if (wi) wi.value = set.weight;
+      if (!routineMode && set.done) refreshExercisePBs(ei);
+      saveSoon();
+    }
+    nudge.remove();
+    return;
+  }
   // Dismiss a coach note bubble (clears it so it won't re-render).
   const ecnClose = e.target.closest('.ecn-close');
   if (ecnClose) {
@@ -1222,10 +1239,52 @@ document.querySelectorAll('#restPresetGrid .rest-preset').forEach(btn => {
   };
 });
 
+// Weight to pre-fill into the NEXT set once `set` is completed. A warm-up / drop
+// set must NOT carry its deliberately-lighter load into the working set that
+// follows — use that next set's own working target (tW) instead.
+function nextSetCarryWeight(set, next) {
+  if (!next) return 0;
+  if (set.type === 'warmup' || set.type === 'dropset') return next.tW || 0;
+  return set.weight || 0;
+}
+
+// Rule-based in-set nudge: after a working set, if reps landed at/above the top
+// of the target range, suggest a load bump for the next set (or a cut if below
+// the bottom). Renders a small tap-to-apply arrow on the next set's weight cell.
+function maybeSetNudge(ei, ex, set, next, nextRow, lt) {
+  // One live suggestion at a time — clear any stale nudges in this exercise.
+  awBody.querySelector(`.sets-body[data-ei="${ei}"]`)?.querySelectorAll('.set-nudge').forEach(n => n.remove());
+  if (lt !== 'weighted' || !next || next.done) return;
+  if (set.type === 'warmup' || set.type === 'dropset') return;
+  const r = ex.repRange || resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
+  const reps = set.reps || 0;
+  if (!r?.min || !r?.max || !reps || !set.weight) return;
+  let dir = null, delta = 0;
+  if (reps >= r.max)     { dir = 'up';   delta = reps >= r.max + 3 ? 5 : 2.5; }
+  else if (reps < r.min) { dir = 'down'; delta = reps <= r.min - 3 ? -5 : -2.5; }
+  else return;   // landed inside the range — leave it
+  const cell = nextRow?.querySelector('[data-field="weight"]')?.closest('td');
+  if (!cell) return;
+  const base = next.weight || set.weight || 0;
+  const target = Math.max(0, +(base + delta).toFixed(1));
+  if (target === base) return;
+  cell.style.position = 'relative';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'set-nudge ' + dir;
+  chip.dataset.ei = ei; chip.dataset.setId = next.id; chip.dataset.target = target;
+  chip.textContent = `${dir === 'up' ? '▲' : '▼'} ${target}`;
+  chip.title = dir === 'up'
+    ? `Hit ${reps} reps (top of ${r.min}–${r.max}) — tap to try ${target}kg next set`
+    : `Missed ${r.min} reps — tap to try ${target}kg next set`;
+  cell.appendChild(chip);
+}
+
 function toggleSetDone(ei, setId, rowEl) {
   const { ex, set, si } = findSet(ei, setId);
   if (!set) return;
   set.done = !set.done;
+  if (set.done) rowEl.querySelector('.set-nudge')?.remove();   // clear a nudge on the row being completed
 
   const lt = resolveLogType(ex);
   set.touched ||= {};
@@ -1251,9 +1310,11 @@ function toggleSetDone(ei, setId, rowEl) {
       const nextRow = rowEl.parentElement.querySelector(`.set-row[data-set-id="${next.id}"]`);
       if (lt === 'weighted') {
         const nWeight = nextRow?.querySelector('[data-field="weight"]');
-        if (nWeight && !next.touched?.weight && set.weight) { next.weight = set.weight; nWeight.value = set.weight; }
+        const carry = nextSetCarryWeight(set, next);
+        if (nWeight && !next.touched?.weight && carry) { next.weight = carry; nWeight.value = carry; }
         const target = nextRow?.querySelector('[data-field="reps"]') || nWeight;
         if (target) { target.focus({ preventScroll: true }); try { target.select(); } catch(_) {} }
+        maybeSetNudge(ei, ex, set, next, nextRow, lt);
       } else {
         const target = nextRow?.querySelector('.set-input');
         if (target) { target.focus({ preventScroll: true }); try { target.select(); } catch(_) {} }
@@ -2752,7 +2813,86 @@ document.getElementById('customExSave').onclick = async () => {
   renderActiveSession();
   saveSoon();
   lookupRepRangeForCustom(entry); // background AI lookup — updates in place when it resolves
+  // If this looks like an exercise they already have, offer to merge (coach nudge).
+  const similar = await findSimilarExercise(name);
+  if (similar) suggestExerciseMerge({ name, category: cat }, similar);
 };
+
+// ── Similar-exercise detection + merge suggestion ─────────────────────────────
+// Normalise for similarity: strip equipment words/abbreviations and word order so
+// "Incline DB Press" and "Incline Dumbbell Press" collapse to the same key.
+const SIM_EXTRA = new Set(['db', 'bb', 'ez', 'smith']);
+function simNorm(name) {
+  return normName(name).split(' ').filter(w => w && !SIM_EXTRA.has(w)).sort().join(' ');
+}
+// Highest-confidence existing exercise that looks like the same lift as `name`
+// (near-identical only — differing by equipment/abbrev/word order/plural), or null.
+async function findSimilarExercise(name) {
+  const t = simNorm(name);
+  if (!t) return null;
+  const tset = new Set(t.split(' ').filter(Boolean));
+  const all = await getAllExercises();
+  let best = null, bestScore = 0;
+  for (const e of all) {
+    if (e.name.toLowerCase() === name.toLowerCase()) continue;   // itself
+    if (canonicalName(e.name) === canonicalName(name)) continue; // already merged
+    const n = simNorm(e.name);
+    if (!n) continue;
+    let score;
+    if (n === t) score = 1;
+    else {
+      const nset = new Set(n.split(' ').filter(Boolean));
+      const inter = [...tset].filter(x => nset.has(x)).length;
+      const uni = new Set([...tset, ...nset]).size;
+      score = uni ? inter / uni : 0;
+    }
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  return bestScore >= 0.85 ? best : null;   // high bar — unprompted suggestion must be confident
+}
+
+// A dynamically-built "these look like the same lift" sheet with a which-to-keep
+// choice. `made` is the exercise the user just created; `existing` is the match.
+function suggestExerciseMerge(made, existing) {
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `
+    <div class="modal">
+      <p class="modal-title" style="display:flex;align-items:center;gap:7px"><span style="color:var(--blue);display:flex">${icon('bot', { size: 18 })}</span> Looks like the same lift</p>
+      <p style="font-size:0.85rem;color:var(--text-muted);margin:-6px 0 16px;line-height:1.5">
+        You just added <b style="color:var(--text)">${esc(made.name)}</b>, but you already have <b style="color:var(--text)">${esc(existing.name)}</b>. Combine them so their history counts as one lift? Which name do you want to keep?</p>
+      <div class="merge-opts">
+        <button class="merge-opt" data-keep="existing">${icon('check', { size: 15 })} Keep “${esc(existing.name)}”<span>use the existing one — drops the duplicate</span></button>
+        <button class="merge-opt" data-keep="new">${icon('check', { size: 15 })} Keep “${esc(made.name)}”<span>rename — folds the old history in under this name</span></button>
+        <button class="merge-opt subtle" data-keep="separate">They're different — keep both</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', async e => {
+    if (e.target === back) return close();
+    const opt = e.target.closest('.merge-opt');
+    if (!opt) return;
+    const keep = opt.dataset.keep;
+    if (keep === 'existing') {
+      // Discard the just-made duplicate, use the existing exercise instead.
+      let custom = (await db.get(STORE, 'exercises-custom')) || [];
+      custom = custom.filter(x => x.name.toLowerCase() !== made.name.toLowerCase());
+      await db.set(STORE, 'exercises-custom', custom);
+      if (activeSession) {
+        activeSession.exercises = activeSession.exercises.filter(x => x.name.toLowerCase() !== made.name.toLowerCase());
+        await addExerciseToSession(existing.name, existing.category);
+        renderActiveSession();
+      }
+      db.backup();
+    } else if (keep === 'new') {
+      // Keep the new name as the identity; fold the existing lift's history into it.
+      await setExerciseAlias(existing.name, made.name);
+    }
+    close();
+  });
+}
 
 // ── Edit exercise (writes to the core library) ────────────────────────────────
 // Change an exercise's muscle group and tracking type (and, for custom exercises,
