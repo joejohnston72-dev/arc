@@ -257,3 +257,146 @@ export const CATEGORY_COLORS = {
   Hamstrings: '#f472b6', Glutes: '#e879f9', Calves: '#2dd4bf',
   Core: '#facc15', Cardio: '#60a5fa',
 };
+
+// ── Multi-muscle attribution for compound lifts ──────────────────────────────
+// A single `category` per exercise is accurate for isolation work but understates
+// true stimulus for compounds: a back squat is filed under Quads but loads the
+// glutes hard at end-range hip extension; an RDL is filed under Hamstrings but is
+// a primary glute hinge. Weekly set-counting that reads `category` alone therefore
+// flags glutes/hamstrings as "under-trained" when they are in fact being loaded
+// indirectly — and can't tell that apart from a real gap with zero carryover
+// (e.g. calves — no compound loads ankle ROM meaningfully).
+//
+// SECONDARY_MUSCLES maps an exercise name to the muscle groups it loads BEYOND its
+// primary `category`, each as a fractional "effective set" weight: 0.5 means one
+// working set of this lift counts as half a set of stimulus for that muscle. The
+// primary category is always an implicit 1.0 and is never repeated here. Values are
+// deliberately conservative — they reflect the muscle's mechanical role in the lift,
+// not a promise of equal hypertrophy. Only the muscle groups the app already tracks
+// (see CATEGORIES) are used; finer distinctions (adductors, spinal erectors…) are not.
+//
+// Pure isolation lifts (leg extension, leg curl, curls, raises, calf work…) have NO
+// entry on purpose: they load one muscle, so a genuine gap there stays visible as a
+// true gap rather than being papered over by phantom indirect volume.
+export const SECONDARY_MUSCLES = {
+  // ── Chest presses → triceps + front-delt (Shoulders) ──
+  'Bench Press (Barbell)':          { Triceps: 0.35, Shoulders: 0.25 },
+  'Bench Press (Dumbbell)':         { Triceps: 0.3,  Shoulders: 0.25 },
+  'Bench Press (Smith Machine)':    { Triceps: 0.35, Shoulders: 0.25 },
+  'Incline Bench Press (Barbell)':  { Shoulders: 0.35, Triceps: 0.3 },
+  'Incline Bench Press (Dumbbell)': { Shoulders: 0.35, Triceps: 0.25 },
+  'Incline Bench Press (Smith Machine)': { Shoulders: 0.35, Triceps: 0.3 },
+  'Decline Bench Press':            { Triceps: 0.35 },
+  'Decline Bench Press (Dumbbell)': { Triceps: 0.3 },
+  'Incline Chest Press (Machine)':  { Shoulders: 0.3, Triceps: 0.25 },
+  'Machine Chest Press':            { Triceps: 0.3, Shoulders: 0.2 },
+  'Push Up':                        { Triceps: 0.3, Shoulders: 0.2 },
+  'Push Up (Weighted)':             { Triceps: 0.3, Shoulders: 0.2 },
+  'Incline Push Up':                { Triceps: 0.3, Shoulders: 0.2 },
+  'Decline Push Up':                { Shoulders: 0.3, Triceps: 0.25 },
+  'Chest Dip':                      { Triceps: 0.4 },
+  'Landmine Press':                 { Shoulders: 0.4, Triceps: 0.2 },
+  // ── Deadlifts / pulls filed under Back → posterior chain ──
+  'Deadlift (Barbell)':             { Glutes: 0.5, Hamstrings: 0.5 },
+  'Deadlift (Dumbbell)':            { Glutes: 0.5, Hamstrings: 0.5 },
+  'Deadlift (Trap Bar)':            { Quads: 0.5, Glutes: 0.5, Hamstrings: 0.35 },
+  'Romanian Deadlift':              { Hamstrings: 0.8, Glutes: 0.6 },
+  'Sumo Deadlift':                  { Glutes: 0.6, Hamstrings: 0.4, Quads: 0.4 },
+  'Rack Pull':                      { Glutes: 0.4, Hamstrings: 0.35 },
+  // ── Vertical / horizontal pulls → biceps ──
+  'Pull Up':                        { Biceps: 0.35 },
+  'Pull Up (Weighted)':             { Biceps: 0.35 },
+  'Chin Up':                        { Biceps: 0.5 },
+  'Assisted Pull Up (Machine)':     { Biceps: 0.35 },
+  'Lat Pulldown':                   { Biceps: 0.35 },
+  'Lat Pulldown (Wide Grip)':       { Biceps: 0.3 },
+  'Lat Pulldown (Close Grip)':      { Biceps: 0.4 },
+  'Lat Pulldown (Neutral Grip)':    { Biceps: 0.4 },
+  'Single Arm Lat Pulldown (Cable)':{ Biceps: 0.35 },
+  'Seated Cable Row':               { Biceps: 0.35 },
+  'Cable Row (Wide Grip)':          { Biceps: 0.3 },
+  'Bent Over Row (Barbell)':        { Biceps: 0.35 },
+  'Bent Over Row (Dumbbell)':       { Biceps: 0.35 },
+  'Pendlay Row':                    { Biceps: 0.35 },
+  'T-Bar Row':                      { Biceps: 0.35 },
+  'Chest Supported Row (Machine)':  { Biceps: 0.35 },
+  'Chest Supported Row (Dumbbell)': { Biceps: 0.35 },
+  'Seated Row (Machine)':           { Biceps: 0.35 },
+  'Single Arm Dumbbell Row':        { Biceps: 0.35 },
+  'Meadows Row':                    { Biceps: 0.35 },
+  'Inverted Row':                   { Biceps: 0.35 },
+  'Kettlebell Row':                 { Biceps: 0.35 },
+  'Kettlebell Renegade Row':        { Biceps: 0.3, Core: 0.3 },
+  'Face Pull':                      { Shoulders: 0.4 },
+  // ── Overhead presses → triceps ──
+  'Overhead Press (Barbell)':       { Triceps: 0.35 },
+  'Overhead Press (Dumbbell)':      { Triceps: 0.3 },
+  'Overhead Press (Smith Machine)': { Triceps: 0.35 },
+  'Seated Dumbbell Press':          { Triceps: 0.3 },
+  'Machine Shoulder Press':         { Triceps: 0.3 },
+  'Arnold Press':                   { Triceps: 0.3 },
+  'Push Press':                     { Triceps: 0.35 },
+  'Landmine Shoulder Press':        { Triceps: 0.3 },
+  // ── Triceps compounds → chest / front-delt ──
+  'Close Grip Bench Press':         { Chest: 0.5, Shoulders: 0.2 },
+  'Tricep Dip':                     { Chest: 0.3, Shoulders: 0.2 },
+  'Tricep Dip (Machine)':           { Chest: 0.25 },
+  'Bench Dip':                      { Chest: 0.2 },
+  'Diamond Push Up':                { Chest: 0.4, Shoulders: 0.2 },
+  'JM Press':                       { Chest: 0.3 },
+  // ── Squat pattern (Quads) → glutes (+ hamstrings on the deepest) ──
+  'Squat (Barbell)':                { Glutes: 0.5, Hamstrings: 0.25 },
+  'Squat (Smith Machine)':          { Glutes: 0.45 },
+  'Front Squat':                    { Glutes: 0.4 },
+  'Goblet Squat':                   { Glutes: 0.4 },
+  'Hack Squat':                     { Glutes: 0.35 },
+  'Pendulum Squat':                 { Glutes: 0.4 },
+  'Leg Press':                      { Glutes: 0.4 },
+  'Leg Press (Single Leg)':         { Glutes: 0.45 },
+  'Bulgarian Split Squat':          { Glutes: 0.5 },
+  'Bulgarian Split Squat (Dumbbell)': { Glutes: 0.5 },
+  'Lunge (Barbell)':                { Glutes: 0.5 },
+  'Lunge (Dumbbell)':               { Glutes: 0.5 },
+  'Walking Lunge':                  { Glutes: 0.5 },
+  'Box Squat':                      { Glutes: 0.5, Hamstrings: 0.3 },
+  'Kettlebell Goblet Squat':        { Glutes: 0.4 },
+  'Kettlebell Front Squat':         { Glutes: 0.4 },
+  'Kettlebell Lunge':               { Glutes: 0.5 },
+  'Kettlebell Thruster':            { Shoulders: 0.4, Glutes: 0.3, Triceps: 0.2 },
+  'Wall Ball':                      { Glutes: 0.35, Shoulders: 0.3 },
+  'Sled Push':                      { Glutes: 0.4, Hamstrings: 0.3, Calves: 0.3 },
+  // ── Hip hinge (Hamstrings) → glutes ──
+  'Romanian Deadlift (Dumbbell)':   { Glutes: 0.5 },
+  'Romanian Deadlift (Smith Machine)': { Glutes: 0.5 },
+  'Stiff Leg Deadlift':             { Glutes: 0.5 },
+  'Good Morning':                   { Glutes: 0.5 },
+  'Glute Ham Raise':                { Glutes: 0.4 },
+  'Cable Pull Through':             { Glutes: 0.6 },
+  'Kettlebell Swing':               { Glutes: 0.6 },
+  'Kettlebell Deadlift':            { Glutes: 0.5 },
+  'Kettlebell Romanian Deadlift':   { Glutes: 0.5 },
+  // ── Glute-primary compounds → hamstrings / quads ──
+  'Hip Thrust (Barbell)':           { Hamstrings: 0.35 },
+  'Hip Thrust (Machine)':           { Hamstrings: 0.3 },
+  'Hip Thrust (Smith Machine)':     { Hamstrings: 0.35 },
+  'Hip Thrust (Bodyweight)':        { Hamstrings: 0.3 },
+  'Glute Bridge':                   { Hamstrings: 0.35 },
+  'Sumo Squat':                     { Quads: 0.5, Hamstrings: 0.25 },
+  'Step Up':                        { Quads: 0.5, Hamstrings: 0.2 },
+};
+
+// Expand an exercise-like object ({ name, category }) into its muscle
+// contributions: the primary category at 1.0, plus any secondary fractions from
+// SECONDARY_MUSCLES. `primary: true` marks the direct-volume entry so callers can
+// separate direct stimulus (drawn solid on the balance chart) from indirect
+// carryover (drawn as a lighter band) — the distinction that lets a real gap read
+// differently from a muscle that's quietly being trained by compounds.
+export function muscleContributions(ex) {
+  const primary = (ex && ex.category) || 'Other';
+  const out = [{ muscle: primary, frac: 1, primary: true }];
+  const sec = ex && SECONDARY_MUSCLES[ex.name];
+  if (sec) for (const [muscle, frac] of Object.entries(sec)) {
+    if (muscle !== primary) out.push({ muscle, frac, primary: false });
+  }
+  return out;
+}
