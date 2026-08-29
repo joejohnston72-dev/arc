@@ -3,7 +3,7 @@
 // helpers (getAllExercises, guessCategory, getKey) where needed.
 import db from '../shared/db.js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../shared/supabase.js';
-import { CATEGORIES } from './exercises.js';
+import { CATEGORIES, muscleContributions } from './exercises.js';
 import { buildRecords, computeStreak } from './achievements.js';
 import { lifetimeTotals, exerciseFrequency, weeklySetsByCategory } from './stats.js';
 
@@ -307,7 +307,13 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   const balanceLines = bal4.rows.map(r => {
     const flag = r.status === 'low' ? ' ⟵ under 10 (low)' : r.status === 'high' ? ' ⟵ over 20 (high)' : '';
     const trend = eightByCat[r.cat] != null ? ` (8-wk avg ${eightByCat[r.cat].toFixed(1)})` : '';
-    return `- ${r.cat}: ${r.perWk.toFixed(1)} sets/wk${trend}${flag}`;
+    // Effective sets attribute compound carryover, so break out how much is direct
+    // vs. from compounds — otherwise a low direct count reads as a gap even when the
+    // muscle is being loaded indirectly (e.g. glutes from squats/RDLs).
+    const split = r.indirectPerWk > 0.05
+      ? `, of which ${r.directPerWk.toFixed(1)} direct + ${r.indirectPerWk.toFixed(1)} from compounds`
+      : '';
+    return `- ${r.cat}: ${r.perWk.toFixed(1)} effective sets/wk${split}${trend}${flag}`;
   }).join('\n');
   const cardioLine = bal4.cardioMinPerWk > 0 ? `\n- Cardio: ${bal4.cardioMinPerWk.toFixed(0)} min/wk` : '';
 
@@ -323,9 +329,13 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
     if (!t) continue;
     if (t > lastWorkoutTs) lastWorkoutTs = t;
     for (const ex of s.exercises || []) {
-      const c = ex.category;
-      if (!c || c === 'Cardio') continue;
-      if (!catLastTs[c] || t > catLastTs[c]) catLastTs[c] = t;
+      if (!ex.category || ex.category === 'Cardio') continue;
+      // A muscle counts as trained if a lift loaded it directly OR indirectly as a
+      // compound's secondary mover — squatting fatigues the glutes even with no
+      // dedicated glute work, so readiness should reflect that.
+      for (const { muscle } of muscleContributions(ex)) {
+        if (!catLastTs[muscle] || t > catLastTs[muscle]) catLastTs[muscle] = t;
+      }
     }
   }
   const daysAgo = t => { const d = Math.floor((nowTs - t) / DAY); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };

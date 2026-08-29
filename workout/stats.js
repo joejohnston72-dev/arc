@@ -1,6 +1,6 @@
 // Stats & charts — pure inline-SVG, no libraries.
 // All functions take the array of saved session objects and return HTML strings.
-import { CATEGORY_COLORS } from './exercises.js';
+import { CATEGORY_COLORS, muscleContributions } from './exercises.js';
 import { e1RM } from './achievements.js';
 
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -158,14 +158,24 @@ export function weeklyVolumeHTML(sessions, weeksBack = 12) {
 }
 
 // ── Muscle balance (working sets over trailing N weeks vs 10–20/wk band) ──────
-// Pure data: average working sets per muscle group per week over the window.
-// Shared by the Stats muscle-balance chart and the AI Coach's analysis. The
-// 10–20 sets/week band is the common hypertrophy heuristic — below is
-// maintenance/under-stimulus, above is high/junk-volume territory.
+// Average working sets per muscle group per week over the window, shared by the
+// Stats muscle-balance chart and the AI Coach's analysis. The 10–20 sets/week
+// band is the common hypertrophy heuristic — below is maintenance/under-stimulus,
+// above is high/junk-volume territory.
+//
+// Sets are attributed across muscles, not just the exercise's primary `category`:
+// a compound counts as a full (direct) set for its primary muscle and a fractional
+// (indirect) set for the muscles it also loads (see muscleContributions). Each row
+// carries both `directPerWk` and `indirectPerWk`; `perWk` is their sum — the
+// effective-set total the band is judged against. Keeping the two apart is what
+// lets the UI distinguish a muscle that's genuinely under-trained from one that's
+// quietly getting worked by compounds (and a true zero-carryover gap like calves,
+// which never picks up any indirect volume, from a false under-trained signal).
 export function weeklySetsByCategory(sessions, weeksBack = 4) {
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7 * weeksBack);
-  const perCat = {};
+  const perCat = {};   // muscle -> { direct, indirect }
   let cardioMin = 0;
+  const bump = (muscle, key, n) => { (perCat[muscle] ||= { direct: 0, indirect: 0 })[key] += n; };
   for (const s of sessions) {
     if (dateOf(s) < cutoff) continue;
     for (const ex of s.exercises || []) {
@@ -173,14 +183,23 @@ export function weeklySetsByCategory(sessions, weeksBack = 4) {
         cardioMin += workingSets(ex).reduce((a, st) => a + (st.reps || 0), 0);
         continue;
       }
-      perCat[ex.category || 'Other'] = (perCat[ex.category || 'Other'] || 0) + workingSets(ex).length;
+      const n = workingSets(ex).length;
+      if (!n) continue;
+      for (const c of muscleContributions(ex)) {
+        bump(c.muscle, c.primary ? 'direct' : 'indirect', n * c.frac);
+      }
     }
   }
   const rows = Object.entries(perCat)
-    .map(([cat, sets]) => ({
-      cat, perWk: sets / weeksBack,
-      status: sets / weeksBack < 10 ? 'low' : sets / weeksBack > 20 ? 'high' : 'ok',
-    }))
+    .map(([cat, v]) => {
+      const perWk = (v.direct + v.indirect) / weeksBack;
+      return {
+        cat, perWk,
+        directPerWk: v.direct / weeksBack,
+        indirectPerWk: v.indirect / weeksBack,
+        status: perWk < 10 ? 'low' : perWk > 20 ? 'high' : 'ok',
+      };
+    })
     .sort((a, b) => b.perWk - a.perWk);
   return { rows, weeksBack, cardioMinPerWk: cardioMin / weeksBack };
 }
@@ -190,24 +209,38 @@ export function muscleBalanceHTML(sessions, weeksBack = 4) {
   if (!rows.length) return '';
 
   const maxScale = Math.max(24, ...rows.map(r => r.perWk));
+  const bandPct = (10 / maxScale) * 100;
+  const anyIndirect = rows.some(r => r.indirectPerWk > 0.05);
   const rowHTML = rows.map(r => {
-    const pct = Math.min(100, (r.perWk / maxScale) * 100);
-    const status = r.status;
+    const color = CATEGORY_COLORS[r.cat] || '#8e8e9a';
+    const directPct = Math.min(100, (r.directPerWk / maxScale) * 100);
+    const indirectPct = Math.min(100 - directPct, (r.indirectPerWk / maxScale) * 100);
+    // Tooltip spells out the split so the number isn't a black box: e.g. Glutes
+    // reading 12.5 might be "3.0 direct + 9.5 from compounds" — clearly not a gap.
+    const breakdown = r.indirectPerWk > 0.05
+      ? `${r.directPerWk.toFixed(1)} direct + ${r.indirectPerWk.toFixed(1)} from compounds`
+      : `${r.directPerWk.toFixed(1)} direct`;
     return `
-      <div class="mb-row">
+      <div class="mb-row" title="${esc(r.cat)}: ${r.perWk.toFixed(1)} sets/wk (${breakdown})">
         <span class="mb-cat">${esc(r.cat)}</span>
         <div class="mb-track">
-          <div class="mb-band" style="left:${(10 / maxScale) * 100}%;width:${(10 / maxScale) * 100}%"></div>
-          <div class="mb-fill mb-${status}" style="width:${pct}%;background:${CATEGORY_COLORS[r.cat] || '#8e8e9a'}"></div>
+          <div class="mb-band" style="left:${bandPct}%;width:${bandPct}%"></div>
+          <div class="mb-fill" style="width:${directPct}%;background-color:${color}${indirectPct > 0 ? ';border-radius:5px 0 0 5px' : ''}"></div>
+          ${indirectPct > 0 ? `<div class="mb-fill mb-indirect" style="left:${directPct}%;width:${indirectPct}%;background-color:${color}"></div>` : ''}
         </div>
-        <span class="mb-val">${r.perWk.toFixed(1)}</span>
+        <span class="mb-val mb-${r.status}">${r.perWk.toFixed(1)}</span>
       </div>`;
   }).join('');
+
+  const legend = anyIndirect
+    ? `<div class="mb-legend"><span class="mb-lg mb-lg-solid"></span>direct<span class="mb-lg mb-lg-hatch"></span>from compounds</div>`
+    : '';
 
   return `
     <div class="stats-card">
       <div class="stats-card-title">Muscle balance <span class="stats-card-sub">sets/week, last ${weeksBack} wks · band = 10–20</span></div>
       ${rowHTML}
+      ${legend}
     </div>`;
 }
 

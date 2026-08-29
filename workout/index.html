@@ -744,8 +744,17 @@
     .mb-track { flex:1; height:10px; background:rgba(255,255,255,0.06); border-radius:5px; position:relative; overflow:hidden; }
     .mb-band { position:absolute; top:0; bottom:0; background:rgba(255,255,255,0.09); }
     .mb-fill { position:absolute; top:0; bottom:0; left:0; border-radius:5px; opacity:0.9; }
-    .mb-fill.mb-low { opacity:0.45; }
+    /* Indirect (compound carryover) segment: same colour, lighter + hatched so a
+       muscle being trained by compounds reads differently from a true gap. */
+    .mb-fill.mb-indirect { opacity:0.5; border-radius:0 5px 5px 0;
+      background-image:repeating-linear-gradient(45deg, rgba(255,255,255,0.35) 0 2px, transparent 2px 5px); }
     .mb-val { font-size:0.72rem; color:var(--text-muted); width:32px; text-align:right; font-variant-numeric:tabular-nums; }
+    .mb-val.mb-low { color:var(--amber); }
+    .mb-legend { display:flex; align-items:center; gap:6px; font-size:0.66rem; color:var(--text-muted); margin-top:10px; }
+    .mb-lg { width:16px; height:9px; border-radius:2px; flex-shrink:0; }
+    .mb-lg-solid { background:rgba(255,255,255,0.55); }
+    .mb-lg-hatch { margin-left:6px; background:rgba(255,255,255,0.22);
+      background-image:repeating-linear-gradient(45deg, rgba(255,255,255,0.55) 0 2px, transparent 2px 5px); }
 
     /* ── AI Coach ── */
     /* Coach is a flex column filling from the page header to the tab bar; it
