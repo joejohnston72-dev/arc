@@ -397,6 +397,19 @@
       font-size:1.1rem; padding:4px 8px;
     }
     .ex-cue-btn { background:none; border:none; color:var(--blue); cursor:pointer; font-size:1.05rem; padding:4px 6px; -webkit-tap-highlight-color:transparent; }
+    .ex-note-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px 6px; -webkit-tap-highlight-color:transparent; display:inline-flex; align-items:center; }
+    .ex-note-btn.has-note { color:var(--blue); }
+    .ex-notes-input[hidden] { display:none; }
+    /* ── Muscle-priority chips (coach profile) ── */
+    .cp-prio { display:flex; flex-wrap:wrap; gap:6px; }
+    .cp-prio-chip {
+      background:var(--surface2); border:1px solid var(--border); color:var(--text-muted);
+      border-radius:999px; padding:6px 11px; font-size:0.78rem; font-weight:600;
+      cursor:pointer; -webkit-tap-highlight-color:transparent; display:inline-flex; align-items:center; gap:4px;
+    }
+    .cp-prio-chip[data-state="boost"] { border-color:var(--blue); color:var(--blue); background:rgba(56,189,248,0.12); }
+    .cp-prio-chip[data-state="ease"]  { border-color:var(--text-muted); color:var(--text-muted); background:none; opacity:0.65; }
+    .cp-prio-chip .cp-prio-tag { font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; }
     .lib-cue-hint { font-size:0.66rem; color:var(--blue); margin-left:auto; white-space:nowrap; }
     .ex-prev-note { font-size:0.72rem; color:var(--text-muted); margin-bottom:8px; padding-left:16px; }
     .ex-rep-range { font-size:0.72rem; font-weight:500; color:var(--blue); margin:-4px 0 8px; padding-left:16px; min-height:1em; }
@@ -1562,6 +1575,7 @@
 <!-- ── Active workout overlay ── -->
 <div id="activeWorkout">
   <div class="aw-header">
+    <button class="header-btn header-icon-btn" id="awBackBtn" data-tip="Back — workout stays active" title="Back — workout stays active"><i data-lucide="arrow-left" data-size="18"></i></button>
     <input class="aw-title-input" id="awTitle" placeholder="Workout name…" maxlength="50">
     <button class="header-btn header-icon-btn" id="awFocusBtn" data-tip="Focus mode" title="Focus mode"><i data-lucide="target" data-size="18"></i></button>
     <button class="header-btn" id="awFinishBtn" data-tip="Finish & save workout" title="Finish & save workout">Finish</button>
@@ -1870,6 +1884,10 @@
 
     <label class="form-label" style="margin-top:13px">Equipment / gym</label>
     <input class="form-input" id="cpEquip" placeholder="e.g. Full commercial gym" autocomplete="off">
+
+    <label class="form-label" style="margin-top:13px">Muscle priorities</label>
+    <p style="font-size:0.72rem;color:var(--text-muted);margin:-2px 0 8px;line-height:1.4">Tap to cycle each: Normal → Focus → Ease off. This is what the coach follows — it won't push a group you've eased off just because it's rested.</p>
+    <div class="cp-prio" id="cpPrio"></div>
 
     <label class="form-label" style="margin-top:13px">Injuries &amp; movements to avoid</label>
     <div class="cp-tags" id="cpInjTags"></div>

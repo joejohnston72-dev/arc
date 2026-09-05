@@ -266,6 +266,23 @@ function profileBlock(p) {
   return L.join('\n');
 }
 
+// User-set muscle priorities → a block the coach must honour OVER its own
+// volume/recovery inference. This is the fix for the coach over-prioritising
+// small/rarely-trained groups (calves, glutes) simply because they read as
+// "most rested" or "under 10 sets". The user decides emphasis; the data informs
+// load and progression, not which muscles get pushed.
+function prioritiesBlock(p) {
+  const pr = p?.priorities;
+  if (!pr || typeof pr !== 'object') return '';
+  const focus = Object.entries(pr).filter(([, v]) => v === 'boost').map(([m]) => m);
+  const ease  = Object.entries(pr).filter(([, v]) => v === 'ease').map(([m]) => m);
+  if (!focus.length && !ease.length) return '';
+  const L = [];
+  if (focus.length) L.push(`- Focus (give more volume / prioritise): ${focus.join(', ')}`);
+  if (ease.length)  L.push(`- Ease off (keep to maintenance, do NOT add volume even if rested or low): ${ease.join(', ')}`);
+  return L.join('\n');
+}
+
 // ── Context builder → system prompt ───────────────────────────────────────────
 // extra = { profile, body, nutrition } — all optional; older callers still work.
 export function buildCoachContext(sessions, templates, records, streak, allExercises, extra = {}) {
@@ -341,7 +358,7 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   const daysAgo = t => { const d = Math.floor((nowTs - t) / DAY); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
   const recoveryLines = Object.entries(catLastTs)
     .map(([c, t]) => ({ c, d: Math.floor((nowTs - t) / DAY), t }))
-    .sort((a, b) => b.d - a.d)   // stalest (most rested) first — the freshest to hit
+    .sort((a, b) => b.d - a.d)   // most-rested first — ordering only; NOT a training cue (see prompt)
     .map(r => `- ${r.c}: last trained ${daysAgo(r.t)}`)
     .join('\n');
   const sinceLast = lastWorkoutTs ? daysAgo(lastWorkoutTs) : 'no sessions yet';
@@ -372,6 +389,7 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   const todayStr = `${now.toISOString().slice(0, 10)} (${now.toLocaleDateString('en-GB', { weekday: 'long' })})`;
 
   const profileText = profileBlock(profile);
+  const prioritiesText = prioritiesBlock(profile);
   const bodyText = body
     ? `Bodyweight: ${body.latest}kg (last weigh-in ${body.date}); ${body.delta >= 0 ? '+' : ''}${body.delta}kg across last ${body.n} weigh-in(s).`
     : '';
@@ -382,7 +400,7 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   return `You are an expert strength & hypertrophy coach and training assistant living inside the user's workout app. The user is an experienced lifter in the UK — all weights are in KILOGRAMS (kg), never pounds or dollars.
 
 TODAY: ${todayStr}. Compute any relative dates ("last week", "yesterday") from this.
-${profileText ? `\nATHLETE PROFILE (their persisted goals & constraints — honour these in every answer; if something material is missing or changes, save it with set_coach_profile)\n${profileText}\n` : '\n(No saved athlete profile yet. When the user reveals a lasting goal, injury, equipment limit, or preference, capture it with set_coach_profile so you remember it next time.)\n'}
+${profileText ? `\nATHLETE PROFILE (their persisted goals & constraints — honour these in every answer; if something material is missing or changes, save it with set_coach_profile)\n${profileText}\n` : '\n(No saved athlete profile yet. When the user reveals a lasting goal, injury, equipment limit, or preference, capture it with set_coach_profile so you remember it next time.)\n'}${prioritiesText ? `\nTRAINING PRIORITIES (USER-SET — these OVERRIDE your own volume/recovery inference. The user has told you which muscles to emphasise and which to hold. Do NOT add volume to an "ease off" group just because it reads as rested or under-target, and don't push a group they didn't prioritise ahead of one they did.)\n${prioritiesText}\n` : ''}
 
 VOICE — technical & precise, always explain the why
 - You are the ARC coach: an experienced strength coach with a sports-science bent. Confident, precise, never padded, never hype.
@@ -396,10 +414,11 @@ HOW TO RESPOND
 - Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), DON'T interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
 - ONLY call draft_routine when the user wants a single workout/day created or asks "what should I train today". For a whole multi-day programme/split, call draft_split instead. For everything else, reply with text.
 
-STEERING TODAY'S SESSION (proactive, data-driven)
-- You can and should suggest ALTERING today's plan when the data warrants it. If a muscle group is under-recovered (trained in the last ~48h per RECOVERY/READINESS) or already over-volume (TRAINING BALANCE >20/wk), steer away from it: "Skip legs today — quads trained yesterday and are already at 22 sets/wk; here's an upper session that hits your lagging back instead." Use draft_routine to hand them the altered session.
-- If their week is structurally off (a lagging group chronically under 10 sets, push:pull skewed, a lift stalled for weeks), propose swapping the split — call draft_split and say in text which groups you rebalanced and why, citing the numbers.
-- Favour the freshest, most-recovered muscle groups and the lifts that are still rising; program around stalled lifts (small load bump, extra set, or a short deload) rather than repeating them unchanged.
+FOLLOWING THE PROGRAM (structure first — this is how effective training actually works)
+- The user trains a STRUCTURED SPLIT (see SAVED ROUTINES). Your default is to help them follow it — NOT to invent a different session every day. When they ask "what should I train today", pick the next routine in their split (the one that best fits which days they've already trained this week) and hand THAT to them via draft_routine, setting the loads/reps within it from their history. Do not improvise a fresh ad-hoc session that ignores their program.
+- Progress WITHIN the plan: use recent working weights and PROGRESSION SIGNALS to set each lift's target today (small load/rep bump on rising lifts; a stall-breaker — bump, added set, variation, or short deload — on stalled ones). That continuity, the same movements getting heavier over weeks, is what drives results; a random new workout each day does not.
+- Only deviate from the program for a concrete, stated reason: an injury, missing equipment, a group the user explicitly wants more of, or the user asking you to rebuild the split. If the WHOLE week is structurally off, you may propose a new split with draft_split — but say plainly what you changed and why, and respect TRAINING PRIORITIES and TRAINING BALANCE.
+- RECOVERY/READINESS and TRAINING BALANCE inform HOW you load and sequence — they are NOT a cue to train whichever muscle is most rested. Never steer a session toward a small or rarely-trained group (e.g. calves, glutes) just because it reads as "fresh" or "under 10 sets". Honour TRAINING PRIORITIES first, then the user's split.
 
 PROGRAMMING PRINCIPLES (apply, don't lecture)
 - Progressive overload with autoregulation: prescribe top sets around RIR 1–3 (leave a rep or two in reserve on most working sets); push closer to failure only on the last set of isolation work. Reference RIR/RPE when it clarifies a load call.
@@ -435,7 +454,7 @@ ${bodyText ? `\n${bodyText}` : ''}${nutritionText ? `\nNUTRITION (from the linke
 TRAINING BALANCE (avg working sets/muscle group/week — target band 10–20; <10 = too little, >20 = too much)
 ${balanceLines || '- (not enough recent history)'}${cardioLine}
 
-RECOVERY / READINESS (days since each muscle group was last trained — freshest/most-rested listed first)
+RECOVERY / READINESS (days since each muscle group was last trained — for judging recovery before loading a group, NOT a ranking of what to train next)
 ${recoveryLines || '- (not enough recent history)'}
 
 PROGRESSION SIGNALS (top-set trend per lift — rising lifts to keep pushing, STALLED lifts to program around)
