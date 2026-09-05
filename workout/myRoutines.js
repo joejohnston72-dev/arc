@@ -67,7 +67,7 @@ export const MY_ROUTINES = [
       ex('Straight Arm Lat Pulldown (Cable)','Back', 60, [8,8,8]),
       ex('Rear Delt Reverse Fly (Cable)', 'Shoulders',45, [9,9,9,9]),
       ex('Preacher Curl (Machine)',       'Biceps',  60, [8,8,8,8]),
-      ex('Seated Incline Curl (Dumbbell)','Biceps',  30, [8,8,8,8]),
+      ex('Bayesian Curl (Cable)',         'Biceps',  30, [8,8,8,8]),
       ex('Cable Crunch',                  'Core',    75, [10,10,10,10]),
       ex('Cardio - 25min Stairs/Cycle',   'Cardio',  75, [25]),
     ],

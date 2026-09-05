@@ -574,6 +574,19 @@ function openActiveWorkout() {
   } catch (_) {}
 }
 
+// Minimise the live workout without ending it: hide the overlay(s), reveal the
+// app behind it + the mini bar, so the user can browse tabs and edit routines
+// mid-workout. The session, sets and focus state are all preserved — tapping the
+// mini bar (openActiveWorkout) brings it straight back.
+function minimizeActiveWorkout() {
+  if (!activeSession) return;
+  document.getElementById('focusMode')?.classList.remove('visible');
+  document.getElementById('activeWorkout').classList.remove('visible');
+  document.getElementById('miniBar').classList.add('visible');
+  syncScrollLock();   // overlay closed → release the body scroll lock
+}
+document.getElementById('awBackBtn').onclick = minimizeActiveWorkout;
+
 // Tear focus mode down whenever a workout ends (save/discard).
 function closeFocusMode() {
   focusMode = false;
@@ -822,6 +835,7 @@ function buildExerciseBlock(ex, ei) {
     <div class="ex-block-header" data-ei="${ei}">
       <div class="ex-cat-dot" style="background:${color}"></div>
       <div class="ex-name linked" data-open-ex="${esc(ex.name)}">${esc(ex.name)}<span class="ex-chev">${icon('chevron-right', { size: 15 })}</span></div>
+      <button class="ex-note-btn${ex.notes ? ' has-note' : ''}" data-ei="${ei}" aria-label="Add note" data-tip="Add note" title="Add note">${icon('pencil', { size: 16 })}</button>
       <button class="ex-cue-btn" data-cue="${esc(ex.name)}" aria-label="Form cues" data-tip="Form cues" title="Form cues">${icon('info', { size: 17 })}</button>
       <button class="ex-menu-btn" data-ei="${ei}" aria-label="Exercise options" data-tip="Options" title="Options">${icon('ellipsis', { size: 18 })}</button>
     </div>
@@ -833,7 +847,7 @@ function buildExerciseBlock(ex, ei) {
       <button class="ex-rest-value" data-ei="${ei}" id="restval-${ei}">${fmtRest(ex.restTime ?? 60)}</button>
       <button class="ex-rest-step" data-ei="${ei}" data-delta="15">+</button>
     </div>
-    <input class="ex-notes-input" placeholder="Notes…" value="${esc(ex.notes||'')}" data-ei="${ei}" data-field="notes">
+    <input class="ex-notes-input" placeholder="Notes…" value="${esc(ex.notes||'')}" data-ei="${ei}" data-field="notes"${ex.notes ? '' : ' hidden'}>
     ${ex.coachNote ? coachNoteBubbleHTML(ex.coachNote) : ''}
     <table class="sets-table">
       <thead><tr><th>#</th>${headCols}<th></th></tr></thead>
@@ -1111,7 +1125,10 @@ awBody.addEventListener('input', e => {
     saveSoon();
   } else if (t.classList.contains('ex-notes-input')) {
     const ex = activeSession?.exercises[t.dataset.ei];
-    if (ex) { ex.notes = t.value; saveSoon(); }
+    if (ex) {
+      ex.notes = t.value; saveSoon();
+      t.closest('.ex-block')?.querySelector('.ex-note-btn')?.classList.toggle('has-note', !!t.value.trim());
+    }
   }
 });
 
@@ -1208,6 +1225,13 @@ awBody.addEventListener('click', e => {
   }
   const restVal = e.target.closest('.ex-rest-value');
   if (restVal) { openRestSheet(parseInt(restVal.dataset.ei)); return; }
+  const noteBtn = e.target.closest('.ex-note-btn');
+  if (noteBtn) {
+    const block = noteBtn.closest('.ex-block');
+    const input = block?.querySelector('.ex-notes-input');
+    if (input) { input.hidden = false; input.focus(); }
+    return;
+  }
   const cueBtn = e.target.closest('.ex-cue-btn');
   if (cueBtn) { showCues(cueBtn.dataset.cue); return; }
   const menuBtn = e.target.closest('.ex-menu-btn');
@@ -1259,14 +1283,26 @@ function maybeSetNudge(ei, ex, set, next, nextRow, lt) {
   const r = ex.repRange || resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
   const reps = set.reps || 0;
   if (!r?.min || !r?.max || !reps || !set.weight) return;
-  let dir = null, delta = 0;
-  if (reps >= r.max)     { dir = 'up';   delta = reps >= r.max + 3 ? 5 : 2.5; }
-  else if (reps < r.min) { dir = 'down'; delta = reps <= r.min - 3 ? -5 : -2.5; }
-  else return;   // landed inside the range — leave it
   const cell = nextRow?.querySelector('[data-field="weight"]')?.closest('td');
   if (!cell) return;
   const base = next.weight || set.weight || 0;
-  const target = Math.max(0, +(base + delta).toFixed(1));
+  if (base <= 0) return;
+
+  // Percentage-based step, scaled to the lift's own load — a fixed ±2.5kg is huge
+  // on 6kg rear delts and trivial on a 120kg squat. How far above/below the target
+  // range they landed drives the size of the jump.
+  let dir = null, pct = 0;
+  if (reps >= r.max)     { dir = 'up';   pct = reps >= r.max + 3 ?  0.075 :  0.04; }
+  else if (reps < r.min) { dir = 'down'; pct = reps <= r.min - 3 ? -0.10  : -0.05; }
+  else return;   // landed inside the range — leave it
+
+  // Round to the smallest plate/selectorised increment that's realistic at this
+  // load: micro-loading for light isolation, whole/round jumps for heavy compounds.
+  const step = base < 12 ? 0.5 : base < 30 ? 1 : base < 60 ? 2.5 : 5;
+  const raw = base * (1 + pct);
+  let target = Math.round(raw / step) * step;
+  if (target === base) target = base + (dir === 'up' ? step : -step);   // always move ≥1 step
+  target = Math.max(0, +target.toFixed(2));
   if (target === base) return;
   cell.style.position = 'relative';
   const chip = document.createElement('button');
@@ -1304,7 +1340,9 @@ function toggleSetDone(ei, setId, rowEl) {
     else if (lt === 'duration')   commit('time', prev?.duration);
     else if (lt === 'cardio')   { commit('distance', prev?.distance); commit('time', prev?.duration); }
 
-    // Auto-fill the next set + jump focus so the keyboard stays up (weighted flow).
+    // Auto-fill the next set. Deliberately do NOT focus the next input: ticking a
+    // set's checkbox is a finger tap, and stealing focus popped the keyboard back
+    // up every time. The user taps the field themselves when they want to type.
     const next = ex.sets[si + 1];
     if (next && !next.done) {
       const nextRow = rowEl.parentElement.querySelector(`.set-row[data-set-id="${next.id}"]`);
@@ -1312,12 +1350,7 @@ function toggleSetDone(ei, setId, rowEl) {
         const nWeight = nextRow?.querySelector('[data-field="weight"]');
         const carry = nextSetCarryWeight(set, next);
         if (nWeight && !next.touched?.weight && carry) { next.weight = carry; nWeight.value = carry; }
-        const target = nextRow?.querySelector('[data-field="reps"]') || nWeight;
-        if (target) { target.focus({ preventScroll: true }); try { target.select(); } catch(_) {} }
         maybeSetNudge(ei, ex, set, next, nextRow, lt);
-      } else {
-        const target = nextRow?.querySelector('.set-input');
-        if (target) { target.focus({ preventScroll: true }); try { target.select(); } catch(_) {} }
       }
     }
 
@@ -3042,6 +3075,24 @@ async function fixIncompletePushDayOnce() {
     await db.set(STORE, 'templates', templates);
   }
   await db.set(STORE, 'push-day-fixed', true);
+}
+
+// One-time swap: dumbbell incline curl → cable (Bayesian) incline curl in the
+// Pull Hypertrophy routine. Preserves the routine's set/rep targets.
+async function swapPullDayInclineCurlOnce() {
+  const done = await db.get(STORE, 'pull-incline-curl-swapped');
+  if (done) return;
+  const OLD = 'Seated Incline Curl (Dumbbell)';
+  const NEW = 'Bayesian Curl (Cable)';
+  const templates = await getTemplates();
+  let changed = false;
+  for (const t of templates) {
+    for (const ex of t.exercises || []) {
+      if (ex.name === OLD) { ex.name = NEW; ex.category = 'Biceps'; changed = true; }
+    }
+  }
+  if (changed) await db.set(STORE, 'templates', templates);
+  await db.set(STORE, 'pull-incline-curl-swapped', true);
 }
 
 document.getElementById('templateNameCancel').onclick = () => document.getElementById('templateNameModal').classList.remove('open');
@@ -4794,8 +4845,32 @@ function renderCpInjuries() {
   wrap.querySelectorAll('button').forEach(b =>
     b.onclick = () => { cpInjuries.splice(+b.dataset.i, 1); renderCpInjuries(); });
 }
+// Muscle-priority chips: user overrides that the coach honours OVER its own
+// volume/recovery inference. State per muscle is undefined (normal) → 'boost'
+// (focus) → 'ease' (ease off) → normal.
+let cpPriorities = {};
+const PRIO_MUSCLES = CATEGORIES.filter(c => c !== 'Cardio');
+function renderCpPriorities() {
+  const wrap = document.getElementById('cpPrio');
+  if (!wrap) return;
+  wrap.innerHTML = PRIO_MUSCLES.map(m => {
+    const st = cpPriorities[m];
+    const tag = st === 'boost' ? '★ Focus' : st === 'ease' ? '↓ Ease' : '';
+    return `<button type="button" class="cp-prio-chip" data-m="${esc(m)}"${st ? ` data-state="${st}"` : ''}>${esc(m)}${tag ? ` <span class="cp-prio-tag">${tag}</span>` : ''}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.cp-prio-chip').forEach(b => b.onclick = () => {
+    const m = b.dataset.m, cur = cpPriorities[m];
+    if (!cur) cpPriorities[m] = 'boost';
+    else if (cur === 'boost') cpPriorities[m] = 'ease';
+    else delete cpPriorities[m];
+    renderCpPriorities();
+  });
+}
+
 async function openCoachProfile() {
   const p = (await getCoachProfile()) || {};
+  cpPriorities = (p.priorities && typeof p.priorities === 'object') ? { ...p.priorities } : {};
+  renderCpPriorities();
   document.getElementById('cpGoal').value  = p.goal || '';
   document.getElementById('cpEquip').value = p.equipment || '';
   document.getElementById('cpBw').value    = p.bodyweightKg || '';
@@ -4826,6 +4901,8 @@ async function saveCoachProfileSheet() {
   if (bw > 0) { next.bodyweightKg = +bw.toFixed(1); try { await logBodyweight(+bw.toFixed(1)); } catch (_) {} }
   next.injuries = cpInjuries.slice();
   if (!next.injuries.length) delete next.injuries;
+  next.priorities = { ...cpPriorities };
+  if (!Object.keys(next.priorities).length) delete next.priorities;
   next.updatedAt = new Date().toISOString();
 
   await db.set(STORE, 'coach-profile', next);
@@ -4974,7 +5051,7 @@ async function generateDailySuggestion(today) {
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-    const prompt = `PROACTIVE DAILY REVIEW (${day}). I haven't asked a specific question — you're reviewing my whole app on your own. Read across my ATHLETE PROFILE, TRAINING BALANCE, RECOVERY/READINESS, PROGRESSION SIGNALS, recent sessions and saved routines, and give me ONE highest-value, data-backed suggestion for today in 2–3 sentences. If a specific session would serve me best, draft it — and where my data warrants it (a muscle under-recovered or over-volume, a lagging group, a stalled lift), alter my usual plan or propose swapping the split rather than repeating what I always do. Cite the number or mechanism behind it. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). I follow a STRUCTURED SPLIT (see SAVED ROUTINES) — help me follow it, don't invent a different workout each day. Work out which routine in my split is up next given what I've already trained this week, and draft THAT session with today's loads/reps set from my history and PROGRESSION SIGNALS (small bump on rising lifts, a stall-breaker on stalled ones). Add ONE 2–3 sentence note on the single highest-value focus for today, citing the number or mechanism. Honour my TRAINING PRIORITIES over your own volume/recovery inference; do NOT push a rested small group (e.g. calves/glutes) just because it looks fresh or under-target. Only propose changing the plan itself (draft_split) if my week is genuinely structurally off, and say why. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
     const result = await callCoach({
       apiMessages: [{ role: 'user', content: prompt }],
       system, forceTool: false, getKey: coachGetKey,
@@ -5721,6 +5798,7 @@ await loadExOverrides();   // library edits (exercise types/categories) before a
 await loadExAliases();     // exercise identity merges — before any history render
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
+await swapPullDayInclineCurlOnce();
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
 
