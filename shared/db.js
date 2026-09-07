@@ -61,6 +61,14 @@ function idbGetAll(store) {
   }));
 }
 
+// Transient, device-local crash-recovery state that must NEVER touch the cloud.
+// Syncing it was a bug: after a workout was finished (which clears these locally),
+// the next launch's cloud pull could restore a stale copy and re-show the
+// "Resume workout in progress?" prompt hours or days later, on any device. These
+// keys stay purely on-device — resume is a per-device concept. Keyed "store:key".
+const LOCAL_ONLY = new Set(['workout:active-session', 'workout:active-rest']);
+const isLocalOnly = (store, key) => LOCAL_ONLY.has(`${store}:${key}`);
+
 // ── Supabase remote ───────────────────────────────────────────────────────────
 // Cache the user id. remoteSet used to call auth.getUser() (a network round-trip)
 // on EVERY write — during a bulk import of hundreds of sessions that meant
@@ -77,6 +85,7 @@ function getUserId() {
 }
 
 async function remoteSet(store, key, value) {
+  if (isLocalOnly(store, key)) return;   // device-local crash-recovery state — never sync
   const user_id = await getUserId();
   if (!user_id) return;
   await supabase.from('entries').upsert({ user_id, store, key, value });
@@ -113,6 +122,8 @@ async function syncFromSupabase() {
       // was wiping out the workout rows. Also guard each write so one bad row
       // can never take down the batch.
       if (!STORES.includes(row.store)) continue;
+      // Never let a stale cloud copy resurrect device-local resume state.
+      if (isLocalOnly(row.store, row.key)) continue;
       try { await idbSet(row.store, row.key, row.value); } catch (_) {}
     }
     total += data.length;
@@ -132,7 +143,9 @@ async function syncToSupabase() {
   for (const store of STORES) {
     let rows;
     try { rows = await idbGetAll(store); } catch (_) { continue; }
-    const payload = rows.map(({ key, value }) => ({ user_id, store, key, value }));
+    const payload = rows
+      .filter(({ key }) => !isLocalOnly(store, key))   // don't back up transient resume state
+      .map(({ key, value }) => ({ user_id, store, key, value }));
     for (let i = 0; i < payload.length; i += 200) {
       const chunk = payload.slice(i, i + 200);
       const { error } = await supabase.from('entries').upsert(chunk);

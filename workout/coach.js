@@ -578,7 +578,7 @@ export async function callCoach({ apiMessages, system, forceTool = false, getKey
 
   const body = {
     model: MODEL,
-    max_tokens: forceTool ? 2048 : 4096,   // generous — truncation was a source of empty replies
+    max_tokens: forceTool ? 4096 : 8192,   // generous — long answers/splits were getting cut off at 4096
     system,
     tools: [DRAFT_ROUTINE_TOOL, ADD_EXERCISES_TOOL, LOG_WORKOUTS_TOOL, EDIT_ROUTINE_TOOL, DRAFT_SPLIT_TOOL,
             SET_PROFILE_TOOL],
@@ -745,7 +745,10 @@ async function streamRequest({ url, headers, body, onProgress }) {
 }
 
 function finalizeResult(text, tool, stop, incomplete) {
-  const out = { text: (text || '').trim(), stop_reason: stop, incomplete };
+  // A reply that hit the token ceiling is genuinely truncated — flag it so the UI
+  // shows the "cut off — ask me to continue" hint instead of ending mid-sentence
+  // with no indication.
+  const out = { text: (text || '').trim(), stop_reason: stop, incomplete: incomplete || stop === 'max_tokens' };
   if (tool.name) {
     let input = {};
     try { input = tool.jsonBuf ? JSON.parse(tool.jsonBuf) : {}; }

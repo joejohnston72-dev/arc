@@ -49,9 +49,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // Clamp max_tokens into a sane band; default generous so long splits/answers
-  // don't truncate (a common cause of empty replies before).
-  const wantedMax = Number(payload.max_tokens) || 4096;
-  const max_tokens = Math.min(Math.max(wantedMax, 256), 8192);
+  // don't truncate (a common cause of cut-off replies before).
+  const wantedMax = Number(payload.max_tokens) || 8192;
+  const max_tokens = Math.min(Math.max(wantedMax, 256), 16384);
 
   const body = {
     model: typeof payload.model === 'string' ? payload.model : DEFAULT_MODEL,
