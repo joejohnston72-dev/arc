@@ -1508,12 +1508,17 @@
     <button class="coach-mem" id="coachMem" type="button"></button>
     <div class="coach-thread" id="coachThread"></div>
     <div class="coach-chips" id="coachChips">
-      <button class="coach-chip" data-prompt="Analyse my routines, history, PBs and the exercises I keep swapping, then suggest one concrete improvement to a routine." data-force="suggest_routine_edit"><i data-lucide="zap" data-size="15"></i> Improve my routines</button>
-      <button class="coach-chip" data-prompt="Analyse my training balance — what am I doing too much and too little — then build me a new split that rebalances it, and tell me what you changed and why."><i data-lucide="layout-dashboard" data-size="15"></i> Build a split</button>
-      <button class="coach-chip" data-prompt="Draft me a routine" data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a routine</button>
-      <button class="coach-chip" data-prompt="What should I train today? Check my recovery/readiness and training balance first — if a muscle is under-recovered or over-volume, alter the session or swap what I'd normally do, and tell me why with the numbers."><i data-lucide="calendar" data-size="15"></i> Today's session</button>
-      <button class="coach-chip" data-prompt="How's my progress? What's lagging and what should I push?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
-      <button class="coach-chip" data-prompt="Review my last workout and suggest what to adjust next time."><i data-lucide="search" data-size="15"></i> Review last</button>
+      <!-- Chips carry the user's INTENT only. The coach's system prompt already
+           holds the method (read TRAINING BALANCE / RECOVERY / PROGRESSION, follow
+           the split, cite numbers), so re-stating it here just biases the model and
+           drifts out of sync. Keep a data-force hint only where a structured artifact
+           is genuinely wanted (a one-tap routine edit, a drafted routine). -->
+      <button class="coach-chip" data-prompt="Suggest one improvement to my routines." data-force="suggest_routine_edit"><i data-lucide="zap" data-size="15"></i> Improve my routines</button>
+      <button class="coach-chip" data-prompt="Build me a training split."><i data-lucide="layout-dashboard" data-size="15"></i> Build a split</button>
+      <button class="coach-chip" data-prompt="Draft me a routine." data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a routine</button>
+      <button class="coach-chip" data-prompt="What should I train today?"><i data-lucide="calendar" data-size="15"></i> Today's session</button>
+      <button class="coach-chip" data-prompt="How's my progress?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
+      <button class="coach-chip" data-prompt="Review my last workout."><i data-lucide="search" data-size="15"></i> Review last</button>
       <button class="coach-chip coach-chip-key" id="coachKeyBtn" data-tip="API key" title="API key"><i data-lucide="key" data-size="16"></i></button>
       <button class="coach-chip coach-chip-clear" id="coachClearBtn" data-tip="Clear chat" title="Clear chat"><i data-lucide="trash-2" data-size="16"></i></button>
     </div>
