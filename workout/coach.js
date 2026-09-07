@@ -626,9 +626,10 @@ export async function callCoach({ apiMessages, system, forceTool = false, getKey
     return direct.error ? direct : proxyResult;
   }
 
-  // 3) No usable transport and no personal key — give actionable guidance.
+  // 3) No usable transport and no personal key — give actionable guidance,
+  //    carrying any upstream detail so a persistent failure is diagnosable.
   if (proxyResult?.error === 'ratelimit') return { error: 'ratelimit' };
-  return { error: token ? 'unavailable' : 'nokey' };
+  return { error: token ? 'unavailable' : 'nokey', detail: proxyResult?.detail || '' };
 }
 
 // Run one transport with pre-stream retry (transient statuses / network) and an
@@ -688,7 +689,10 @@ async function streamRequest({ url, headers, body, onProgress }) {
     let detail = '', code = 'api';
     try {
       const j = await res.json();
-      detail = j?.error?.message || j?.error || j?.detail || '';
+      // Prefer the most informative field: a nested error.message, then the
+      // proxy's own `detail` (which carries the upstream reason — e.g. a rejected
+      // model), then the bare error code as a last resort.
+      detail = j?.error?.message || j?.detail || (typeof j?.error === 'string' ? j.error : '') || '';
       if (j?.error === 'proxy_unconfigured') code = 'proxy_unconfigured';
     } catch (_) {}
     if (res.status === 401) code = 'auth';

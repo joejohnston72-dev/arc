@@ -427,9 +427,14 @@ let restExName     = '';     // exercise the current rest belongs to (focus ring
 let restSubText    = '';     // "Set 3 logged · 35 kg × 8 — new best" for the focus rest card
 let restFiredChime = false;
 
-// ── Focus mode (one exercise at a time; toggled from the active workout) ──────
-let focusMode  = false;
-let focusIndex = 0;
+// ── Targeted (focus) view — one exercise per screen with scroll-snap ──────────
+// This is a pure CSS *view mode* over the SAME active-workout DOM (#awBody), not
+// a separate overlay. Toggling `focus-view` on #activeWorkout restyles each
+// .ex-block to fill the screen and snap, so every standard-view feature (notes,
+// the … menu, cues, rest control, set-type cycling, PBs) works identically —
+// there's only ever one DOM and one set of handlers to keep in parity.
+let focusView = false;
+let focusClockTimer = null;
 
 // ── In-progress autosave ──────────────────────────────────────────────────────
 let saveTimer = null;
@@ -518,7 +523,7 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
     return {
       id: uid(), name: e.name, category: e.category, logType,
       restTime: e.restTime ?? prev?.restTime ?? 60,
-      notes: prev?.notes || '',
+      notes: '', carriedNote: prev?.notes || '',   // last session's note — shown once, then auto-cleared on save
       repRange: e.repRange || def?.repRange || null,
       prevPerf: prev ? prev.sets.slice(0,3).map(s => `${fmtKg(s.weight)}×${s.reps}`).join(', ') : null,
       prevSets: prev?.sets || null,
@@ -567,10 +572,10 @@ function openActiveWorkout() {
   document.getElementById('awTitle').value = activeSession?.title || '';
   syncScrollLock();   // pin the page so an overscroll can't lift the overlay
   fitActiveWorkout();
-  // Restore focus mode if it was on when the app was last backgrounded/reloaded.
+  // Restore the targeted view if it was on when the app was last backgrounded.
   try {
-    const f = JSON.parse(localStorage.getItem('arc-focus') || 'null');
-    if (f && activeSession?.exercises?.length) enterFocusMode(f.index || 0);
+    if (localStorage.getItem('arc-focus-view') && activeSession?.exercises?.length) setFocusView(true);
+    else setFocusView(false, { persist: false });
   } catch (_) {}
 }
 
@@ -580,18 +585,16 @@ function openActiveWorkout() {
 // mini bar (openActiveWorkout) brings it straight back.
 function minimizeActiveWorkout() {
   if (!activeSession) return;
-  document.getElementById('focusMode')?.classList.remove('visible');
+  stopFocusClock();
   document.getElementById('activeWorkout').classList.remove('visible');
   document.getElementById('miniBar').classList.add('visible');
   syncScrollLock();   // overlay closed → release the body scroll lock
 }
 document.getElementById('awBackBtn').onclick = minimizeActiveWorkout;
 
-// Tear focus mode down whenever a workout ends (save/discard).
+// Tear the targeted view down whenever a workout ends (save/discard).
 function closeFocusMode() {
-  focusMode = false;
-  document.getElementById('focusMode').classList.remove('visible');
-  try { localStorage.removeItem('arc-focus'); } catch (_) {}
+  setFocusView(false, { persist: false });
 }
 
 // ── iOS-reliable scroll lock ─────────────────────────────────────────────────
@@ -847,6 +850,7 @@ function buildExerciseBlock(ex, ei) {
       <button class="ex-rest-value" data-ei="${ei}" id="restval-${ei}">${fmtRest(ex.restTime ?? 60)}</button>
       <button class="ex-rest-step" data-ei="${ei}" data-delta="15">+</button>
     </div>
+    ${ex.carriedNote ? `<div class="ex-prev-note" data-ei="${ei}">${icon('notebook-pen', { size: 12 })} <span>Last time: ${esc(ex.carriedNote)}</span><button class="ex-prev-note-x" data-ei="${ei}" aria-label="Dismiss note">${icon('x', { size: 13 })}</button></div>` : ''}
     <input class="ex-notes-input" placeholder="Notes…" value="${esc(ex.notes||'')}" data-ei="${ei}" data-field="notes"${ex.notes ? '' : ' hidden'}>
     ${ex.coachNote ? coachNoteBubbleHTML(ex.coachNote) : ''}
     <table class="sets-table">
@@ -877,6 +881,7 @@ function renderActiveSession() {
   activeSession.exercises.forEach((ex, ei) => awBody.appendChild(buildExerciseBlock(ex, ei)));
   refreshAllPBs();   // re-apply trophies to any already-completed sets
   refreshIcons();    // paint <i data-lucide> placeholders in the fresh blocks
+  if (focusView) updateFocusBar();   // rebuilt DOM → refresh the targeted-view rail
 }
 
 function renumberSetRows(tbody) {
@@ -885,224 +890,102 @@ function renumberSetRows(tbody) {
   });
 }
 
-// ── Focus mode ────────────────────────────────────────────────────────────────
-// A one-exercise-at-a-time view layered over the active workout. It reads the
-// same activeSession and reuses the same PB / rest / autosave machinery — the
-// table view underneath stays intact, so this is a pure toggle, never a rewrite.
-function persistFocus() {
-  try { localStorage.setItem('arc-focus', JSON.stringify({ index: focusIndex })); } catch (_) {}
+// ── Targeted (focus) view ─────────────────────────────────────────────────────
+// A CSS mode over the same #awBody DOM: each exercise fills the screen and the
+// body scroll-snaps between them ("sticky bounce"), while every standard-view
+// feature keeps working because it's literally the same markup and handlers.
+function persistFocusView() {
+  try { focusView ? localStorage.setItem('arc-focus-view', '1') : localStorage.removeItem('arc-focus-view'); } catch (_) {}
 }
 
-function enterFocusMode(restoreIndex = null) {
-  if (!activeSession || !activeSession.exercises.length) return;
-  if (!awBody.children.length) renderActiveSession();   // ensure table rows exist for sync
-  focusMode = true;
-  if (restoreIndex != null) focusIndex = restoreIndex;
-  else {
-    const idx = activeSession.exercises.findIndex(e => e.sets.some(s => !s.done));
-    focusIndex = idx >= 0 ? idx : 0;
+function setFocusView(on, { persist = true, scrollToActive = true } = {}) {
+  focusView = !!on;
+  const aw = document.getElementById('activeWorkout');
+  aw.classList.toggle('focus-view', focusView);
+  const btn = document.getElementById('awFocusBtn');
+  if (btn) {
+    btn.innerHTML = icon(focusView ? 'layout-dashboard' : 'target', { size: 18 });
+    const tip = focusView ? 'List view' : 'Targeted view';
+    btn.setAttribute('data-tip', tip); btn.setAttribute('title', tip);
   }
-  persistFocus();
-  document.getElementById('focusMode').classList.add('visible');
-  renderFocusMode();
-}
-
-function exitFocusMode() {
-  focusMode = false;
-  document.getElementById('focusMode').classList.remove('visible');
-  try { localStorage.removeItem('arc-focus'); } catch (_) {}
-  renderActiveSession();   // reflect any edits back into the table view
-}
-
-function refreshFocusRest() {
-  const ring = document.getElementById('fmRingProg');
-  if (!ring) return;
-  const countEl = document.getElementById('fmRingCount');
-  const titleEl = document.getElementById('fmRestTitle');
-  const subEl   = document.getElementById('fmRestSub');
-  const card    = document.getElementById('fmRest');
-  const C = 150.8;
-  if (restEndsAt) {
-    const remaining = Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000));
-    const frac = Math.max(0, Math.min(1, remaining / (restTotalSecs || 1)));
-    ring.style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
-    ring.style.stroke = remaining <= 20 ? 'var(--amber)' : 'var(--blue)';
-    countEl.textContent = fmtTime(remaining);
-    if (remaining <= 0) {
-      titleEl.textContent = 'Ready'; subEl.textContent = 'Rest done — next set';
-      card.classList.add('pulsing');
-    } else {
-      titleEl.textContent = 'Resting';
-      subEl.textContent = restSubText || (restExName ? `Resting — ${restExName}` : 'Resting');
-      card.classList.toggle('pulsing', remaining <= 6);
-    }
+  if (persist) persistFocusView();
+  if (focusView) {
+    startFocusClock();
+    updateFocusBar();
+    if (scrollToActive) requestAnimationFrame(scrollFocusToActive);
   } else {
-    ring.style.strokeDashoffset = C.toFixed(1);
-    ring.style.stroke = 'var(--blue)';
-    countEl.textContent = '0:00';
-    titleEl.textContent = 'Ready';
-    subEl.textContent = 'Check a set to start the timer';
-    card.classList.remove('pulsing');
+    stopFocusClock();
   }
-}
-
-function renderFocusMode() {
-  if (!focusMode) return;
-  if (!activeSession || !activeSession.exercises.length) { exitFocusMode(); return; }
-  const exs = activeSession.exercises;
-  focusIndex = Math.max(0, Math.min(focusIndex, exs.length - 1));
-  const ex = exs[focusIndex];
-  const lt = resolveLogType(ex);
-  const cfg = LOGTYPES[lt];
-
-  document.getElementById('fmTitle').textContent = activeSession.title || 'Workout';
-  document.getElementById('fmSub').textContent = `${fmtTime(sessionSecsNow())} elapsed · ${focusIndex + 1} of ${exs.length}`;
-
-  document.getElementById('fmRail').innerHTML = exs.map((e, i) => {
-    const allDone = e.sets.length && e.sets.every(s => s.done);
-    return `<div class="fm-rail-bar ${i === focusIndex ? 'current' : allDone ? 'done' : ''}"></div>`;
-  }).join('');
-
-  const color = CATEGORY_COLORS[ex.category] || '#8e8e9a';
-  const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
-  const last = ex.prevPerf || (ex.prevSets?.length ? ex.prevSets.slice(0, 3).map(s => setPrevText(lt, s)).join(', ') : null);
-  document.getElementById('fmExHead').innerHTML = `
-    <div class="fm-exhead-top">
-      <span class="fm-exhead-dot" style="background:${color}"></span>
-      <span class="fm-exname">${esc(ex.name)}</span>
-      <button class="fm-info" data-cue="${esc(ex.name)}" aria-label="Form cues">${icon('info', { size: 19 })}</button>
-    </div>
-    <div class="fm-exmeta">
-      ${range ? `<span class="fm-target">${icon('target', { size: 14 })} Target ${range.min}–${range.max}</span>` : ''}
-      ${last ? `<span class="fm-last">Last: ${esc(last)}</span>` : ''}
-    </div>`;
-
-  const unit = { weight: 'kg', reps: 'reps', distance: 'km', time: 'time' };
-  document.getElementById('fmSets').innerHTML = ex.sets.map((set, si) => {
-    const fields = cfg.cols.map(col => {
-      const field = col;
-      let val = '';
-      if (col === 'weight') val = set.weight || '';
-      else if (col === 'reps') val = set.reps || '';
-      else if (col === 'distance') val = set.distance || '';
-      else if (col === 'time') val = set.duration ? fmtDuration(set.duration) : '';
-      const type = col === 'time' ? 'text' : 'number';
-      const im = col === 'weight' || col === 'distance' ? 'decimal' : 'numeric';
-      return `<div class="fm-field"><input type="${type}" inputmode="${im}" value="${val}" data-ei="${focusIndex}" data-set-id="${set.id}" data-field="${field}"><div class="fm-field-unit">${unit[col]}</div></div>`;
-    }).join('');
-    return `
-      <div class="fm-set ${set.done ? 'done' : ''} ${set.type === 'warmup' ? 'warmup' : ''}" data-set-id="${set.id}">
-        <span class="fm-set-num">${si + 1}</span>
-        ${fields}
-        <button class="fm-check" data-ei="${focusIndex}" data-set-id="${set.id}">${set.done ? icon('check', { size: 18 }) : ''}</button>
-      </div>`;
-  }).join('') + `<button class="fm-add-set" data-ei="${focusIndex}">+ Add set</button>`;
-
-  document.getElementById('fmBack').disabled = focusIndex === 0;
-  const nextBtn = document.getElementById('fmNext');
-  nextBtn.innerHTML = focusIndex < exs.length - 1
-    ? `Next: ${esc(exs[focusIndex + 1].name)} ${icon('chevron-right', { size: 20 })}`
-    : `Finish ${icon('check', { size: 18 })}`;
-
-  refreshFocusRest();
   refreshIcons();
 }
 
-// Toggle a set done from focus mode. Self-contained (no table-DOM focus jumps),
-// but reuses the shared PB / rest / autosave logic so it behaves like the table.
-function fmToggleSet(ei, setId) {
-  const { ex, set, si } = findSet(ei, setId);
-  if (!set) return;
-  set.done = !set.done;
-  set.touched ||= {};
-  const lt = resolveLogType(ex);
-  if (set.done) {
-    const commit = (field, ghost) => {
-      if (ghost == null || ghost === 0 || ghost === '') return;
-      if (field === 'time') { if (!set.duration) set.duration = ghost; }
-      else if (!set[field]) set[field] = ghost;
-    };
-    const prev = ex.prevSets?.[si] ?? null;
-    if (lt === 'weighted') { commit('weight', set.tW); commit('reps', set.tR); }
-    else if (lt === 'bodyweight') commit('reps', set.tR ?? prev?.reps);
-    else if (lt === 'duration')   commit('time', prev?.duration);
-    else if (lt === 'cardio')   { commit('distance', prev?.distance); commit('time', prev?.duration); }
-    const next = ex.sets[si + 1];
-    const carry = nextSetCarryWeight(set, next);
-    if (next && !next.done && lt === 'weighted' && !next.touched?.weight && carry) next.weight = carry;
-    unlockAudio();
-    if (!routineMode && isLastSupersetMember(ei)) startRest(ex.restTime ?? 60, ex.name);
-  }
-  if (!routineMode) {
-    const res = refreshExercisePBs(ei);   // also repaints table trophies (harmless)
-    const isPb = set.done && res.pbBySet.has(set.id);
-    if (set.done) restSubText = restSubForSet(ex, set, isPb);
-    if (isPb) showPbToast(res.pbBySet.get(set.id));
-  }
-  // keep the underlying table row consistent for when the user flips back
-  const tRow = awBody.querySelector(`.set-row[data-set-id="${setId}"]`);
-  if (tRow) {
-    tRow.classList.toggle('done', set.done);
-    const c = tRow.querySelector('.set-check'); if (c) c.innerHTML = set.done ? icon('check', { size: 16 }) : '';
-    const wi = tRow.querySelector('[data-field="weight"]'); if (wi && set.weight) wi.value = set.weight;
-    const ri = tRow.querySelector('[data-field="reps"]'); if (ri && set.reps) ri.value = set.reps;
-  }
-  saveSoon();
-  if (set.done) maybeAutoCoachNote(ei);
-  renderFocusMode();
+function toggleFocusView() { setFocusView(!focusView); }
+
+// The exercise whose block is closest to the top of the scroll viewport.
+function currentFocusIndex() {
+  const blocks = [...awBody.querySelectorAll('.ex-block')];
+  if (!blocks.length) return 0;
+  const top = awBody.scrollTop;
+  let best = 0, bestD = Infinity;
+  blocks.forEach((b, i) => {
+    const d = Math.abs(b.offsetTop - awBody.offsetTop - top);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return best;
 }
 
-// Focus-mode wiring (bound once).
-document.getElementById('awFocusBtn').onclick = () => enterFocusMode();
-document.getElementById('fmExit').onclick = exitFocusMode;
-document.getElementById('fmFinish').onclick = () => document.getElementById('awFinishBtn').click();
-document.getElementById('fmBack').onclick = () => { if (focusIndex > 0) { focusIndex--; persistFocus(); renderFocusMode(); } };
-document.getElementById('fmNext').onclick = () => {
-  if (focusIndex < (activeSession?.exercises.length || 0) - 1) { focusIndex++; persistFocus(); renderFocusMode(); }
-  else document.getElementById('awFinishBtn').click();
-};
-{
-  const fmSets = document.getElementById('fmSets');
-  fmSets.addEventListener('input', e => {
-    const t = e.target;
-    if (t.tagName !== 'INPUT') return;
-    const { setId, field } = t.dataset;
-    // mirror to the table input and let its handler own the model update / PB check
-    const tInput = awBody.querySelector(`.set-input[data-set-id="${setId}"][data-field="${field}"]`);
-    if (tInput) { tInput.value = t.value; tInput.dispatchEvent(new Event('input', { bubbles: true })); }
-  });
-  fmSets.addEventListener('click', e => {
-    const check = e.target.closest('.fm-check');
-    if (check) { fmToggleSet(+check.dataset.ei, check.dataset.setId); return; }
-    const add = e.target.closest('.fm-add-set');
-    if (add) {
-      const btn = awBody.querySelector(`.add-set-mini[data-ei="${add.dataset.ei}"]`);
-      if (btn) btn.click();
-      renderFocusMode();
-    }
-  });
-  document.getElementById('fmExHead').addEventListener('click', e => {
-    const info = e.target.closest('.fm-info');
-    if (info) showCues(info.dataset.cue);
-  });
-  // Horizontal swipe on the body changes exercise (buttons/inputs excluded).
-  const fmScroll = document.getElementById('fmScroll');
-  let sx = null, sy = null;
-  fmScroll.addEventListener('pointerdown', e => {
-    if (e.target.closest('input, button')) { sx = null; return; }
-    sx = e.clientX; sy = e.clientY;
-  });
-  fmScroll.addEventListener('pointerup', e => {
-    if (sx == null) return;
-    const dx = e.clientX - sx, dy = e.clientY - sy;
-    sx = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-      const n = activeSession?.exercises.length || 0;
-      if (dx < 0 && focusIndex < n - 1) { focusIndex++; persistFocus(); renderFocusMode(); }
-      else if (dx > 0 && focusIndex > 0) { focusIndex--; persistFocus(); renderFocusMode(); }
-    }
-  });
+// Snap to the first exercise with an unchecked set (else the first) on entering.
+function scrollFocusToActive() {
+  if (!focusView || !activeSession) return;
+  const exs = activeSession.exercises;
+  let idx = exs.findIndex(e => e.sets.some(s => !s.done));
+  if (idx < 0) idx = 0;
+  awBody.querySelector(`.ex-block[data-ei="${idx}"]`)?.scrollIntoView({ block: 'start' });
+  updateFocusBar();
 }
+
+// Progress rail + "n of m" + elapsed clock in the focus-view sub-header.
+function updateFocusBar() {
+  if (!focusView || !activeSession) return;
+  const exs = activeSession.exercises;
+  const cur = currentFocusIndex();
+  const rail = document.getElementById('awFocusRail');
+  if (rail) rail.innerHTML = exs.map((e, i) => {
+    const allDone = e.sets.length && e.sets.every(s => s.done);
+    return `<div class="fm-rail-bar ${i === cur ? 'current' : allDone ? 'done' : ''}"></div>`;
+  }).join('');
+  const count = document.getElementById('awFocusCount');
+  if (count) count.textContent = exs.length ? `${Math.min(cur + 1, exs.length)} / ${exs.length}` : '';
+}
+
+function startFocusClock() {
+  stopFocusClock();
+  const el = document.getElementById('awFocusClock');
+  const tick = () => { if (el) el.textContent = fmtTime(sessionSecsNow()); };
+  tick();
+  focusClockTimer = setInterval(tick, 1000);
+}
+function stopFocusClock() { if (focusClockTimer) { clearInterval(focusClockTimer); focusClockTimer = null; } }
+
+document.getElementById('awFocusBtn').onclick = () => toggleFocusView();
+
+// Keep the rail/count in step as the user snaps between exercises (rAF-throttled).
+{
+  let raf = 0;
+  awBody.addEventListener('scroll', () => {
+    if (!focusView || raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; updateFocusBar(); });
+  }, { passive: true });
+}
+// Tap anywhere on the rail to jump to that exercise (index from the x-position,
+// so the thin bars aren't a fiddly target).
+document.getElementById('awFocusRail').addEventListener('click', e => {
+  const n = activeSession?.exercises.length || 0;
+  if (!n) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const i = Math.min(n - 1, Math.max(0, Math.floor((e.clientX - rect.left) / rect.width * n)));
+  awBody.querySelector(`.ex-block[data-ei="${i}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
 
 // ── Delegated listeners (bound ONCE — never rebound on render) ────────────────
 awBody.addEventListener('input', e => {
@@ -1230,6 +1113,14 @@ awBody.addEventListener('click', e => {
     const block = noteBtn.closest('.ex-block');
     const input = block?.querySelector('.ex-notes-input');
     if (input) { input.hidden = false; input.focus(); }
+    return;
+  }
+  // Dismiss the carried "last time" note (one-time hint from the previous session).
+  const prevNoteX = e.target.closest('.ex-prev-note-x');
+  if (prevNoteX) {
+    const ex = activeSession?.exercises[prevNoteX.dataset.ei];
+    if (ex) { ex.carriedNote = ''; saveSoon(); }
+    prevNoteX.closest('.ex-prev-note')?.remove();
     return;
   }
   const cueBtn = e.target.closest('.ex-cue-btn');
@@ -1373,6 +1264,7 @@ function toggleSetDone(ei, setId, rowEl) {
     if (isPb) showPbToast(res.pbBySet.get(set.id));
   }
   saveSoon();
+  if (focusView) updateFocusBar();   // keep the targeted-view rail's done state live
   if (set.done) maybeAutoCoachNote(ei);
 }
 
@@ -1956,7 +1848,7 @@ async function replaceExercise(ei, newName, newCat) {
   activeSession.exercises[ei] = {
     ...old,
     name: newName, category: newCat, logType,
-    notes: prev?.notes || '',
+    notes: '', carriedNote: prev?.notes || '',
     repRange: def?.repRange || null,
     prevPerf: prev ? prev.sets.slice(0,3).map(s => `${fmtKg(s.weight)}×${s.reps}`).join(', ') : null,
     prevSets: prev?.sets || null,
@@ -2314,7 +2206,10 @@ async function saveWorkout() {
     duration:  isBackfill ? 0 : sessionSecsNow(),
     // Strip transient/derived fields — prevPerf/prevSets were only ghosting aids
     // for the live editor and would otherwise bloat every saved session forever.
-    exercises: activeSession.exercises.map(({ prevPerf, prevSets, ...e }) => ({
+    // Strip transient/derived fields. `carriedNote` (last session's note, shown
+    // once) is intentionally dropped so a note surfaces for exactly one session
+    // and never propagates further — only a note you type this session persists.
+    exercises: activeSession.exercises.map(({ prevPerf, prevSets, carriedNote, ...e }) => ({
       ...e,
       sets: e.sets.map(({ touched, tW, tR, ...s }) => s), // strip transient fields
     })),
@@ -2461,7 +2356,6 @@ function updateRestDisplay(remaining) {
   if (fill && restTotalSecs > 0) {
     fill.style.width = `${Math.max(0, Math.min(100, (r / restTotalSecs) * 100))}%`;
   }
-  if (focusMode) refreshFocusRest();
 }
 
 function skipRest() {
@@ -2471,7 +2365,6 @@ function skipRest() {
   const bar = document.getElementById('restBar');
   bar?.classList.remove('visible', 'flash', 'done-state');
   db.set(STORE, 'active-rest', null);
-  if (focusMode) refreshFocusRest();
 }
 
 function bumpRest(delta) {
@@ -2736,7 +2629,7 @@ async function addExerciseToSession(name, category) {
   const logType = prev?.logType || def?.logType || exLogType(name, category);
   activeSession.exercises.push({
     id: uid(), name, category, logType,
-    notes: prev?.notes || '',
+    notes: '', carriedNote: prev?.notes || '',
     restTime: prev?.restTime ?? 60,
     repRange: def?.repRange || null,
     prevPerf: prev ? prev.sets.slice(0,3).map(s => `${fmtKg(s.weight)}×${s.reps}`).join(', ') : null,
@@ -5507,6 +5400,23 @@ const COACH_ERRORS = {
 };
 // Errors worth a one-tap retry (transient / no user action needed).
 const COACH_RETRYABLE = new Set(['unavailable', 'ratelimit', 'network', 'empty', 'api']);
+// Errors the user can act on by adding a personal API key (proxy not set up).
+const COACH_NEEDS_KEY = new Set(['nokey', 'unavailable', 'proxy_unconfigured', 'auth']);
+
+// Build the coach system prompt, tolerating a data-read failure. A throw inside
+// assembleContext (malformed history, a bad session row) used to bubble up and
+// make EVERY coach message fail with a generic error; now it degrades to a
+// minimal prompt so the chat still works.
+async function buildCoachSystem() {
+  try {
+    return await assembleContext({
+      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
+    });
+  } catch (_) {
+    return 'You are the ARC coach — an expert strength & hypertrophy coach living in the user\'s workout app. The user is an experienced UK lifter; all weights are in KILOGRAMS, British English. Answer any training, technique, programming, progression, recovery or nutrition-for-lifters question concisely, with the mechanism or numbers behind each call. (Their training data could not be loaded this turn, so ask for specifics where you need them.)';
+  }
+}
 
 async function sendCoach(text, forceTool = false) {
   if (coachBusy) return;
@@ -5554,10 +5464,7 @@ async function sendCoach(text, forceTool = false) {
   };
 
   try {
-    const system = await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
-      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
-    });
+    const system = await buildCoachSystem();
     const apiMessages = coachThread.map(m =>
       m.role === 'assistant'
         ? { role: 'assistant', content: m.text
@@ -5571,7 +5478,7 @@ async function sendCoach(text, forceTool = false) {
     typing.remove();
     streamMsg.remove();   // re-rendered properly below (with cards/markup)
 
-    if (result.error) { pushCoachError(result.error, true); coachBusy = false; return; }
+    if (result.error) { pushCoachError(result.error, true, result.detail); coachBusy = false; return; }
 
     const botMsg = await buildCoachBotMsg(result);
     if (!botMsg) {
@@ -5643,8 +5550,13 @@ async function buildCoachBotMsg(result) {
   return botMsg;
 }
 
-function pushCoachError(code, allowRetry = false) {
-  const msg = { role: 'assistant', text: COACH_ERRORS[code] || COACH_ERRORS.api, error: true };
+function pushCoachError(code, allowRetry = false, detail = '') {
+  let text = COACH_ERRORS[code] || COACH_ERRORS.api;
+  // Surface the upstream reason on a hard API error so "always errors" is
+  // diagnosable (e.g. a rejected model or a proxy misconfiguration) instead of
+  // an opaque "try again".
+  if (detail && (code === 'api' || code === 'auth' || code === 'unavailable')) text += `\n(${String(detail).slice(0, 140)})`;
+  const msg = { role: 'assistant', text, error: true };
   coachThread.push(msg);
   const thread = document.getElementById('coachThread');
   const el = renderCoachMessage(msg);
@@ -5662,6 +5574,15 @@ function pushCoachError(code, allowRetry = false) {
       resendCoach(text, forceTool);
     };
     thread.appendChild(retry);
+  }
+  // When the shared coach service can't be reached, the working fallback is a
+  // personal Anthropic key — surface a one-tap shortcut to add one.
+  if (COACH_NEEDS_KEY.has(code)) {
+    const addKey = document.createElement('button');
+    addKey.className = 'coach-retry';
+    addKey.innerHTML = `${icon('key', { size: 14 })} Add API key`;
+    addKey.onclick = () => document.getElementById('coachKeyBtn').click();
+    thread.appendChild(addKey);
   }
   persistCoachThread();
   scrollCoachDown();
@@ -5693,10 +5614,7 @@ async function resendCoach(text, forceTool = false) {
   };
 
   try {
-    const system = await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
-      getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
-    });
+    const system = await buildCoachSystem();
     const apiMessages = coachThread
       .filter(m => !m.error)
       .map(m => m.role === 'assistant'
@@ -5707,7 +5625,7 @@ async function resendCoach(text, forceTool = false) {
         : { role: 'user', content: m.text });
     const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey, onDelta });
     typing.remove(); streamMsg.remove();
-    if (result.error) { pushCoachError(result.error, true); coachBusy = false; return; }
+    if (result.error) { pushCoachError(result.error, true, result.detail); coachBusy = false; return; }
     const botMsg = await buildCoachBotMsg(result);
     if (!botMsg) { pushCoachError('empty', true); coachBusy = false; return; }
     coachThread.push(botMsg);
