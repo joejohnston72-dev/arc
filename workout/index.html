@@ -525,6 +525,30 @@
       background:var(--surface); color:var(--text); font-size:1rem; cursor:pointer;
       display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent;
     }
+    .ex-plate-btn {
+      width:30px; height:30px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+      background:var(--surface); color:var(--text-muted); cursor:pointer; margin-left:2px;
+      display:flex; align-items:center; justify-content:center; -webkit-tap-highlight-color:transparent;
+    }
+    .ex-plate-btn:active { transform:scale(0.95); }
+    /* ── Plate calculator modal ── */
+    .plate-inputs { display:flex; gap:10px; }
+    .plate-field { flex:1; display:flex; flex-direction:column; gap:5px; font-size:0.72rem; color:var(--text-muted); }
+    .plate-field input, .plate-field select {
+      background:var(--surface2); border:1px solid rgba(255,255,255,0.1); border-radius:10px;
+      padding:11px 12px; color:var(--text); font-size:16px; outline:none; width:100%;
+    }
+    .plate-field input:focus, .plate-field select:focus { border-color:var(--blue); }
+    .plate-viz { min-height:56px; display:flex; flex-direction:column; gap:6px; margin-top:16px; justify-content:center; }
+    .plate-sub { font-size:0.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); }
+    .plate-pills { display:flex; flex-wrap:wrap; gap:6px; }
+    .plate-pill {
+      min-width:34px; padding:8px 9px; border-radius:8px; text-align:center;
+      font-size:0.9rem; font-weight:800; font-variant-numeric:tabular-nums;
+      box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);
+    }
+    .plate-empty { color:var(--text-muted); font-size:0.85rem; }
+    .plate-note { margin-top:10px; font-size:0.78rem; color:var(--text-muted); font-variant-numeric:tabular-nums; min-height:1em; }
 
     /* ── Inline rest bar (non-blocking, above footer) ── */
     #restBar {
@@ -1743,6 +1767,7 @@
 <div class="modal-backdrop" id="exMenuSheet">
   <div class="modal">
     <p class="modal-title" id="exMenuTitle"></p>
+    <button class="sheet-btn" id="exMenuWarmup"><i data-lucide="flame" data-size="17"></i> Add warm-up sets</button>
     <button class="sheet-btn" id="exMenuEdit"><i data-lucide="pencil" data-size="17"></i> Edit exercise…</button>
     <button class="sheet-btn" id="exMenuReplace"><i data-lucide="repeat" data-size="17"></i> Replace exercise…</button>
     <button class="sheet-btn" id="exMenuSuperset"><i data-lucide="repeat" data-size="17"></i> Superset…</button>
@@ -1854,6 +1879,29 @@
     </div>
     <div class="modal-btns" style="margin-top:14px">
       <button class="btn btn-g" id="restSheetCancel">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Plate calculator ── -->
+<div class="modal-backdrop" id="plateModal">
+  <div class="modal">
+    <p class="modal-title" style="display:flex;align-items:center;gap:7px"><span style="color:var(--blue);display:flex"><i data-lucide="dumbbell" data-size="18"></i></span> Plate calculator</p>
+    <div class="plate-inputs">
+      <label class="plate-field"><span>Target (kg)</span><input id="plateTarget" type="number" inputmode="decimal" step="2.5" placeholder="0"></label>
+      <label class="plate-field"><span>Bar</span>
+        <select id="plateBar">
+          <option value="20">20 kg</option>
+          <option value="15">15 kg</option>
+          <option value="10">10 kg</option>
+          <option value="0">None</option>
+        </select>
+      </label>
+    </div>
+    <div class="plate-viz" id="plateViz"></div>
+    <div class="plate-note" id="plateNote"></div>
+    <div class="modal-btns" style="margin-top:14px">
+      <button class="btn btn-g" id="plateClose">Close</button>
     </div>
   </div>
 </div>

@@ -284,12 +284,23 @@ const fmtDate = iso => {
 };
 
 // Load all saved sessions, newest first. Single source used everywhere.
+// Short-lived cache: loadSessions() reads the WHOLE workout store, filters and
+// sorts — and it's called from ~20 sites, several times per render (Stats opens
+// it 2–3×). A 2s memo collapses those redundant full-store scans; every local
+// mutation calls invalidateSessions() for correctness, and the TTL self-heals
+// any path that forgets to (e.g. a background cloud pull) within 2s.
+let _sessCache = null;
+function invalidateSessions() { _sessCache = null; }
 async function loadSessions() {
+  if (_sessCache && Date.now() - _sessCache.t < 2000) return _sessCache.data.slice();
   const all = await db.getAll(STORE);
-  return all
+  const data = all
     .filter(r => r.key.startsWith('session-') && r.value?.exercises)
-    .map(r => r.value)
-    .sort((a,b) => (parseToDate(b.date||b.startTime||'')?.getTime()||0) - (parseToDate(a.date||a.startTime||'')?.getTime()||0));
+    .map(r => ({ v: r.value, ts: parseToDate(r.value.date || r.value.startTime || '')?.getTime() || 0 }))
+    .sort((a, b) => b.ts - a.ts)   // decorate-sort: parse each date once, not per comparison
+    .map(x => x.v);
+  _sessCache = { t: Date.now(), data };
+  return data.slice();   // callers get their own array; the cache copy stays canonical
 }
 
 // ── Bodyweight tracking (syncs + backs up via the shared 'workout' store) ─────
@@ -423,8 +434,6 @@ let backfillDate = null;   // when set, the in-progress workout saves to this pa
 let restTimer      = null;
 let restEndsAt     = null;   // epoch ms
 let restTotalSecs  = 0;      // for the progress fill
-let restExName     = '';     // exercise the current rest belongs to (focus ring sub)
-let restSubText    = '';     // "Set 3 logged · 35 kg × 8 — new best" for the focus rest card
 let restFiredChime = false;
 
 // ── Targeted (focus) view — one exercise per screen with scroll-snap ──────────
@@ -849,6 +858,7 @@ function buildExerciseBlock(ex, ei) {
       <button class="ex-rest-step" data-ei="${ei}" data-delta="-15">−</button>
       <button class="ex-rest-value" data-ei="${ei}" id="restval-${ei}">${fmtRest(ex.restTime ?? 60)}</button>
       <button class="ex-rest-step" data-ei="${ei}" data-delta="15">+</button>
+      ${lt === 'weighted' ? `<button class="ex-plate-btn" data-ei="${ei}" aria-label="Plate calculator" data-tip="Plate calculator" title="Plate calculator">${icon('dumbbell', { size: 15 })}</button>` : ''}
     </div>
     ${ex.carriedNote ? `<div class="ex-prev-note" data-ei="${ei}">${icon('notebook-pen', { size: 12 })} <span>Last time: ${esc(ex.carriedNote)}</span><button class="ex-prev-note-x" data-ei="${ei}" aria-label="Dismiss note">${icon('x', { size: 13 })}</button></div>` : ''}
     <input class="ex-notes-input" placeholder="Notes…" value="${esc(ex.notes||'')}" data-ei="${ei}" data-field="notes"${ex.notes ? '' : ' hidden'}>
@@ -1108,6 +1118,8 @@ awBody.addEventListener('click', e => {
   }
   const restVal = e.target.closest('.ex-rest-value');
   if (restVal) { openRestSheet(parseInt(restVal.dataset.ei)); return; }
+  const plateBtn = e.target.closest('.ex-plate-btn');
+  if (plateBtn) { openPlateSheet(parseInt(plateBtn.dataset.ei)); return; }
   const noteBtn = e.target.closest('.ex-note-btn');
   if (noteBtn) {
     const block = noteBtn.closest('.ex-block');
@@ -1260,23 +1272,11 @@ function toggleSetDone(ei, setId, rowEl) {
   if (!routineMode) {
     const res = refreshExercisePBs(ei);
     const isPb = set.done && res.pbBySet.has(set.id);
-    if (set.done) restSubText = restSubForSet(ex, set, isPb);
     if (isPb) showPbToast(res.pbBySet.get(set.id));
   }
   saveSoon();
   if (focusView) updateFocusBar();   // keep the targeted-view rail's done state live
   if (set.done) maybeAutoCoachNote(ei);
-}
-
-// The focus rest card's subtitle: "Set 3 logged · 35 kg × 8 — new best".
-function restSubForSet(ex, set, isPb) {
-  const lt = resolveLogType(ex);
-  const n = ex.sets.indexOf(set) + 1;
-  const val = lt === 'weighted' ? `${fmtKg(set.weight)} kg × ${set.reps}`
-    : lt === 'bodyweight' ? `${set.reps} reps`
-    : lt === 'duration' ? `${set.duration || 0}s`
-    : `${set.distance || 0} km`;
-  return `Set ${n} logged · ${val}${isPb ? ' — new best' : ''}`;
 }
 
 // A completed exercise is "notable" — worth a coach note — when it set a PB this
@@ -1787,6 +1787,8 @@ function openExMenuSheet(ei) {
   menuEi = ei;
   const ex = activeSession.exercises[ei];
   document.getElementById('exMenuTitle').textContent = ex.name;
+  // Warm-up generator is only meaningful for weighted lifts (it scales a load).
+  document.getElementById('exMenuWarmup').style.display = resolveLogType(ex) === 'weighted' ? '' : 'none';
   // Configure the superset row — needs at least one other exercise to pair with.
   const ssBtn = document.getElementById('exMenuSuperset');
   if (activeSession.exercises.length > 1) {
@@ -1800,6 +1802,10 @@ function openExMenuSheet(ei) {
 const exMenuSheet = document.getElementById('exMenuSheet');
 exMenuSheet.addEventListener('click', e => { if (e.target === exMenuSheet) exMenuSheet.classList.remove('open'); });
 document.getElementById('exMenuCancel').onclick  = () => exMenuSheet.classList.remove('open');
+document.getElementById('exMenuWarmup').onclick = () => {
+  exMenuSheet.classList.remove('open');
+  generateWarmups(menuEi);
+};
 document.getElementById('exMenuEdit').onclick = () => {
   exMenuSheet.classList.remove('open');
   openEditExerciseModal(menuEi);
@@ -1825,6 +1831,97 @@ document.getElementById('exMenuRemove').onclick = () => {
     saveSoon();
   }
 };
+
+// ── Barbell / plate config (shared by the warm-up generator and plate calculator) ──
+let barWeightKg = 20;                              // standard Olympic bar; user-configurable
+const PLATE_KG = [25, 20, 15, 10, 5, 2.5, 1.25];   // per-plate denominations available (kg)
+const round2p5 = w => Math.round(w / 2.5) * 2.5;   // nearest 2.5 kg (smallest common jump)
+async function loadBarWeight() { const v = await db.get(STORE, 'bar-weight'); if (typeof v === 'number' && v >= 0) barWeightKg = v; }
+function setBarWeight(kg) { barWeightKg = Math.max(0, Number(kg) || 0); db.set(STORE, 'bar-weight', barWeightKg); }
+
+// Warm-up generator (#7): 40/60/80% of the first working set's load, rounded to
+// 2.5 kg and floored at the bar, inserted as `warmup` DUAL rows (Warm load over
+// the Work load) before the working sets — identical shape to a hand-cycled
+// warm-up, so it stays fully editable. Re-running replaces any existing warm-ups.
+function generateWarmups(ei) {
+  const ex = activeSession?.exercises[ei];
+  if (!ex) return;
+  const working = ex.sets.filter(s => s.type !== 'warmup');
+  const first = working.find(s => (s.weight || s.tW || 0) > 0) || working[0];
+  const workW = first?.weight || first?.tW || 0;
+  const workR = first?.reps || first?.tR || 0;
+  if (!workW) { alert('Enter a working weight first and I’ll build warm-ups up to it.'); return; }
+  const scheme = [[0.4, 8], [0.6, 5], [0.8, 3]];   // %, reps
+  const warms = [];
+  for (const [pct, reps] of scheme) {
+    const w = Math.max(barWeightKg, round2p5(workW * pct));
+    if (w >= workW) continue;                       // never a "warm-up" at/above the work load
+    if (warms.some(x => x.weight === w)) continue;   // dedupe collapsed percentages
+    warms.push({ id: uid(), type: 'warmup', weight: w, reps, done: false,
+                 weight2: workW, reps2: workR || 0, touched: { weight: true, reps: true } });
+  }
+  if (!warms.length) { alert('That load is too light to need warm-up sets.'); return; }
+  ex.sets = [...warms, ...working];                  // prepend; drops any prior warm-ups
+  renderActiveSession();
+  saveSoon();
+}
+
+// ── Plate calculator (#6) ─────────────────────────────────────────────────────
+// Greedy plates-per-side for a barbell, biggest denomination first.
+function platesPerSide(total, bar) {
+  let per = (total - bar) / 2;
+  if (per < 0) return { plates: [], leftover: 0, note: total < bar ? 'Lighter than the bar.' : '' };
+  const plates = [];
+  for (const p of PLATE_KG) while (per >= p - 1e-9) { plates.push(p); per = +(per - p).toFixed(3); }
+  return { plates, leftover: +per.toFixed(3), note: '' };
+}
+// IPF-ish plate colours so a loaded bar reads at a glance.
+const PLATE_COLOR = { 25: '#e05252', 20: '#3f76e0', 15: '#e0b23f', 10: '#3fae5a', 5: '#e8e8ee', 2.5: '#9aa0ad', 1.25: '#6b7280' };
+function renderPlateSheet() {
+  const target = Math.max(0, parseFloat(document.getElementById('plateTarget').value) || 0);
+  const bar = barWeightKg;
+  const { plates, leftover, note } = platesPerSide(target, bar);
+  const viz = document.getElementById('plateViz');
+  if (!plates.length) {
+    viz.innerHTML = `<div class="plate-empty">${note || (target ? 'Bar only — no plates.' : 'Enter a weight.')}</div>`;
+  } else {
+    const pills = plates.map(p => {
+      const c = PLATE_COLOR[p] || '#9aa0ad';
+      const dark = p === 5;   // near-white plate needs dark text
+      return `<span class="plate-pill" style="background:${c};color:${dark ? '#111' : '#fff'}">${p}</span>`;
+    }).join('');
+    viz.innerHTML = `<div class="plate-sub">Per side</div><div class="plate-pills">${pills}</div>`;
+  }
+  const noteEl = document.getElementById('plateNote');
+  const total = plates.length ? bar + plates.reduce((a, b) => a + b, 0) * 2 : (target >= bar ? bar : 0);
+  noteEl.textContent = plates.length
+    ? `${bar} kg bar + ${plates.reduce((a, b) => a + b, 0)} kg/side = ${total} kg${leftover ? ` · ${leftover} kg short` : ''}`
+    : (target && target >= bar ? `${bar} kg bar = ${bar} kg` : '');
+}
+function openPlateSheet(ei) {
+  const ex = activeSession?.exercises[ei];
+  // Prefill from the exercise's heaviest planned/logged working set, if any.
+  let seed = 0;
+  if (ex) {
+    for (const s of ex.sets) {
+      if (s.type === 'warmup') continue;
+      seed = Math.max(seed, s.weight || s.tW || 0);
+    }
+  }
+  const input = document.getElementById('plateTarget');
+  input.value = seed || '';
+  const sel = document.getElementById('plateBar');
+  sel.value = [20, 15, 10, 0].includes(barWeightKg) ? String(barWeightKg) : '20';
+  renderPlateSheet();
+  document.getElementById('plateModal').classList.add('open');
+}
+{
+  const modal = document.getElementById('plateModal');
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+  document.getElementById('plateClose').onclick = () => modal.classList.remove('open');
+  document.getElementById('plateTarget').addEventListener('input', renderPlateSheet);
+  document.getElementById('plateBar').addEventListener('change', e => { setBarWeight(Number(e.target.value)); renderPlateSheet(); });
+}
 
 // ── Replace exercise ("often picked" learned per original exercise) ──────────
 async function replaceExercise(ei, newName, newCat) {
@@ -2216,6 +2313,7 @@ async function saveWorkout() {
   };
   await ensureExercisesInRepo(session.exercises);   // catalogue anything new
   await db.set(STORE, 'session-' + session.id, session);
+  invalidateSessions();
   await clearActiveSessionStore();
   backfillDate = null;
   closeFocusMode();
@@ -2312,8 +2410,9 @@ function startRest(secs = 60, exName = '') {
   clearInterval(restTimer);
   restEndsAt = Date.now() + secs * 1000;
   restTotalSecs = secs;
-  restExName = exName;
   restFiredChime = false;
+  restExNameForNotif = exName;
+  maybeAskNotifyPermission();   // one-time, on this user gesture (checking a set)
   db.set(STORE, 'active-rest', { endsAt: restEndsAt, totalSecs: secs, exName });
   const bar = document.getElementById('restBar');
   bar.classList.add('visible');
@@ -2342,8 +2441,35 @@ function finishRest() {
   }
   playChime();
   try { navigator.vibrate?.([300,120,300,120,300]); } catch(_) {}
+  notifyRestDone();
   // NB: intentionally NOT auto-dismissed — the bar stays visible/pulsing until
   // the user hits Skip or checks off the next set (which restarts the timer).
+}
+
+// ── Background rest alert (#8) ────────────────────────────────────────────────
+// The Web Audio chime can't play while the app is backgrounded; a SILENT
+// notification (+ vibration on Android) alerts you between sets without touching
+// the audio session, so your music keeps playing. iOS PWAs show the banner but
+// don't vibrate. Fires only when the page is hidden and permission is granted.
+let restExNameForNotif = '';
+function maybeAskNotifyPermission() {
+  try {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  } catch (_) {}
+}
+function notifyRestDone() {
+  try {
+    if (document.visibilityState !== 'hidden') return;   // foreground → the chime already fired
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const n = new Notification('Rest done — next set', {
+      body: restExNameForNotif ? `${restExNameForNotif} · time to lift` : 'Time for your next set',
+      tag: 'arc-rest', renotify: true, silent: true,   // silent → never interrupts music
+      vibrate: [300, 120, 300],
+    });
+    n.onclick = () => { try { window.focus(); n.close(); } catch (_) {} };
+  } catch (_) {}
 }
 
 function updateRestDisplay(remaining) {
@@ -2361,7 +2487,6 @@ function updateRestDisplay(remaining) {
 function skipRest() {
   clearInterval(restTimer);
   restEndsAt = null;
-  restSubText = '';
   const bar = document.getElementById('restBar');
   bar?.classList.remove('visible', 'flash', 'done-state');
   db.set(STORE, 'active-rest', null);
@@ -4051,6 +4176,7 @@ async function saveHistoryEdits() {
     }
   }
   await db.set(STORE, 'session-' + hdSession.id, hdSession);
+  invalidateSessions();
   hdEditMode = false;
   renderHistoryDetailBody();
   renderHistory();
@@ -4099,6 +4225,7 @@ document.getElementById('hdDateSave').onclick = async () => {
     s.endTime = end.toISOString();
   }
   await db.set(STORE, 'session-' + hdEditSid, s);
+  invalidateSessions();
   document.getElementById('hdDateModal').classList.remove('open');
   await openHistoryDetail(hdEditSid);   // refresh the detail
   renderHistory();
@@ -4134,6 +4261,7 @@ document.getElementById('hdDelete').onclick = async () => {
   const sid = document.getElementById('hdDelete').dataset.sid;
   if (!confirm('Delete this workout?')) return;
   await db.delete(STORE, 'session-' + sid);
+  invalidateSessions();
   document.getElementById('historyDetail').classList.remove('visible');
   renderHistory();
   renderStats();     // clear the removed day from the calendar too
@@ -4415,6 +4543,7 @@ document.getElementById('restoreCloudBtn').onclick = async () => {
   showProgress('Restoring from cloud…');
   try {
     const n = await db.sync();
+    invalidateSessions();   // cloud pull wrote session rows directly — drop the stale memo
     const sessions = await countSessions();
     showProgress(`✅ Restored ${n} item${n === 1 ? '' : 's'} from cloud — ${sessions} workout${sessions === 1 ? '' : 's'} in history.`, 6000);
     renderHistory(); renderDashboard(); renderStats();
@@ -4481,6 +4610,7 @@ document.getElementById('csvInput').onchange = async e => {
       }
       showProgress(`✅ Imported ${imported} workouts.`, 4000);
     }
+    invalidateSessions();   // imported rows changed history
     db.backup();   // make sure the imported data reaches the cloud too
     renderHistory(); renderDashboard(); renderStats();
   } catch (err) {
@@ -4663,7 +4793,14 @@ async function loadCoachThread() {
   if (!coachThread) coachThread = (await db.get('workout', 'coach-thread')) || [];
   return coachThread;
 }
-function persistCoachThread() { db.set('workout', 'coach-thread', coachThread); }
+// Persist only the last ~40 turns — the API already sends just the recent window
+// (sanitizeMessages slices to 20), so keeping the whole history forever only bloats
+// the IndexedDB/cloud row. Trim in place so the in-memory thread matches what's saved.
+const COACH_THREAD_CAP = 40;
+function persistCoachThread() {
+  if (coachThread.length > COACH_THREAD_CAP) coachThread.splice(0, coachThread.length - COACH_THREAD_CAP);
+  db.set('workout', 'coach-thread', coachThread);
+}
 
 // ── Coach memory: the persistent athlete profile the coach reads & writes ──────
 async function getCoachProfile() { return (await db.get(STORE, 'coach-profile')) || null; }
@@ -4892,6 +5029,27 @@ function generateCoachFindings(sessions) {
         { label: 'Dismiss', kind: 'dismiss' },
       ],
       key: 'find-stall',
+    });
+  }
+
+  // 4) Deload nudge — when SEVERAL frequent lifts stall at once it's usually
+  // systemic fatigue, not a per-lift fix; suggest a light week.
+  let stalledCount = 0;
+  for (const [, m] of stats) {
+    if (m.series.length < 4 || m.count < 3) continue;
+    const recent = m.series.slice(-4);
+    const max = Math.max(...recent), min = Math.min(...recent);
+    if (max > 0 && (max - min) / max < 0.03) stalledCount++;
+  }
+  if (stalledCount >= 3) {
+    out.push({
+      severity: 'stalling', eyebrow: 'Fatigue', metric: `${stalledCount} lifts flat`,
+      body: `${stalledCount} of your main lifts have stalled at once — that's usually accumulated fatigue, not ${stalledCount} separate problems. A deload week (~50% volume, same movements) often unsticks the whole board.`,
+      actions: [
+        { label: 'Plan a deload', kind: 'primary', prompt: `${stalledCount} of my main lifts have stalled at the same time. Should I deload, and what would a one-week deload look like for my current split?` },
+        { label: 'Dismiss', kind: 'dismiss' },
+      ],
+      key: 'find-deload',
     });
   }
   return out;
@@ -5324,6 +5482,7 @@ async function coachLogWorkouts(input) {
     await ensureExercisesInRepo(exercises);
     saved.push(`${session.title} · ${fmtDate(date)}`);
   }
+  if (saved.length) invalidateSessions();
   renderDashboard();
   renderHistory();   // reflect coach-backfilled sessions on the History list…
   renderStats();     // …and on the calendar/stats immediately
@@ -5714,6 +5873,7 @@ try { await Promise.race([restore, new Promise(r => setTimeout(r, 12000))]); } c
 
 await loadExOverrides();   // library edits (exercise types/categories) before any render
 await loadExAliases();     // exercise identity merges — before any history render
+loadBarWeight();           // remembered barbell weight for the plate calculator (non-blocking)
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
@@ -5735,6 +5895,6 @@ renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one
 
 // If the cloud pull finished AFTER the cap (slow network), refresh once it lands.
-restore.then(n => { if (n) { renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
+restore.then(n => { if (n) { invalidateSessions(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h

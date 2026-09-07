@@ -386,7 +386,10 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   const signalLines = signals.sort((a, b) => b.n - a.n).slice(0, 8).map(x => x.s).join('\n');
 
   const now = new Date();
-  const todayStr = `${now.toISOString().slice(0, 10)} (${now.toLocaleDateString('en-GB', { weekday: 'long' })})`;
+  // LOCAL calendar date, not UTC — toISOString() is UTC, so near midnight in
+  // BST/GMT "today" and "yesterday" could resolve to the wrong day for the coach.
+  const localYMD = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = `${localYMD} (${now.toLocaleDateString('en-GB', { weekday: 'long' })})`;
 
   const profileText = profileBlock(profile);
   const prioritiesText = prioritiesBlock(profile);
