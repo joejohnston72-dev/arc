@@ -2352,45 +2352,57 @@ function cancelWorkout() {
 // A settings toggle can offer both modes if wanted.) Neither can play while the
 // PWA is fully backgrounded; the chime then fires on return if rest elapsed hidden.
 let audioCtx = null;
+let audioKeepAlive = null;   // silent oscillator that stops iOS suspending the context
+// Keep the AudioContext RUNNING for the whole session. The chime was flaky
+// because iOS auto-suspends an idle context within seconds, so by the time a
+// 60–180s rest ends the context is asleep — and resuming from a timer (not a
+// tap) is unreliable on iOS, so the beep was sometimes silent, and when it did
+// resume late the notes got scheduled in the past and played partially (the
+// "different volume"). A permanent near-silent oscillator holds the context
+// open so every chime fires immediately at a consistent level.
+function startAudioKeepAlive() {
+  if (!audioCtx || audioKeepAlive) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    g.gain.value = 0.0001;           // inaudible, but enough to keep the graph active
+    osc.frequency.value = 30;
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start();
+    audioKeepAlive = osc;
+  } catch (_) {}
+}
 function unlockAudio() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state !== 'running') audioCtx.resume();
-    // Warm the hardware with a silent tick so the first real chime isn't eaten.
-    const buf = audioCtx.createBuffer(1, 1, 22050);
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf; src.connect(audioCtx.destination); src.start(0);
+    startAudioKeepAlive();
   } catch (_) {}
 }
 function playChime() {
   if (!audioCtx) return;
   const play = () => {
     try {
-      // Loud, attention-grabbing alarm: two urgent triads through a limiter so
-      // it's as loud as possible without clipping. (iOS still respects the
-      // physical mute switch — nothing JS can do about that.)
-      const comp = audioCtx.createDynamicsCompressor();
-      comp.threshold.value = -8; comp.ratio.value = 12; comp.attack.value = 0.002; comp.release.value = 0.1;
-      comp.connect(audioCtx.destination);
       const master = audioCtx.createGain();
-      master.gain.value = 1.0;
-      master.connect(comp);
+      master.gain.value = 0.9;         // fixed level — no compressor, so it's the same every time
+      master.connect(audioCtx.destination);
 
-      const now = audioCtx.currentTime;
+      // Small look-ahead so the FIRST note is never scheduled in the past (which
+      // is what clipped the chime after a late resume). Everything is relative to it.
+      const now = audioCtx.currentTime + 0.06;
       const beeps = [0, 0.16, 0.32, 0.62, 0.78, 0.94]; // two triads
       const freqs = [988, 1319, 1568, 988, 1319, 1568];
       beeps.forEach((offset, i) => {
         const t = now + offset;
-        // layer a sine + square for a fuller, louder tone
-        ['sine', 'square'].forEach((type, j) => {
+        ['sine', 'square'].forEach(type => {
           const osc = audioCtx.createOscillator();
           const g = audioCtx.createGain();
           osc.type = type;
           osc.frequency.value = freqs[i];
           const peak = type === 'square' ? 0.28 : 0.6;
-          g.gain.setValueAtTime(0, t);
-          g.gain.linearRampToValueAtTime(peak, t + 0.01);
-          g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(peak, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0008, t + 0.14);
           osc.connect(g).connect(master);
           osc.start(t);
           osc.stop(t + 0.16);
@@ -2399,8 +2411,10 @@ function playChime() {
     } catch (_) {}
   };
   try {
-    if (audioCtx.state !== 'running') audioCtx.resume().then(play).catch(() => {});
-    else play();
+    // Keep-alive normally means it's already running; resume() is a belt-and-braces
+    // fallback (e.g. returning from background) — schedule only once it's actually running.
+    if (audioCtx.state === 'running') play();
+    else audioCtx.resume().then(play).catch(() => {});
   } catch (_) {}
 }
 
@@ -2549,6 +2563,8 @@ document.addEventListener('visibilitychange', () => {
   // visible again
   if (activeSession) {
     acquireWakeLock(); // iOS silently releases it on hide
+    try { if (audioCtx && audioCtx.state !== 'running') audioCtx.resume(); } catch (_) {}
+    startAudioKeepAlive();   // re-arm in case the context was torn down while hidden
   }
   if (restEndsAt) {
     if (Date.now() >= restEndsAt) finishRest();

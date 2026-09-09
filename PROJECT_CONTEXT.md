@@ -28,7 +28,7 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v75** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v76** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
