@@ -312,7 +312,35 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
     return `- ${date} ${s.title || 'Workout'}: ${lifts}`;
   }).join('\n');
 
-  const routines = (templates || []).slice(0, 8).map(t =>
+  // ── Next-in-split (DETERMINISTIC — computed here, not left to the model) ──────
+  // The app rotates the split by list order: the routine after the most recently
+  // LOGGED one is up next. Feeding the model this computed answer (plus per-routine
+  // recency) is what stops it re-suggesting a day you just trained — the model is
+  // unreliable at re-deriving "match my last session to my split, pick the next".
+  const tmpls = (templates || []);
+  const DAY_MS = 86400000, nowMs = Date.now();
+  const lastTrainedDays = {};
+  for (const t of tmpls) {
+    for (const s of sessions) {                 // newest-first
+      if ((s.title || '') === t.name) { const ts = sessionTs(s); if (ts) lastTrainedDays[t.name] = Math.floor((nowMs - ts) / DAY_MS); break; }
+    }
+  }
+  let nextName = null;
+  if (tmpls.length) {
+    const names = tmpls.map(t => t.name);
+    let lastIdx = -1;
+    for (const s of sessions) { const i = names.indexOf(s.title || ''); if (i >= 0) { lastIdx = i; break; } }
+    nextName = names[(lastIdx >= 0 ? lastIdx + 1 : 0) % names.length];
+  }
+  const daysTxt = n => n == null ? 'not logged yet' : n === 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
+  const nextTmpl = tmpls.find(t => t.name === nextName);
+  const nextBlock = nextTmpl
+    ? `Up next: "${nextTmpl.name}" (last trained ${daysTxt(lastTrainedDays[nextTmpl.name])}). Draft THIS, progressed.\n`
+      + `Its exercises: ${nextTmpl.exercises.map(e => e.name).join(', ')}\n`
+      + `Split order & recency: ${tmpls.map(t => `${t.name} (${daysTxt(lastTrainedDays[t.name])})`).join(' · ')}`
+    : '';
+
+  const routines = tmpls.slice(0, 8).map(t =>
     `- ${t.name}: ${t.exercises.map(e => e.name).join(', ')}`
   ).join('\n');
 
@@ -418,7 +446,9 @@ HOW TO RESPOND
 - ONLY call draft_routine when the user wants a single workout/day created or asks "what should I train today". For a whole multi-day programme/split, call draft_split instead. For everything else, reply with text.
 
 FOLLOWING THE PROGRAM (structure first — this is how effective training actually works)
-- The user trains a STRUCTURED SPLIT (see SAVED ROUTINES). Your default is to help them follow it — NOT to invent a different session every day. When they ask "what should I train today", pick the next routine in their split (the one that best fits which days they've already trained this week) and hand THAT to them via draft_routine, setting the loads/reps within it from their history. Do not improvise a fresh ad-hoc session that ignores their program.
+- The NEXT IN YOUR SPLIT block below already names the routine that's DUE — it's computed deterministically from their saved routine order and what they last LOGGED, so trust it. When they ask "what should I train today", draft THAT named routine via draft_routine: keep its exercises and name, and set today's loads/reps from their history + PROGRESSION SIGNALS. Do NOT re-derive the rotation yourself, do NOT improvise a different session, and NEVER re-suggest a day they just logged (check the recency in that block — if "Up next" was trained today/yesterday something is off, so pick the following routine and say so).
+- Favour their EXISTING routines over inventing new ones. You may tweak the due routine when their data clearly justifies it — swap a stalled or redundant exercise, add a set to a lagging group, trim an over-MRV one — but change at most one or two things and name the change and its reason in one line. Otherwise reproduce the routine as-is with progressed loads.
+- The user trains a STRUCTURED SPLIT (see SAVED ROUTINES). Your default is to help them follow it — NOT to invent a different session every day, and NOT to hand them the same day twice in a row.
 - Progress WITHIN the plan: use recent working weights and PROGRESSION SIGNALS to set each lift's target today (small load/rep bump on rising lifts; a stall-breaker — bump, added set, variation, or short deload — on stalled ones). That continuity, the same movements getting heavier over weeks, is what drives results; a random new workout each day does not.
 - Only deviate from the program for a concrete, stated reason: an injury, missing equipment, a group the user explicitly wants more of, or the user asking you to rebuild the split. If the WHOLE week is structurally off, you may propose a new split with draft_split — but say plainly what you changed and why, and respect TRAINING PRIORITIES and TRAINING BALANCE.
 - RECOVERY/READINESS and TRAINING BALANCE inform HOW you load and sequence — they are NOT a cue to train whichever muscle is most rested. Never steer a session toward a small or rarely-trained group (e.g. calves, glutes) just because it reads as "fresh" or "under 10 sets". Honour TRAINING PRIORITIES first, then the user's split.
@@ -470,7 +500,8 @@ RECENT SESSIONS
 ${recent || '- (none yet)'}
 
 SAVED ROUTINES
-${routines || '- (none yet)'}`;
+${routines || '- (none yet)'}
+${nextBlock ? `\nNEXT IN YOUR SPLIT (computed from routine order + what you last logged — trust this for "what should I train today"; draft it, progressed, and don't repeat a day just logged)\n${nextBlock}` : ''}`;
 }
 
 // Assemble everything callers need for a request. Convenience wrapper.

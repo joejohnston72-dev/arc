@@ -27,6 +27,9 @@
        exercise) — keeps the smaller, consistent size. */
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     body { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); overscroll-behavior: none; }
+    /* No horizontal movement anywhere — a stray-wide child must never let the page pan
+       sideways (that hijacks set-row swipes into a page-scroll and reads as a "zoom"). */
+    html, body { overflow-x: hidden; max-width: 100%; }
     /* Kill double-tap zoom + 300ms tap delay app-wide */
     html, body, button, input, select { touch-action: manipulation; }
     /* Inputs must be >=16px or iOS auto-zooms on focus */
@@ -278,12 +281,12 @@
       flex-shrink:0; background:var(--bg);
     }
     .aw-title-input {
-      flex:1; background:none; border:none; color:var(--text);
+      flex:1; min-width:0; background:none; border:none; color:var(--text);
       font-size:1.1rem; font-weight:700; outline:none;
     }
     .aw-title-input::placeholder { color:var(--text-muted); font-weight:400; }
 
-    .aw-body { flex:1; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding:0 var(--gap) var(--gap); }
+    .aw-body { flex:1; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; padding:0 var(--gap) var(--gap); }
     .aw-footer {
       flex-shrink:0; padding:10px var(--gap) calc(env(safe-area-inset-bottom) + 10px);
       background:var(--bg); border-top:1px solid rgba(255,255,255,0.07);
@@ -505,8 +508,8 @@
     .ex-rest-control {
       display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-left:16px;
     }
-    .ex-rest-icon  { font-size:0.85rem; }
-    .ex-rest-label { font-size:0.75rem; color:var(--text-muted); flex:1; }
+    .ex-rest-icon  { font-size:0.85rem; flex:0 0 auto; }
+    .ex-rest-label { font-size:0.75rem; color:var(--text-muted); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .ex-rest-value {
       font-size:0.85rem; font-weight:700; min-width:48px; text-align:center;
       font-variant-numeric:tabular-nums; color:var(--blue);
