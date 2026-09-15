@@ -473,23 +473,43 @@
     }
 
     /* Reorder mode */
-    .reorder-hint { font-size:0.8rem; color:var(--text-muted); text-align:center; padding:14px 0 10px; }
-    .reorder-card {
-      display:flex; align-items:center; gap:12px; position:relative;
+    /* ── Reorder: a CSS state over the live workout DOM ──────────────────────────
+       Same markup, same handlers — exactly how .focus-view works. Every .ex-block
+       collapses to its header row, so the list is uniform-height (which keeps the
+       drag maths stable) and you keep sight of what each exercise is and how far
+       through it you are. Nothing is torn down or rebuilt to get here. */
+    .ex-grip, .ex-reorder-sum { display:none; }
+    #activeWorkout.reordering .aw-body { scroll-snap-type:none; }
+    #activeWorkout.reordering .ex-block > *:not(.ex-block-header):not(.ss-label) { display:none; }
+    #activeWorkout.reordering .ex-block {
+      margin-bottom:8px; padding:14px; border-radius:12px;
       background:var(--surface2); border:1px solid rgba(255,255,255,0.06);
-      border-radius:12px; padding:15px 14px; margin-bottom:8px;
       touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     }
-    .reorder-card.snapback { transition: transform .15s ease; }
-    .reorder-card.dragging {
-      opacity:1; z-index:20; border-color:rgba(56,189,248,0.5);
-      background:#23232d; box-shadow:0 10px 28px rgba(0,0,0,0.6); transform-origin:center;
+    #activeWorkout.reordering .ex-block.ss-member { border-left:3px solid var(--purple); }
+    #activeWorkout.reordering .ex-block-header { margin-bottom:0; }
+    #activeWorkout.reordering .ex-name { cursor:grab; }
+    #activeWorkout.reordering .ex-chev,
+    #activeWorkout.reordering .ex-note-btn,
+    #activeWorkout.reordering .ex-cue-btn,
+    #activeWorkout.reordering .ex-menu-btn { display:none; }
+    #activeWorkout.reordering .ex-grip { display:inline-flex; align-items:center; color:var(--text-muted); }
+    #activeWorkout.reordering .ex-reorder-sum {
+      display:inline; flex:0 0 auto; font-size:0.72rem; color:var(--text-muted); white-space:nowrap;
     }
-    .reorder-name { flex:1; font-size:0.95rem; font-weight:700; }
-    .reorder-grip { color:var(--text-muted); font-size:1rem; }
-    .reorder-done {
-      width:100%; padding:14px; margin-top:8px; border:none; border-radius:12px;
-      background:var(--blue); color:#000; font-size:0.95rem; font-weight:700; cursor:pointer;
+    .ex-block.snapback { transition: transform .15s ease; }
+    .ex-block.dragging {
+      position:relative; z-index:20; border-color:rgba(56,189,248,0.5) !important;
+      background:#23232d; box-shadow:0 10px 28px rgba(0,0,0,0.6);
+    }
+    /* Footer swaps Add Exercise for Done while reordering */
+    .reorder-done-btn { display:none; }
+    #activeWorkout.reordering .add-exercise-btn { display:none; }
+    #activeWorkout.reordering .reorder-done-btn {
+      display:flex; align-items:center; justify-content:center; gap:8px; width:100%;
+      padding:14px; border:none; border-radius:12px;
+      background:var(--blue); color:#04131c; font-size:0.95rem; font-weight:700; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
     }
     .add-set-row td { padding-top:6px; }
     .add-set-mini {
@@ -1582,6 +1602,8 @@
       <button class="rest-bar-skip" onclick="skipRest()">Skip</button>
     </div>
     <button class="add-exercise-btn" id="awAddExBtn"><i data-lucide="plus" data-size="18"></i> Add Exercise</button>
+    <!-- Swaps in for Add Exercise while reordering (see #activeWorkout.reordering) -->
+    <button class="reorder-done-btn" id="reorderDoneBtn"><i data-lucide="check" data-size="18"></i> Done reordering</button>
   </div>
 </div>
 
@@ -1764,6 +1786,7 @@
     <button class="sheet-btn" id="exMenuEdit"><i data-lucide="pencil" data-size="17"></i> Edit exercise…</button>
     <button class="sheet-btn" id="exMenuReplace"><i data-lucide="repeat" data-size="17"></i> Replace exercise…</button>
     <button class="sheet-btn" id="exMenuSuperset"><i data-lucide="repeat" data-size="17"></i> Superset…</button>
+    <button class="sheet-btn" id="exMenuNext"><i data-lucide="corner-up-left" data-size="17"></i> Do this next</button>
     <button class="sheet-btn" id="exMenuReorder"><i data-lucide="arrow-up-down" data-size="17"></i> Reorder exercises</button>
     <button class="sheet-btn danger" id="exMenuRemove"><i data-lucide="trash-2" data-size="17"></i> Remove from workout</button>
     <button class="sheet-btn" id="exMenuCancel" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>

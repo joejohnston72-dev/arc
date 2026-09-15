@@ -863,8 +863,10 @@ function buildExerciseBlock(ex, ei) {
   block.innerHTML = `
     ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
+      <span class="ex-grip" aria-hidden="true">${icon('grip-vertical', { size: 17 })}</span>
       <div class="ex-cat-dot" style="background:${color}"></div>
       <div class="ex-name linked" data-open-ex="${esc(ex.name)}">${esc(ex.name)}<span class="ex-chev">${icon('chevron-right', { size: 15 })}</span></div>
+      <span class="ex-reorder-sum"></span>
       <button class="ex-note-btn${ex.notes ? ' has-note' : ''}" data-ei="${ei}" aria-label="Add note" data-tip="Add note" title="Add note">${icon('pencil', { size: 16 })}</button>
       <button class="ex-cue-btn" data-cue="${esc(ex.name)}" aria-label="Form cues" data-tip="Form cues" title="Form cues">${icon('info', { size: 17 })}</button>
       <button class="ex-menu-btn" data-ei="${ei}" aria-label="Exercise options" data-tip="Options" title="Options">${icon('ellipsis', { size: 18 })}</button>
@@ -1807,6 +1809,12 @@ function openExMenuSheet(ei) {
   document.getElementById('exMenuTitle').textContent = ex.name;
   // Warm-up generator is only meaningful for weighted lifts (it scales a load).
   document.getElementById('exMenuWarmup').style.display = resolveLogType(ex) === 'weighted' ? '' : 'none';
+  // "Do this next" only means something when the exercise isn't already sitting
+  // where it would land, and when there's more than one exercise to order.
+  document.getElementById('exMenuNext').style.display =
+    (activeSession.exercises.length > 1 && nextSlotFor(ei) !== ei) ? '' : 'none';
+  document.getElementById('exMenuReorder').style.display =
+    activeSession.exercises.length > 1 ? '' : 'none';
   // Configure the superset row — needs at least one other exercise to pair with.
   const ssBtn = document.getElementById('exMenuSuperset');
   if (activeSession.exercises.length > 1) {
@@ -1839,6 +1847,10 @@ document.getElementById('exMenuSuperset').onclick = () => {
 document.getElementById('exMenuReorder').onclick = () => {
   exMenuSheet.classList.remove('open');
   enterReorderMode();
+};
+document.getElementById('exMenuNext').onclick = () => {
+  exMenuSheet.classList.remove('open');
+  moveExerciseNext(menuEi);
 };
 document.getElementById('exMenuRemove').onclick = () => {
   const ex = activeSession.exercises[menuEi];
@@ -1983,32 +1995,78 @@ async function replaceExercise(ei, newName, newCat) {
   saveSoon();
 }
 
-// ── Reorder mode (long-press or menu) ─────────────────────────────────────────
+// ── Reorder: a CSS state over the live workout DOM ────────────────────────────
+// Deliberately mirrors how focus view works (see "Targeted (focus) view" above):
+// the same #awBody markup and the same handlers stay in place, and a class on
+// #activeWorkout changes how they present. The previous implementation replaced
+// awBody.innerHTML with a separate screen of bare name cards, which meant two full
+// teardowns per move, a lost scroll position, and rearranging labels with no sight
+// of set counts or what you'd already completed.
+//
+// While `.reordering` is on, CSS collapses every .ex-block down to its header row,
+// so the list is uniform-height (which also makes the drag maths stable) and you
+// still see the exercise, its colour, and how far through it you are.
 let reordering = false;
-function enterReorderMode() {
-  if (!activeSession?.exercises.length) return;
-  reordering = true;
-  try { navigator.vibrate?.(10); } catch(_) {}
-  awBody.innerHTML = `
-    <div class="reorder-hint">Drag to reorder, then tap Done.</div>
-    <div id="reorderList">
-      ${activeSession.exercises.map((ex, ei) => `
-        <div class="reorder-card" data-ei="${ei}">
-          <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[ex.category]||'#8e8e9a'}"></span>
-          <span class="reorder-name">${esc(ex.name)}</span>
-          <span class="reorder-grip">${icon('grip-horizontal', { size: 18 })}</span>
-        </div>`).join('')}
-    </div>
-    <button class="reorder-done" id="reorderDone">Done</button>
-  `;
-  document.getElementById('reorderDone').onclick = exitReorderMode;
+let reorderResumeFocus = false;
+
+function exerciseSummary(ex) {
+  const total = (ex.sets || []).length;
+  const done = (ex.sets || []).filter(s => s.done).length;
+  if (!total) return 'no sets';
+  return done ? `${total} sets · ${done} done` : `${total} sets`;
 }
+
+function enterReorderMode() {
+  if (!activeSession?.exercises.length || reordering) return;
+  reordering = true;
+  try { navigator.vibrate?.(10); } catch (_) {}
+  // Focus view gives each block the whole screen, so there is nothing to drag
+  // against. Drop to list view for the duration and restore it on exit.
+  if (focusView) { reorderResumeFocus = true; setFocusView(false, { persist: false }); }
+  document.getElementById('activeWorkout').classList.add('reordering');
+  awBody.querySelectorAll('.ex-block').forEach(b => {
+    const ex = activeSession.exercises[+b.dataset.ei];
+    const sum = b.querySelector('.ex-reorder-sum');
+    if (ex && sum) sum.textContent = exerciseSummary(ex);
+  });
+}
+
+// Each drop already committed through commitReorderFromDOM, so exiting is purely
+// presentational plus one rebuild to resync the data-ei on every nested control.
 function exitReorderMode() {
-  const order = [...awBody.querySelectorAll('.reorder-card')].map(c => parseInt(c.dataset.ei));
-  activeSession.exercises = order.map(i => activeSession.exercises[i]);
+  if (!reordering) return;
   reordering = false;
+  document.getElementById('activeWorkout').classList.remove('reordering');
+  renderActiveSession();
+  if (reorderResumeFocus) { reorderResumeFocus = false; setFocusView(true, { persist: false }); }
+}
+
+document.getElementById('reorderDoneBtn').onclick = exitReorderMode;
+
+// Where "do this next" would land exercise `ei`: straight after the last exercise
+// you've actually worked. Its own completed sets don't count — otherwise the lift
+// you just finished would anchor on itself and get shoved to the end. The returned
+// index is a position in the post-move array, so it doubles as the "already there,
+// hide the option" test.
+function nextSlotFor(ei) {
+  const list = activeSession?.exercises || [];
+  let lastDone = -1;
+  list.forEach((ex, i) => { if (i !== ei && (ex.sets || []).some(s => s.done)) lastDone = i; });
+  return lastDone > ei ? lastDone : lastDone + 1;
+}
+
+// The reorder people actually want mid-session, and it needs no drag at all.
+function moveExerciseNext(ei) {
+  const list = activeSession?.exercises || [];
+  if (ei < 0 || ei >= list.length) return;
+  const to = nextSlotFor(ei);
+  if (to === ei) return;
+  const [item] = list.splice(ei, 1);
+  list.splice(to, 0, item);
+  normalizeSupersets();
   renderActiveSession();
   saveSoon();
+  try { navigator.vibrate?.(10); } catch (_) {}
 }
 
 // ── Touch gestures: swipe on set rows, long-press on exercise headers,
@@ -2022,13 +2080,22 @@ const SWIPE = { DECIDE: 10, DELETE: 72, DROP: 58, HINT: 22, MAX: 130 };
 
 awBody.addEventListener('pointerdown', e => {
   if (reordering) {
-    const card = e.target.closest('.reorder-card');
+    const card = e.target.closest('.ex-block');
     if (card) startReorderDrag(e, card);
     return;
   }
   const header = e.target.closest('.ex-block-header');
   if (header && !e.target.closest('button')) {
-    longPressTimer = setTimeout(() => { longPressTimer = null; enterReorderMode(); }, 400);
+    // The hold both enters reorder and picks the block up, so one continuous
+    // gesture does the whole job — no lifting off and pressing again.
+    const block = header.closest('.ex-block');
+    const { pointerId, clientY } = e;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      gesture.active = false;               // the hold won, so cancel any set-row swipe
+      enterReorderMode();
+      if (block?.isConnected) startReorderDrag({ pointerId, clientY }, block);
+    }, 400);
   }
   const row = e.target.closest('.set-row');
   // Allow swipe to begin on inputs too — only the check button is excluded so
@@ -2106,23 +2173,62 @@ function slideOutDelete(row, ei, setId) {
   setTimeout(() => deleteSet(ei, setId), 210);
 }
 
-// Reorder-mode dragging
+// Reorder dragging. Operates directly on the live .ex-block list inside awBody —
+// the blocks are collapsed to header rows by the `.reordering` CSS state, so they
+// are uniform height and the midpoint maths below stays well-behaved.
+// `touch-action` is latched by the browser at touch-down, so turning the
+// reordering class (and its touch-action:none) on midway through a long-press is
+// too late — the gesture is already earmarked for scrolling and the pointer gets
+// cancelled the moment the finger moves. A non-passive touchmove guard is the only
+// thing that reliably keeps the gesture ours; it's scoped to an active drag so
+// ordinary scrolling in reorder mode is untouched.
+let dragActive = false;
+awBody.addEventListener('touchmove', e => { if (dragActive) e.preventDefault(); }, { passive: false });
+
+// Listeners go on window, not the card: reordering the list moves the card in the
+// DOM, which drops pointer capture, and the pointerup then never reaches it —
+// leaving the drag stuck mid-flight with nothing committed. Window listeners plus
+// viewport-relative clientY are immune to the card moving under them.
 function startReorderDrag(e, card) {
-  const list = document.getElementById('reorderList');
-  card.setPointerCapture?.(e.pointerId);
+  const list = awBody;
+  const pid = e.pointerId;
+  dragActive = true;
   card.classList.add('dragging');
+
+  // Auto-scroll when the finger nears either end of the scroller, otherwise a
+  // block can't be dragged past the fold in a workout with more than a few
+  // exercises. Runs off rAF so the speed is frame-rate independent.
+  const EDGE = 72, MAX_SPEED = 14;
+  let edgeY = null, edgeRAF = null;
+  const edgeTick = () => {
+    edgeRAF = null;
+    if (edgeY == null) return;
+    const r = awBody.getBoundingClientRect();
+    let dy = 0;
+    if (edgeY < r.top + EDGE)         dy = -MAX_SPEED * Math.min(1, (r.top + EDGE - edgeY) / EDGE);
+    else if (edgeY > r.bottom - EDGE) dy =  MAX_SPEED * Math.min(1, (edgeY - (r.bottom - EDGE)) / EDGE);
+    if (dy) {
+      const before = awBody.scrollTop;
+      awBody.scrollTop += dy;
+      if (awBody.scrollTop !== before) { anchorY -= (awBody.scrollTop - before); reflow(); }
+    }
+    edgeRAF = requestAnimationFrame(edgeTick);
+  };
   // anchorY maps the finger position to transform:0 (card at its DOM slot). When
   // we reorder in the DOM, the card's natural slot shifts by a row height, so we
   // adjust anchorY by that amount to keep the card glued to the finger — this is
   // what prevents the jump/overlap glitch.
   let anchorY = e.clientY;
+  let lastY = e.clientY;
 
-  const move = ev => {
-    if (ev.cancelable) ev.preventDefault();
-    card.style.transform = `translateY(${ev.clientY - anchorY}px)`;
+  // Re-place the card relative to its neighbours at the current finger position.
+  // Shared by pointermove and the auto-scroll tick, so scrolling under a held
+  // finger reorders exactly as dragging does.
+  const reflow = () => {
+    card.style.transform = `translateY(${lastY - anchorY}px)`;
     const rect = card.getBoundingClientRect();
     const cardMid = rect.top + rect.height / 2;
-    for (const other of [...list.querySelectorAll('.reorder-card')]) {
+    for (const other of list.querySelectorAll('.ex-block')) {
       if (other === card) continue;
       const r = other.getBoundingClientRect();
       const otherMid = r.top + r.height / 2;
@@ -2131,30 +2237,60 @@ function startReorderDrag(e, card) {
       if (pos & Node.DOCUMENT_POSITION_PRECEDING && cardMid < otherMid) {
         list.insertBefore(card, other);
         anchorY -= r.height;
-        card.style.transform = `translateY(${ev.clientY - anchorY}px)`;
+        card.style.transform = `translateY(${lastY - anchorY}px)`;
+        try { navigator.vibrate?.(8); } catch (_) {}
         break;
       }
       // dragged below a following neighbour → move card down after it
       if (pos & Node.DOCUMENT_POSITION_FOLLOWING && cardMid > otherMid) {
         other.after(card);
         anchorY += r.height;
-        card.style.transform = `translateY(${ev.clientY - anchorY}px)`;
+        card.style.transform = `translateY(${lastY - anchorY}px)`;
+        try { navigator.vibrate?.(8); } catch (_) {}
         break;
       }
     }
   };
-  const up = () => {
+
+  const move = ev => {
+    if (ev.pointerId !== pid) return;
+    if (ev.cancelable) ev.preventDefault();
+    lastY = ev.clientY;
+    edgeY = ev.clientY;
+    if (edgeRAF == null) edgeRAF = requestAnimationFrame(edgeTick);
+    reflow();
+  };
+  const up = ev => {
+    if (ev && ev.pointerId !== pid) return;
+    dragActive = false;
+    edgeY = null;
+    if (edgeRAF != null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
     card.classList.add('snapback');
     card.style.transform = '';
     card.classList.remove('dragging');
     setTimeout(() => card.classList.remove('snapback'), 150);
-    card.removeEventListener('pointermove', move);
-    card.removeEventListener('pointerup', up);
-    card.removeEventListener('pointercancel', up);
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    commitReorderFromDOM();
   };
-  card.addEventListener('pointermove', move);
-  card.addEventListener('pointerup', up);
-  card.addEventListener('pointercancel', up);
+  window.addEventListener('pointermove', move, { passive: false });
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+}
+
+// Persist the current DOM order into activeSession without a re-render: the
+// blocks keep their original data-ei until the mode exits, so several drags can
+// be chained before anything is rebuilt.
+function commitReorderFromDOM() {
+  const blocks = [...awBody.querySelectorAll('.ex-block')];
+  const order = blocks.map(b => parseInt(b.dataset.ei));
+  if (order.length !== activeSession?.exercises.length || order.some(i => !Number.isInteger(i))) return;
+  const next = order.map(i => activeSession.exercises[i]);
+  activeSession.exercises = next;
+  blocks.forEach((b, i) => { b.dataset.ei = i; });   // DOM order is now canonical
+  normalizeSupersets();
+  saveSoon();
 }
 
 // ── Finish workout ────────────────────────────────────────────────────────────
@@ -5968,3 +6104,4 @@ backfillCustomRepRanges(); // background — fills in AI rep ranges for any cust
 restore.then(n => { if (n) { invalidateSessions(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h
+
