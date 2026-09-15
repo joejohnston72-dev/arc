@@ -157,11 +157,32 @@ export function weeklyVolumeHTML(sessions, weeksBack = 12) {
     </div>`;
 }
 
-// ── Muscle balance (working sets over trailing N weeks vs 10–20/wk band) ──────
+// ── Weekly set targets: where the band actually comes from ───────────────────
+// The hypertrophy dose-response work (Schoenfeld's volume meta-analyses; the
+// MEV/MAV/MRV landmarks popularised by Israetel) puts the productive range for a
+// trained lifter at roughly 10 sets/week minimum effective volume, 12–18 for most
+// of the gains, and 20+ before recovery starts losing. That's the source of the
+// old flat 10–20 band.
+//
+// The catch: that literature counts DIRECT hard sets, and we count EFFECTIVE sets
+// — direct plus fractional carryover from compounds (see muscleContributions). For
+// the muscles that soak up carryover from everything else you do — triceps off
+// every press, biceps off every row, glutes and hamstrings off every squat and
+// hinge — a flat 10–20 reads high, and a perfectly normal push/pull/legs week gets
+// flagged as overreaching. So those groups carry a lower band: same evidence,
+// adjusted for the fact that their number already includes work done elsewhere.
+// Muscles that get little or no carryover (chest, back, calves) keep 10–20.
+export const MUSCLE_BANDS = {
+  Chest: [10, 20], Back: [10, 20], Calves: [8, 16],
+  Quads: [8, 18], Hamstrings: [8, 16], Glutes: [8, 16],
+  Shoulders: [8, 18], Triceps: [6, 14], Biceps: [6, 14], Core: [6, 16],
+};
+const DEFAULT_BAND = [10, 20];
+export const bandFor = cat => MUSCLE_BANDS[cat] || DEFAULT_BAND;
+
+// ── Muscle balance (effective sets over trailing N weeks vs the per-muscle band) ─
 // Average working sets per muscle group per week over the window, shared by the
-// Stats muscle-balance chart and the AI Coach's analysis. The 10–20 sets/week
-// band is the common hypertrophy heuristic — below is maintenance/under-stimulus,
-// above is high/junk-volume territory.
+// Stats muscle-balance chart and the AI Coach's analysis.
 //
 // Sets are attributed across muscles, not just the exercise's primary `category`:
 // a compound counts as a full (direct) set for its primary muscle and a fractional
@@ -171,7 +192,22 @@ export function weeklyVolumeHTML(sessions, weeksBack = 12) {
 // lets the UI distinguish a muscle that's genuinely under-trained from one that's
 // quietly getting worked by compounds (and a true zero-carryover gap like calves,
 // which never picks up any indirect volume, from a false under-trained signal).
+// Memoised: this walks every session in the window and is called from the Home
+// hero, the chooser, the Stats chart, the coach context builder and the routine
+// analyser — up to half a dozen times per render off the same data. The fingerprint
+// is cheap (window + session count + newest session identity + the hour, so the
+// rolling cutoff still moves) and element identity is stable even though
+// loadSessions() hands out a fresh array each call.
+let _wsbcCache = null;
 export function weeklySetsByCategory(sessions, weeksBack = 4) {
+  const key = `${weeksBack}|${sessions?.length || 0}|${Math.floor(Date.now() / 3600000)}`;
+  if (_wsbcCache && _wsbcCache.key === key && _wsbcCache.head === sessions?.[0]) return _wsbcCache.val;
+  const val = computeWeeklySetsByCategory(sessions, weeksBack);
+  _wsbcCache = { key, head: sessions?.[0], val };
+  return val;
+}
+
+function computeWeeklySetsByCategory(sessions, weeksBack) {
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7 * weeksBack);
   const perCat = {};   // muscle -> { direct, indirect }
   let cardioMin = 0;
@@ -193,11 +229,12 @@ export function weeklySetsByCategory(sessions, weeksBack = 4) {
   const rows = Object.entries(perCat)
     .map(([cat, v]) => {
       const perWk = (v.direct + v.indirect) / weeksBack;
+      const [lo, hi] = bandFor(cat);
       return {
-        cat, perWk,
+        cat, perWk, lo, hi,
         directPerWk: v.direct / weeksBack,
         indirectPerWk: v.indirect / weeksBack,
-        status: perWk < 10 ? 'low' : perWk > 20 ? 'high' : 'ok',
+        status: perWk < lo ? 'low' : perWk > hi ? 'high' : 'ok',
       };
     })
     .sort((a, b) => b.perWk - a.perWk);
@@ -209,7 +246,6 @@ export function muscleBalanceHTML(sessions, weeksBack = 4) {
   if (!rows.length) return '';
 
   const maxScale = Math.max(24, ...rows.map(r => r.perWk));
-  const bandPct = (10 / maxScale) * 100;
   const anyIndirect = rows.some(r => r.indirectPerWk > 0.05);
   const rowHTML = rows.map(r => {
     const color = CATEGORY_COLORS[r.cat] || '#8e8e9a';
@@ -220,11 +256,15 @@ export function muscleBalanceHTML(sessions, weeksBack = 4) {
     const breakdown = r.indirectPerWk > 0.05
       ? `${r.directPerWk.toFixed(1)} direct + ${r.indirectPerWk.toFixed(1)} from compounds`
       : `${r.directPerWk.toFixed(1)} direct`;
+    // The shaded band is this muscle's own target range, not a global 10–20 — see
+    // MUSCLE_BANDS for why they differ.
+    const loPct = Math.min(100, (r.lo / maxScale) * 100);
+    const hiPct = Math.min(100, (r.hi / maxScale) * 100);
     return `
-      <div class="mb-row" title="${esc(r.cat)}: ${r.perWk.toFixed(1)} sets/wk (${breakdown})">
+      <div class="mb-row" title="${esc(r.cat)}: ${r.perWk.toFixed(1)} sets/wk (${breakdown}) · target ${r.lo}–${r.hi}">
         <span class="mb-cat">${esc(r.cat)}</span>
         <div class="mb-track">
-          <div class="mb-band" style="left:${bandPct}%;width:${bandPct}%"></div>
+          <div class="mb-band" style="left:${loPct}%;width:${Math.max(0, hiPct - loPct)}%"></div>
           <div class="mb-fill" style="width:${directPct}%;background-color:${color}${indirectPct > 0 ? ';border-radius:5px 0 0 5px' : ''}"></div>
           ${indirectPct > 0 ? `<div class="mb-fill mb-indirect" style="left:${directPct}%;width:${indirectPct}%;background-color:${color}"></div>` : ''}
         </div>
@@ -238,7 +278,7 @@ export function muscleBalanceHTML(sessions, weeksBack = 4) {
 
   return `
     <div class="stats-card">
-      <div class="stats-card-title">Muscle balance <span class="stats-card-sub">sets/week, last ${weeksBack} wks · band = 10–20</span></div>
+      <div class="stats-card-title">Muscle balance <span class="stats-card-sub">effective sets/week, last ${weeksBack} wks · band = that muscle's target</span></div>
       ${rowHTML}
       ${legend}
     </div>`;

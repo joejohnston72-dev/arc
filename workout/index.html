@@ -131,11 +131,14 @@
       box-shadow:0 6px 22px rgba(56,189,248,0.28); -webkit-tap-highlight-color:transparent;
     }
     .next-start:active { transform:scale(0.98); }
+    /* Labelled, not a bare "…" — the secondary action has to say what it does. */
     .next-more {
-      width:52px; flex:0 0 auto; border-radius:14px; border:1px solid rgba(255,255,255,0.15);
-      background:none; color:var(--text); cursor:pointer; display:flex; align-items:center; justify-content:center;
+      flex:0 0 auto; padding:0 16px; gap:7px; border-radius:14px; border:1px solid rgba(255,255,255,0.15);
+      background:none; color:var(--text); font-size:0.85rem; font-weight:700; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
       -webkit-tap-highlight-color:transparent;
     }
+    .next-more.hero-empty-lib { padding:0; width:52px; }
     .next-more:active { transform:scale(0.98); }
     /* stat tiles */
     .dash-tiles { display:flex; gap:8px; margin-bottom:20px; }
@@ -186,21 +189,17 @@
     .lib-routine-ex { font-size:0.72rem; color:var(--text-muted); margin-top:3px; line-height:1.4;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .lib-routines-divider { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:16px 0 10px; }
-    .chooser-order-hint { font-size:0.72rem; color:var(--text-muted); line-height:1.5; margin:-6px 0 10px; }
     .tc-next-badge {
       font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
       color:var(--blue); background:rgba(var(--blue-rgb),0.14); border-radius:5px; padding:2px 6px; margin-left:8px;
     }
-    .template-card.tc-editing { display:flex; align-items:center; gap:10px; }
-    .template-card.tc-editing > div { flex:1; min-width:0; }
-    .tc-move { display:flex; flex-direction:column; gap:4px; flex:0 0 auto; }
-    .tc-move button, .tc-del {
-      background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text);
-      width:34px; height:26px; display:flex; align-items:center; justify-content:center; cursor:pointer;
-      -webkit-tap-highlight-color:transparent; padding:0;
+    .tc-main { flex:1; min-width:0; }
+    .tc-when { flex:0 0 auto; font-size:0.7rem; color:var(--text-muted); white-space:nowrap; }
+    .tc-del {
+      background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--red);
+      width:34px; height:34px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; -webkit-tap-highlight-color:transparent; padding:0;
     }
-    .tc-move button:disabled { opacity:.3; }
-    .tc-del { width:34px; height:34px; flex:0 0 auto; color:var(--red); }
     .section-heading {
       font-size:0.72rem; font-weight:700; text-transform:uppercase;
       letter-spacing:0.06em; color:var(--text-muted); margin-bottom:10px;
@@ -233,18 +232,13 @@
       background: var(--surface); border:1px solid var(--border); border-radius: 12px;
       border-left: 4px solid var(--amber);
       padding:12px 14px; margin-bottom:8px; cursor:pointer;
-      display:flex; align-items:center; justify-content:space-between;
+      display:flex; align-items:center; gap:10px;
     }
     .template-card:active { background: var(--surface2); }
-    .template-card { transition: background .2s ease, box-shadow .2s ease, transform .2s ease; -webkit-user-select:none; user-select:none; }
-    /* Long-press to delete — fills toward the destructive colour so the hold reads as intentional. */
-    .template-card.tc-holding {
-      background: var(--surface2);
-      box-shadow: inset 0 0 0 1px rgba(var(--red-rgb, 244,63,94), 0.5);
-      transform: scale(0.985);
-    }
+    .template-card { transition: background .2s ease; -webkit-user-select:none; user-select:none; }
     .tc-name { font-size:0.9rem; font-weight:700; }
-    .tc-ex   { font-size:0.75rem; color:var(--text-muted); margin-top:2px; }
+    .tc-ex   { font-size:0.75rem; color:var(--text-muted); margin-top:2px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .empty-state { text-align:center;color:var(--text-muted);padding:30px 0;font-size:0.88rem;line-height:1.7; }
 
@@ -1450,14 +1444,10 @@
     <div class="modal">
       <div class="chooser-head">
         <span class="modal-title" style="margin:0">Your routines</span>
-        <div style="display:flex; align-items:center; gap:14px">
-          <button class="dash-link" id="chooserEditOrder">Edit order</button>
-          <button class="chooser-close" id="chooserClose" aria-label="Close" title="Close"><i data-lucide="x" data-size="20"></i></button>
-        </div>
+        <button class="chooser-close" id="chooserClose" aria-label="Close" title="Close"><i data-lucide="x" data-size="20"></i></button>
       </div>
-      <div class="chooser-order-hint" id="chooserOrderHint" style="display:none">Routines run top to bottom. The one marked <strong>Next</strong> is what the home card offers — reorder to change it.</div>
       <div id="templatesList"></div>
-      <div id="routinesHint" class="routines-hint" style="display:none">Tap a routine to start · hold to delete</div>
+      <div id="routinesHint" class="routines-hint" style="display:none">Sorted by what's most due · tap to start</div>
       <div id="routinesEmpty" class="routines-empty" style="display:none">No routines yet — tap <strong>Library</strong> for ready-made splits, or <strong>New Routine</strong> to build your own.</div>
       <div class="chooser-actions">
         <button class="new-routine-btn" id="libraryBtn"><i data-lucide="book-open" data-size="15"></i> Library</button>

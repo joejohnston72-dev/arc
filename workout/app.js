@@ -139,12 +139,29 @@ let exOverrides = {};
 // reads as one continuous history. Removing an entry ("Separate") splits it back
 // out. Chains are followed one hop at a time with a cycle guard.
 let exAliases = {};
+// Bumped on every alias change. Anything that caches a canonicalName()-derived
+// result keys off it, so a merge/separate invalidates those caches immediately.
+let exAliasVersion = 0;
 async function loadExAliases() {
   exAliases = (await db.get(STORE, 'exercise-aliases')) || {};
+  exAliasVersion++;
   return exAliases;
 }
+// Called once per exercise per session on every history pass (stats map, muscle
+// balance, canonicalizeSessions) — a chain walk plus a Set allocation each time,
+// over a name set of maybe a few hundred. Memoised per alias version; the map is
+// dropped wholesale when a merge/separate bumps exAliasVersion.
+let _canonCache = new Map(), _canonCacheVer = -1;
 function canonicalName(name) {
   if (!name) return name;
+  if (_canonCacheVer !== exAliasVersion) { _canonCache = new Map(); _canonCacheVer = exAliasVersion; }
+  const hit = _canonCache.get(name);
+  if (hit !== undefined) return hit;
+  const out = resolveCanonicalName(name);
+  _canonCache.set(name, out);
+  return out;
+}
+function resolveCanonicalName(name) {
   let cur = name;
   const seen = new Set();
   while (true) {
@@ -196,6 +213,7 @@ async function setExerciseAlias(rawName, canonical) {
   const key = rawName.toLowerCase();
   if (!canonical || canonical.toLowerCase() === key) delete exAliases[key];
   else exAliases[key] = canonical;
+  exAliasVersion++;
   await db.set(STORE, 'exercise-aliases', exAliases);
   db.backup();
 }
@@ -3359,25 +3377,75 @@ function isoWeek(d) {
   return 1 + Math.round((date - firstThu) / (7 * 86400000));
 }
 
-// "Next in your split" follows the manual routine order (the templates list —
-// editable in the "…" chooser). Next = the routine after the most recently
-// completed one in that sequence, wrapping around; off-plan workouts don't
-// advance it. Falls back to the first routine when none has been done yet.
+// "Next in your split" is a recommendation, not a queue position.
+//
+// It used to be `indexOf(last done) + 1` against the manual routine order, which
+// only holds if you run the split in strict rotation. Switch the order once —
+// legs before pull, an extra push day, a week off — and the pointer is wrong from
+// then on, because it reads one session and ignores everything else.
+//
+// Instead every routine is scored on how overdue it is and the most overdue wins:
+//
+//   • days since THAT routine was last trained (never done = maximally overdue)
+//   • minus a recovery penalty when the muscles it leans on were trained in the
+//     last ~48h, weighted by each muscle's share of the routine's sets — so a
+//     token set of curls doesn't make a leg day read as an arm day, and two leg
+//     sessions don't stack just because legs happen to be "due"
+//   • manual list order breaks ties only (a fresh start, or two routines last
+//     trained the same day), so the order you arrange them in still expresses
+//     intent without dictating the sequence
+//
+// Push → Legs → Push therefore offers Pull next, not whatever sits after Push in
+// the list. Off-plan workouts still don't advance anything by name, but the sets
+// they contain do count toward the recovery penalty.
+const DAY_MS = 86400000;
 function computeNextTemplate(templates, sessions) {
   if (!templates.length) return null;
-  const names = templates.map(t => t.name);
-  let lastIdx = -1;
-  for (const s of sessions) {                       // newest-first
-    const i = names.indexOf(s.title || '');
-    if (i >= 0) { lastIdx = i; break; }
+  const now = Date.now();
+
+  // One pass over history: last time each routine name ran, and each muscle.
+  const lastByName = new Map(), lastByMuscle = new Map();
+  for (const s of sessions) {                        // newest-first
+    const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+    if (!ts) continue;
+    const title = s.title || '';
+    if (title && !lastByName.has(title)) lastByName.set(title, ts);
+    for (const ex of s.exercises || []) {
+      const cat = ex.category;
+      if (!cat || cat === 'Cardio') continue;
+      if (!(ex.sets || []).some(st => st.done)) continue;
+      if (!(lastByMuscle.get(cat) >= ts)) lastByMuscle.set(cat, ts);
+    }
   }
-  const nextIdx = lastIdx >= 0 ? (lastIdx + 1) % templates.length : 0;
-  const nextName = names[nextIdx];
-  let lastTs = 0;                                    // last time THIS routine was done
-  for (const s of sessions) {
-    if ((s.title || '') === nextName) { lastTs = parseToDate(s.date || s.startTime || '')?.getTime() || 0; break; }
-  }
-  return { template: templates[nextIdx], lastTs, nextIdx };
+
+  const ranked = templates.map((t, i) => {
+    const lastTs = lastByName.get(t.name) || 0;
+    const daysSince = lastTs ? Math.min((now - lastTs) / DAY_MS, 30) : 30;
+
+    const catSets = {};
+    let total = 0;
+    for (const e of t.exercises || []) {
+      if (!e.category || e.category === 'Cardio') continue;
+      const n = e.sets?.length || 0;
+      catSets[e.category] = (catSets[e.category] || 0) + n;
+      total += n;
+    }
+    // 0 = fully recovered, 1 = everything this routine trains was hit today.
+    let fatigue = 0;
+    for (const [cat, n] of Object.entries(catSets)) {
+      const mLast = lastByMuscle.get(cat);
+      if (!mLast) continue;
+      const rest = (now - mLast) / DAY_MS;
+      if (rest < 2) fatigue += (n / (total || 1)) * (2 - rest) / 2;
+    }
+    // ×6 so a fully-unrecovered routine drops ~6 "days" of priority — enough to
+    // lose to a rested alternative, not enough to bury a routine you've skipped
+    // for a fortnight.
+    return { t, i, lastTs, daysSince, fatigue, score: daysSince - fatigue * 6 };
+  }).sort((a, b) => b.score - a.score || a.i - b.i);
+
+  const pick = ranked[0];
+  return { template: pick.t, lastTs: pick.lastTs, ranked };
 }
 
 function nextSessionCard(next, sessions) {
@@ -3387,11 +3455,18 @@ function nextSessionCard(next, sessions) {
     + (exNames.length > 3 ? `<span class="next-tag">+${exNames.length - 3} more</span>` : '');
   const totalSets = t.exercises.reduce((a, e) => a + (e.sets?.length || 0), 0);
   const mins = Math.max(20, Math.round(totalSets * 3.5 / 5) * 5);
-  const daysAgo = next.lastTs ? Math.floor((Date.now() - next.lastTs) / 86400000) : null;
-  const lastTxt = daysAgo == null ? 'not done yet'
-    : daysAgo === 0 ? 'last done today'
+  const daysAgo = next.lastTs ? Math.floor((Date.now() - next.lastTs) / DAY_MS) : null;
+  const lastTxt = daysAgo == null ? 'never done'
+    : daysAgo === 0 ? 'done today'
     : `last done ${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`;
-  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt}.`;
+  // The pick is scored, not positional, so say what won it — otherwise "next" looks
+  // arbitrary the moment it stops matching the list order.
+  const runnerUp = next.ranked?.[1];
+  const why = daysAgo == null ? "you haven't run this one yet"
+    : runnerUp && runnerUp.fatigue > 0.25 && runnerUp.fatigue > (next.ranked[0].fatigue + 0.15)
+      ? `it's your most rested option`
+      : `it's gone the longest without a session`;
+  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt} — ${why}.`;
   const byCat = {}; weeklySetsByCategory(sessions).rows.forEach(r => { byCat[r.cat] = r.perWk; });
   const catSets = {};
   t.exercises.forEach(e => { if (e.category && e.category !== 'Cardio') catSets[e.category] = (catSets[e.category] || 0) + (e.sets?.length || 0); });
@@ -3409,7 +3484,7 @@ function nextSessionCard(next, sessions) {
       <div class="next-tags">${tags}</div>
       <div class="next-actions">
         <button class="next-start" data-tid="${t.id}">${icon('play', { size: 19 })} Start ${esc(t.name)}</button>
-        <button class="next-more" aria-label="Choose another routine">${icon('ellipsis', { size: 20 })}</button>
+        <button class="next-more" aria-label="Choose a different routine">${icon('repeat', { size: 16 })} Swap</button>
       </div>
     </div>`;
 }
@@ -3435,10 +3510,12 @@ function updateCoachBadge() {
   tab?.querySelector('.tab-badge')?.remove();
 }
 
-// Routines list lives in the "…" chooser sheet. It doubles as the order editor:
-// the list order is the manual split sequence that drives "next in your split".
-let chooserEditOrder = false;
-
+// Routines list lives in the Swap sheet. It used to double as an order editor —
+// a separate "Edit order" mode with ↑/↓ buttons on every row — because the manual
+// order *was* the split sequence. It no longer is (see computeNextTemplate), so
+// the mode is gone: the sheet now lists routines in recommended order, newest-due
+// first, which is the same thing the hero is telling you. Delete is a visible
+// button rather than a hidden long-press.
 async function deleteRoutine(id) {
   const ts = await getTemplates();
   const t = ts.find(x => x.id === id);
@@ -3448,87 +3525,49 @@ async function deleteRoutine(id) {
   renderDashboard();
 }
 
-async function moveRoutine(from, to) {
-  const ts = await getTemplates();
-  if (to < 0 || to >= ts.length) return;
-  const [item] = ts.splice(from, 1);
-  ts.splice(to, 0, item);
-  await db.set(STORE, 'templates', ts);
-  db.backup();
-  renderDashboard();   // re-renders the hero (next) and the chooser together
-}
-
-function renderRoutinesChooser(templates, nextId = null) {
+function renderRoutinesChooser(templates, next = null) {
   const tmplEl = document.getElementById('templatesList');
   if (!tmplEl) return;
-  const editing = chooserEditOrder && templates.length > 0;
   document.getElementById('routinesEmpty').style.display = templates.length ? 'none' : '';
-  document.getElementById('routinesHint').style.display = (templates.length && !editing) ? '' : 'none';
-  document.getElementById('chooserOrderHint').style.display = editing ? '' : 'none';
-  const editBtn = document.getElementById('chooserEditOrder');
-  editBtn.style.display = templates.length > 1 ? '' : 'none';
-  editBtn.textContent = editing ? 'Done' : 'Edit order';
+  document.getElementById('routinesHint').style.display = templates.length ? '' : 'none';
 
-  if (editing) {
-    tmplEl.innerHTML = templates.map((t, i) => `
-      <div class="template-card tc-editing" data-tid="${t.id}">
-        <div>
+  // Same ranking the hero uses, so the sheet reads as "what to train next" top to
+  // bottom instead of a static queue you have to keep tidy by hand.
+  const nextId = next?.template?.id || null;
+  const list = next?.ranked?.length ? next.ranked : templates.map((t, i) => ({ t, i, lastTs: 0 }));
+
+  tmplEl.innerHTML = list.map(({ t, lastTs }) => {
+    const d = lastTs ? Math.floor((Date.now() - lastTs) / DAY_MS) : null;
+    const when = d == null ? 'never' : d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`;
+    return `
+      <div class="template-card" data-tid="${t.id}">
+        <div class="tc-main">
           <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
           <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
         </div>
-        <div class="tc-move">
-          <button class="tc-up" data-i="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
-          <button class="tc-down" data-i="${i}" ${i === templates.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
-        </div>
-        <button class="tc-del" data-tid="${t.id}" aria-label="Delete">${icon('trash-2', { size: 16 })}</button>
-      </div>`).join('');
-    tmplEl.querySelectorAll('.tc-up').forEach(b => b.onclick = () => moveRoutine(+b.dataset.i, +b.dataset.i - 1));
-    tmplEl.querySelectorAll('.tc-down').forEach(b => b.onclick = () => moveRoutine(+b.dataset.i, +b.dataset.i + 1));
-    tmplEl.querySelectorAll('.tc-del').forEach(b => b.onclick = () => deleteRoutine(b.dataset.tid));
-    refreshIcons();
-    return;
-  }
+        <span class="tc-when">${when}</span>
+        <button class="tc-del" data-tid="${esc(t.id)}" aria-label="Delete ${esc(t.name)}">${icon('trash-2', { size: 16 })}</button>
+      </div>`;
+  }).join('');
 
-  tmplEl.innerHTML = templates.map(t => `
-    <div class="template-card" data-tid="${t.id}">
-      <div>
-        <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
-        <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
-      </div>
-    </div>
-  `).join('');
+  tmplEl.querySelectorAll('.tc-del').forEach(b => b.onclick = e => { e.stopPropagation(); deleteRoutine(b.dataset.tid); });
   tmplEl.querySelectorAll('.template-card').forEach(card => {
-    const tid = card.dataset.tid;
-    // Long-press guards deletion so routines can't be lost with a stray tap.
-    let holdTimer = null, held = false, sx = 0, sy = 0;
-    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; card.classList.remove('tc-holding'); };
-    card.addEventListener('pointerdown', e => {
-      held = false; sx = e.clientX; sy = e.clientY;
-      card.classList.add('tc-holding');
-      holdTimer = setTimeout(() => { held = true; card.classList.remove('tc-holding'); deleteRoutine(tid); }, 550);
-    });
-    card.addEventListener('pointermove', e => {
-      if (holdTimer && (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10)) cancelHold();
-    });
-    card.addEventListener('pointerup', cancelHold);
-    card.addEventListener('pointercancel', cancelHold);
     card.addEventListener('click', () => {
-      if (held) { held = false; return; } // long-press already handled it
-      const t = templates.find(x => x.id === tid);
+      const t = templates.find(x => x.id === card.dataset.tid);
+      if (!t) return;
       closeRoutineChooser();
       startEmptyWorkout(t);
     });
   });
+  refreshIcons();
 }
 
-document.getElementById('chooserEditOrder').onclick = () => { chooserEditOrder = !chooserEditOrder; renderDashboard(); };
 document.getElementById('chooserClose').onclick = closeRoutineChooser;
 
 function openRoutineChooser() {
   document.getElementById('routineChooser').classList.add('open');
 }
 function closeRoutineChooser() {
-  chooserEditOrder = false;   // always reopen in tap-to-start mode
   document.getElementById('routineChooser').classList.remove('open');
 }
 document.getElementById('routineChooser').addEventListener('click', e => {
@@ -3684,7 +3723,7 @@ async function renderDashboard() {
     getTemplates(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday()]);
   const body = bodyStats(bodyLog);
   const next = computeNextTemplate(templates, sessions);
-  renderRoutinesChooser(templates, next?.template?.id || null);
+  renderRoutinesChooser(templates, next);
   renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
@@ -4342,7 +4381,23 @@ document.getElementById('routineBuilderDone').onclick = () => {
 // ── Per-exercise history stats (one pass over sessions) ───────────────────────
 // name -> { pbWeight, pbReps, e1rm, lastTs, count, series:[topSetWeight…] }.
 // Built once per Library/picker render and shared, never recomputed per row.
+//
+// Memoised across renders too: the Library, the exercise picker, the routine
+// analyser and the exercise-detail sheet each ask for it off the same session
+// history, and it walks every set in every session. The fingerprint is the session
+// count + newest session identity + the alias version (aliases feed canonicalName,
+// which decides the map's keys); loadSessions() hands out a fresh array each call
+// but the elements themselves are stable, so identity on the head is enough.
+let _exStatsCache = null;
 function buildExerciseStatsMap(sessions) {
+  const key = `${sessions?.length || 0}|${exAliasVersion}`;
+  if (_exStatsCache && _exStatsCache.key === key && _exStatsCache.head === sessions?.[0]) return _exStatsCache.val;
+  const val = computeExerciseStatsMap(sessions);
+  _exStatsCache = { key, head: sessions?.[0], val };
+  return val;
+}
+
+function computeExerciseStatsMap(sessions) {
   const map = new Map();
   for (const s of sessions) {
     const d = parseToDate(s.date || s.startTime || '');
@@ -5238,10 +5293,9 @@ function computeWeeklyReview(sessions) {
   let note = '';
   try {
     const rows = weeklySetsByCategory(sessions, 4).rows || [];
-    const low  = rows.filter(r => r.status === 'low').map(r => r.cat);
-    const high = rows.filter(r => r.status === 'high').map(r => r.cat);
-    if (low.length)  note = `<b>${esc(low[0])}</b> is under 10 sets/wk — add a set or two to bring it up.`;
-    else if (high.length) note = `<b>${esc(high[0])}</b> is over 20 sets/wk — you could trim it without losing progress.`;
+    const lowR = rows.find(r => r.status === 'low'), highR = rows.find(r => r.status === 'high');
+    if (lowR)  note = `<b>${esc(lowR.cat)}</b> is under ${lowR.lo} sets/wk — add a set or two to bring it up.`;
+    else if (highR) note = `<b>${esc(highR.cat)}</b> is over ${highR.hi} sets/wk — you could trim it without losing progress.`;
   } catch (_) {}
   if (!note) {
     note = cntThis >= cntPrev

@@ -345,12 +345,13 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
   ).join('\n');
 
   // Training-balance analysis: avg working sets/muscle group/week over the last
-  // 4 weeks (recent) and 8 weeks (baseline), flagged against the 10–20 set band.
+  // 4 weeks (recent) and 8 weeks (baseline), flagged against that muscle's own
+  // target band (see MUSCLE_BANDS in stats.js — carryover-heavy groups sit lower).
   const bal4 = weeklySetsByCategory(sessions, 4);
   const bal8 = weeklySetsByCategory(sessions, 8);
   const eightByCat = Object.fromEntries(bal8.rows.map(r => [r.cat, r.perWk]));
   const balanceLines = bal4.rows.map(r => {
-    const flag = r.status === 'low' ? ' ⟵ under 10 (low)' : r.status === 'high' ? ' ⟵ over 20 (high)' : '';
+    const flag = r.status === 'low' ? ` ⟵ under ${r.lo} (low)` : r.status === 'high' ? ` ⟵ over ${r.hi} (high)` : '';
     const trend = eightByCat[r.cat] != null ? ` (8-wk avg ${eightByCat[r.cat].toFixed(1)})` : '';
     // Effective sets attribute compound carryover, so break out how much is direct
     // vs. from compounds — otherwise a low direct count reads as a gap even when the
@@ -358,7 +359,7 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
     const split = r.indirectPerWk > 0.05
       ? `, of which ${r.directPerWk.toFixed(1)} direct + ${r.indirectPerWk.toFixed(1)} from compounds`
       : '';
-    return `- ${r.cat}: ${r.perWk.toFixed(1)} effective sets/wk${split}${trend}${flag}`;
+    return `- ${r.cat}: ${r.perWk.toFixed(1)} effective sets/wk (target ${r.lo}–${r.hi})${split}${trend}${flag}`;
   }).join('\n');
   const cardioLine = bal4.cardioMinPerWk > 0 ? `\n- Cardio: ${bal4.cardioMinPerWk.toFixed(0)} min/wk` : '';
 
@@ -441,7 +442,7 @@ VOICE — technical & precise, always explain the why
 
 HOW TO RESPOND
 - Answer ANY question the user asks — training, technique/form, programming, progression, recovery, nutrition-for-lifters, or how to use this app. Always give a real answer in plain text; never refuse a normal training/health question or reply with just a routine when they asked something else.
-- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their SAVED ROUTINES. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups above 20 sets/wk (too much) and below 10 (too little), with numbers.
+- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their SAVED ROUTINES. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups flagged above or below their own target band, with numbers.
 - Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), DON'T interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
 - ONLY call draft_routine when the user wants a single workout/day created or asks "what should I train today". For a whole multi-day programme/split, call draft_split instead. For everything else, reply with text.
 
@@ -455,7 +456,7 @@ FOLLOWING THE PROGRAM (structure first — this is how effective training actual
 
 PROGRAMMING PRINCIPLES (apply, don't lecture)
 - Progressive overload with autoregulation: prescribe top sets around RIR 1–3 (leave a rep or two in reserve on most working sets); push closer to failure only on the last set of isolation work. Reference RIR/RPE when it clarifies a load call.
-- Weekly volume landmarks per muscle: roughly MEV ~8–10 hard sets, productive MAV ~12–18, MRV ~20+ before recovery suffers. The TRAINING BALANCE band (10–20) maps to this — steer volume toward MAV for lagging groups, trim groups pushing past MRV.
+- Weekly volume landmarks per muscle: roughly MEV ~8–10 hard sets, productive MAV ~12–18, MRV ~20+ before recovery suffers — for DIRECT hard sets. TRAINING BALANCE counts EFFECTIVE sets (direct + fractional carryover from compounds), so each muscle carries its own target band, printed on its line; carryover-heavy groups (triceps, biceps, glutes, hamstrings) sit lower because their number already includes work done by other lifts. Judge each group against its own band, never a blanket 10–20.
 - Plateau protocol for a STALLED lift: try in order — small load/rep bump, an added set, a rep-range or variation change, then a short deload (~40–50% volume for a week) if fatigue is the cause. Pick one and say why.
 - Respect the ATHLETE PROFILE above: never program a movement listed under injuries/avoid, keep within their equipment and days/week, and bias toward their stated goal.
 
@@ -484,7 +485,7 @@ Lifetime: ${lt.workouts} workouts, ${lt.hours.toFixed(0)}h trained, ${(lt.volume
 Last workout: ${sinceLast}.
 ${bodyText ? `\n${bodyText}` : ''}${nutritionText ? `\nNUTRITION (from the linked nutrition app, read-only) — ${nutritionText}` : ''}
 
-TRAINING BALANCE (avg working sets/muscle group/week — target band 10–20; <10 = too little, >20 = too much)
+TRAINING BALANCE (avg EFFECTIVE sets/muscle group/week — each line carries its own target band; below it = too little, above = too much)
 ${balanceLines || '- (not enough recent history)'}${cardioLine}
 
 RECOVERY / READINESS (days since each muscle group was last trained — for judging recovery before loading a group, NOT a ranking of what to train next)
