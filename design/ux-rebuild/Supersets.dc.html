@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; background:#0c0c0d; }
+    .arc { font-family:'Google Sans','Product Sans','Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:#38bdf8; } a:hover { color:#7dd3fc; }
+    .ic { display:inline-block; vertical-align:-0.15em; flex-shrink:0; }
+    .exhead { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .exnm { font-size:16px; font-weight:700; flex:1; min-width:0; }
+    .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .st { width:100%; border-collapse:collapse; }
+    .st th { font-size:10.4px; color:#98989f; text-align:center; padding:0 0 6px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; }
+    .st td { text-align:center; padding:3px 2px; }
+    .cell { background:#2c2c2e; border:1px solid rgba(255,255,255,0.10); border-radius:9px; padding:9px 4px; font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .num { font-size:13px; color:#98989f; font-weight:700; }
+    .chk { width:28px; height:28px; border-radius:8px; border:1.5px solid rgba(255,255,255,0.18); display:inline-flex; align-items:center; justify-content:center; }
+    .sslabel { display:inline-flex; align-items:center; gap:5px; font-size:9.9px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
+    .swatch { display:flex; align-items:center; gap:7px; font-size:11.2px; color:#98989f; }
+    .sw { width:3px; height:20px; border-radius:2px; }
+  </style>
+</helmet>
+
+<div class="arc" style="width:390px; background:#0c0c0d; color:#f5f5f7; padding:20px 16px; display:flex; flex-direction:column">
+
+  <div style="font-size:19px; font-weight:700; letter-spacing:-0.3px; margin-bottom:4px">Superset colours</div>
+  <div style="font-size:12.4px; color:#98989f; line-height:1.5; margin-bottom:14px">Today every group is the same purple rail labelled “Superset”, so two pairs in one session read as one block. Colour is assigned by group index within the session and the label letters it.</div>
+
+  <div style="display:flex; gap:16px; padding:12px 14px; background:#1c1c1e; border:1px solid rgba(255,255,255,0.10); border-radius:14px; margin-bottom:20px">
+    <span class="swatch"><span class="sw" style="background:#a78bfa"></span>A</span>
+    <span class="swatch"><span class="sw" style="background:#fb923c"></span>B</span>
+    <span class="swatch"><span class="sw" style="background:#34d399"></span>C</span>
+    <span class="swatch"><span class="sw" style="background:#fbbf24"></span>D</span>
+    <span style="flex:1; text-align:right; font-size:10.6px; color:#5c5c63; align-self:center">blue &amp; red stay reserved</span>
+  </div>
+
+  <!-- ungrouped -->
+  <div style="margin-bottom:20px">
+    <div class="exhead">
+      <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+      <span class="dot" style="background:#f43f5e"></span>
+      <span class="exnm">Incline Bench Press (Smith)</span>
+      <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#98989f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+    </div>
+    <table class="st"><thead><tr><th style="width:28px">#</th><th>KG</th><th>REPS</th><th style="width:44px"></th></tr></thead>
+      <tbody><tr><td class="num">1</td><td><div class="cell">92.5</div></td><td><div class="cell">5</div></td><td><span class="chk"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- group A -->
+  <div style="border-left:3px solid #a78bfa; padding-left:13px; margin:0 0 20px 1px; padding-top:4px">
+    <div class="sslabel" style="color:#a78bfa">
+      <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      Superset A
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="exhead">
+        <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+        <span class="dot" style="background:#a78bfa"></span>
+        <span class="exnm">Lateral Raise (Cable)</span>
+        <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#98989f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+      <table class="st"><tbody><tr><td class="num" style="width:28px">1</td><td><div class="cell">12.5</div></td><td><div class="cell">15</div></td><td style="width:44px"><span class="chk"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></td></tr></tbody></table>
+    </div>
+    <div>
+      <div class="exhead">
+        <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+        <span class="dot" style="background:#a78bfa"></span>
+        <span class="exnm">Rear Delt Fly (Machine)</span>
+        <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#98989f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+      <table class="st"><tbody><tr><td class="num" style="width:28px">1</td><td><div class="cell">32</div></td><td><div class="cell">15</div></td><td style="width:44px"><span class="chk"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- group B -->
+  <div style="border-left:3px solid #fb923c; padding-left:13px; margin-left:1px; padding-top:4px">
+    <div class="sslabel" style="color:#fb923c">
+      <svg class="ic" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      Superset B
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="exhead">
+        <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+        <span class="dot" style="background:#34d399"></span>
+        <span class="exnm">Triceps Pushdown (Rope)</span>
+        <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#98989f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+      <table class="st"><tbody><tr><td class="num" style="width:28px">1</td><td><div class="cell">45</div></td><td><div class="cell">12</div></td><td style="width:44px"><span class="chk"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></td></tr></tbody></table>
+    </div>
+    <div>
+      <div class="exhead">
+        <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+        <span class="dot" style="background:#34d399"></span>
+        <span class="exnm">Overhead Extension (Cable)</span>
+        <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#98989f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </div>
+      <table class="st"><tbody><tr><td class="num" style="width:28px">1</td><td><div class="cell">30</div></td><td><div class="cell">12</div></td><td style="width:44px"><span class="chk"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4b4b52" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></td></tr></tbody></table>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

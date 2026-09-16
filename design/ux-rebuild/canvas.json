@@ -1,0 +1,19 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",            "title": "Today",              "x": 0,    "y": 0,    "w": 390, "h": 844 },
+    { "file": "LibraryPlans.dc.html",    "title": "Library · Plans",    "x": 490,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "LibraryExercises.dc.html","title": "Library · Exercises","x": 980,  "y": 0,    "w": 390, "h": 844 },
+    { "file": "RoutineBuilder.dc.html",  "title": "Routine editor",     "x": 1470, "y": 0,    "w": 390, "h": 844 },
+    { "file": "CoachChat.dc.html",       "title": "Coach chat",         "x": 0,    "y": 1010, "w": 390, "h": 844 },
+    { "file": "CoachStates.dc.html",     "title": "Coach hub states",   "x": 490,  "y": 1010, "w": 390, "h": 1060 },
+    { "file": "Supersets.dc.html",       "title": "Superset colours",   "x": 980,  "y": 1010, "w": 390, "h": 830 }
+  ],
+  "annotations": [
+    { "id": "n-hero",   "x": 0,    "y": -150, "w": 390, "text": "L1 hero = the ACTIVE PLAN, not a ranked guess.\n\"Next in your split\" and computeNextTemplate's hero ranking are deleted. Tap a routine, start it. History is demoted to flat rows so three layers finally read as three layers." },
+    { "id": "n-lib",    "x": 490,  "y": -150, "w": 880, "text": "Library splits into Plans | Exercises.\nRoutines belong to a plan, which is what a split becomes when you add it. Edit / duplicate / delete live on the routine row. Exercises gains a create button that no longer needs an active workout." },
+    { "id": "n-build",  "x": 1470, "y": -150, "w": 390, "text": "A real editor — not the live workout UI with the Finish button relabelled. Saves in place, keeps the routine id, so week-plan assignments survive." },
+    { "id": "n-coach",  "x": 0,    "y": 1900, "w": 390, "text": "Composer is a multi-line textarea. Return adds a line. Key and clear move into the header instead of being stranded off the right edge of a scrolling chip row." },
+    { "id": "n-states", "x": 490,  "y": 2110, "w": 390, "text": "One card, paged — replaces the vertical stack of daily pick + weekly review + N findings." }
+  ],
+  "launch": { "view": "canvas" }
+}

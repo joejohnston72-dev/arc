@@ -4,3 +4,6 @@ node_modules/
 # Seeded design-canvas output (regenerate with the design skill)
 arc-coach-redesign.html
 design/**/*.built.html
+
+# Seeded design-canvas output for the UX rebuild
+design/ux-rebuild/arc-ux-rebuild.html

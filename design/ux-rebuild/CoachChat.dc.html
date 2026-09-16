@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+  <style>
+    body { margin:0; background:#0c0c0d; }
+    .arc { font-family:'Google Sans','Product Sans','Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:#38bdf8; } a:hover { color:#7dd3fc; }
+    .ic { display:inline-block; vertical-align:-0.15em; flex-shrink:0; }
+    .msg { max-width:85%; padding:10px 13px; border-radius:14px; font-size:14.4px; line-height:1.5; }
+    .chip { flex:0 0 auto; background:#1c1c1e; border:1px solid rgba(255,255,255,0.10); border-radius:18px; color:#f5f5f7; font-size:12px; font-weight:500; padding:7px 12px; white-space:nowrap; display:inline-flex; align-items:center; gap:5px; }
+    .hbtn { width:32px; height:32px; border-radius:10px; background:#1c1c1e; border:1px solid rgba(255,255,255,0.10); color:#98989f; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  </style>
+</helmet>
+
+<div class="arc" style="width:390px; height:844px; background:#0c0c0d; color:#f5f5f7; display:flex; flex-direction:column; overflow:hidden">
+
+  <!-- header — key + clear now live HERE, not at the end of a scrolling chip row -->
+  <div style="flex:0 0 auto; display:flex; align-items:center; gap:11px; padding:14px 16px 10px">
+    <div style="width:36px; height:36px; border-radius:11px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:linear-gradient(150deg,rgba(56,189,248,0.22),rgba(167,139,250,0.22)); border:1px solid rgba(56,189,248,0.35); color:#38bdf8">
+      <svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+    </div>
+    <div style="flex:1; min-width:0">
+      <div style="font-size:16.3px; font-weight:700; letter-spacing:-0.2px">Coach</div>
+      <div style="font-size:11.5px; color:#98989f; display:flex; align-items:center; gap:5px; margin-top:1px">
+        <span style="width:6px; height:6px; border-radius:50%; background:#34d399; box-shadow:0 0 6px #34d399"></span>Reads your training data live
+      </div>
+    </div>
+    <span class="hbtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg></span>
+    <span class="hbtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
+  </div>
+
+  <!-- memory strip -->
+  <div style="flex:0 0 auto; display:flex; align-items:center; gap:9px; margin:0 16px 8px; padding:9px 12px; border-radius:12px; background:#1c1c1e; border:1px solid rgba(255,255,255,0.10)">
+    <span style="color:#a78bfa; flex:0 0 auto; display:flex"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/></svg></span>
+    <span style="font-size:11.7px; color:#98989f; line-height:1.35; flex:1; min-width:0">Hypertrophy · 5 days/wk · <b style="color:#f5f5f7; font-weight:500">left shoulder impingement</b></span>
+    <span style="font-size:11.2px; color:#38bdf8; font-weight:500; flex:0 0 auto">Edit</span>
+  </div>
+
+  <!-- thread -->
+  <div style="flex:1; min-height:0; overflow:hidden; padding:8px 16px; display:flex; flex-direction:column; gap:10px">
+
+    <div class="msg" style="align-self:flex-end; background:#38bdf8; color:#000; border-bottom-right-radius:4px; white-space:pre-wrap">My left shoulder has been grumbling on incline pressing for about two weeks now.
+
+Should I drop the incline work entirely, or swap to something else? I don't want to lose the upper-chest stimulus.</div>
+
+    <div class="msg" style="align-self:flex-start; background:#1c1c1e; color:#f5f5f7; border-bottom-left-radius:4px">Don't drop it — swap the angle. Your Smith incline is at 30°, which loads the anterior delt hard at the bottom.
+
+Two changes for the next four weeks:
+
+1. Incline Bench (Smith) → <b style="font-weight:700">Low-Incline Dumbbell Press</b> at ~15°. Dumbbells let the humerus externally rotate, which is usually what settles impingement.
+2. Cut the bottom third of the range for two sessions, then rebuild.
+
+Keep the volume the same — 4 × 5 at roughly 70% of your Smith load to start.</div>
+
+    <div style="align-self:flex-start; max-width:92%; background:rgba(167,139,250,0.10); border:1px solid rgba(167,139,250,0.45); border-radius:14px; padding:13px 14px">
+      <div style="display:flex; align-items:center; gap:7px; font-size:13.1px; font-weight:700; color:#a78bfa; margin-bottom:8px">
+        <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+        Edit “Push A — Chest &amp; Delts”
+      </div>
+      <div style="font-size:13.7px; line-height:1.6; color:#f5f5f7">Replace <b style="font-weight:700">Incline Bench Press (Smith)</b> with <b style="font-weight:700">Low-Incline Bench Press (Dumbbell)</b>, 4 × 5.</div>
+      <div style="display:flex; gap:8px; margin-top:12px">
+        <button style="flex:1; border:none; border-radius:10px; background:#a78bfa; color:#14101f; font-size:13.1px; font-weight:700; padding:10px; cursor:pointer; font-family:inherit">Apply to routine</button>
+        <button style="border:none; border-radius:10px; background:#2c2c2e; color:#98989f; font-size:13.1px; font-weight:700; padding:10px 14px; cursor:pointer; font-family:inherit">No thanks</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- intent chips only — no key/clear stranded off the right edge -->
+  <div style="flex:0 0 auto; display:flex; gap:7px; padding:6px 16px; overflow:hidden">
+    <span class="chip"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Today's session</span>
+    <span class="chip"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>Improve my plan</span>
+    <span class="chip"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>Progress</span>
+  </div>
+
+  <!-- composer — multi-line, auto-grow, flush to the tab bar (no dead safe-area band) -->
+  <div style="flex:0 0 auto; display:flex; gap:8px; align-items:flex-end; padding:8px 16px 10px; border-top:1px solid rgba(255,255,255,0.07); background:#0c0c0d">
+    <div style="flex:1; min-width:0; background:#2c2c2e; border:1px solid rgba(56,189,248,0.5); border-radius:18px; padding:10px 14px">
+      <div style="font-size:16px; line-height:1.4; color:#f5f5f7; white-space:pre-wrap">What's a good substitute for barbell rows?
+I train at home and only have dumbbells
+and a pull-up bar.</div>
+      <div style="font-size:10.6px; color:#5c5c63; margin-top:6px">Return adds a line · ⌘↵ or the button sends</div>
+    </div>
+    <div style="width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#38bdf8,#2596d1); color:#04131c; display:flex; align-items:center; justify-content:center; flex:0 0 auto; box-shadow:0 4px 14px rgba(56,189,248,0.28)">
+      <svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>
+    </div>
+  </div>
+
+  <div style="height:56px; flex:0 0 auto; display:flex; background:rgba(28,28,30,0.82); border-top:1px solid rgba(255,255,255,0.10)">
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#98989f; font-size:10.9px; font-weight:500"><svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Today</div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#98989f; font-size:10.9px; font-weight:500"><svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>Plan</div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#98989f; font-size:10.9px; font-weight:500"><svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>Progress</div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#38bdf8; font-size:10.9px; font-weight:500"><svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>Coach</div>
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#98989f; font-size:10.9px; font-weight:500"><svg class="ic" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>Library</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
