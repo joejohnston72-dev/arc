@@ -511,7 +511,7 @@ document.querySelectorAll('.tab').forEach(btn => {
 
 // ── Workout start / open ──────────────────────────────────────────────────────
 document.getElementById('startEmptyBtn').onclick = () => { closeRoutineChooser(); startEmptyWorkout(); };
-document.getElementById('newRoutineBtn').onclick = () => { closeRoutineChooser(); startNewRoutine(); };
+document.getElementById('newRoutineBtn').onclick = () => { closeRoutineChooser(); openRoutineEditor({}); };
 document.getElementById('dashAllHistory').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
 
 // Ghost targets: what the inputs *suggest* (placeholder), never pre-filled values.
@@ -581,26 +581,6 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
   saveSoon();
 }
 
-// Build a routine from scratch — reuses the workout editor, but Finish saves a template.
-function startNewRoutine(prefill = null, { editId = null } = {}) {
-  routineMode = true;
-  editingTemplateId = editId;
-  activeSession = {
-    id: uid(),
-    title: prefill?.name || '',
-    startTime: new Date().toISOString(),
-    exercises: (prefill?.exercises || []).map(e => ({
-      ...e, id: uid(),
-      sets: (e.sets || [{}]).map(s => ({ ...s, id: uid(), done: false, touched: { weight:false, reps:false } })),
-    })),
-    pbs: [],
-  };
-  document.getElementById('awFinishBtn').textContent = 'Save';
-  openActiveWorkout();
-  document.getElementById('awTitle').placeholder = 'Routine name…';
-  renderActiveSession();
-}
-
 function openActiveWorkout() {
   document.getElementById('miniBar').classList.remove('visible');
   document.getElementById('activeWorkout').classList.add('visible');
@@ -660,7 +640,7 @@ function unlockBodyScroll() {
   window.scrollTo(0, lockedScrollY);
 }
 const OVERLAY_OPEN_SELECTOR =
-  '#activeWorkout.visible, #exercisePicker.visible, #routineLibrary.visible, ' +
+  '#activeWorkout.visible, #exercisePicker.visible, #routineLibrary.visible, #routineEditor.visible, ' +
   '#libraryDetail.visible, #historyDetail.visible, #exerciseDetail.visible, #workoutSummary.visible, .modal-backdrop.open';
 function syncScrollLock() {
   if (document.querySelector(OVERLAY_OPEN_SELECTOR)) lockBodyScroll();
@@ -2744,6 +2724,10 @@ window.handleSummaryBgClick = handleSummaryBgClick;
 window.openActiveWorkout = openActiveWorkout;
 
 // ── Exercise picker (also handles replace mode) ───────────────────────────────
+// Set while the picker is open on behalf of a caller that wants the selection
+// itself (the routine editor). Survives closeExPicker so the create-custom flow,
+// which closes the picker first, still delivers to the right place.
+let epOnPick = null;
 let epFilter = 'All';
 let epReplaceEi = null; // when set, picking replaces instead of appends
 
@@ -2772,8 +2756,13 @@ async function loadExOverrides() {
 document.getElementById('awAddExBtn').onclick   = () => openExPicker();
 document.getElementById('epCancel').onclick     = closeExPicker;
 
+// `onPick(name, category)` sends the choice to the CALLER instead of the active
+// workout, which is what lets the routine editor (and anything else off the
+// workout screen) use the picker. Without it the picker could only ever push
+// into `activeSession`, so creating a custom exercise meant starting a workout.
 function openExPicker(opts = {}) {
   epFilter = 'All';
+  epOnPick = opts.onPick || null;
   epReplaceEi = opts.replaceEi ?? null;
   document.getElementById('epSearch').value = '';
   document.getElementById('epSearch').placeholder = epReplaceEi !== null
@@ -2837,7 +2826,11 @@ function swapMatchCard(e, st, first) {
 function bindPickerItems(listEl) {
   listEl.querySelectorAll('.ep-item').forEach(item => {
     item.onclick = async () => {
-      if (epReplaceEi !== null) {
+      if (epOnPick) {
+        const cb = epOnPick; epOnPick = null;
+        closeExPicker();
+        await cb(item.dataset.name, item.dataset.cat);
+      } else if (epReplaceEi !== null) {
         const ei = epReplaceEi;
         closeExPicker();
         await replaceExercise(ei, item.dataset.name, item.dataset.cat);
@@ -3028,7 +3021,10 @@ function openCustomExModal() {
   document.getElementById('customExName').value = '';
   document.getElementById('customExModal').classList.add('open');
 }
-document.getElementById('customExCancel').onclick = () => document.getElementById('customExModal').classList.remove('open');
+document.getElementById('customExCancel').onclick = () => {
+  epOnPick = null;
+  document.getElementById('customExModal').classList.remove('open');
+};
 document.getElementById('customExSave').onclick = async () => {
   const name = document.getElementById('customExName').value.trim();
   if (!name) return;
@@ -3039,10 +3035,17 @@ document.getElementById('customExSave').onclick = async () => {
   custom.push(entry);
   await db.set(STORE, 'exercises-custom', custom);
   document.getElementById('customExModal').classList.remove('open');
-  await addExerciseToSession(name, cat);
-  openActiveWorkout();
-  renderActiveSession();
-  saveSoon();
+  if (epOnPick) {
+    const cb = epOnPick; epOnPick = null;
+    await cb(name, cat);
+  } else if (activeSession) {
+    await addExerciseToSession(name, cat);
+    openActiveWorkout();
+    renderActiveSession();
+    saveSoon();
+  } else if (activeTab === 'Library') {
+    renderLibrary();
+  }
   lookupRepRangeForCustom(entry); // background AI lookup — updates in place when it resolves
   // If this looks like an exercise they already have, offer to merge (coach nudge).
   const similar = await findSimilarExercise(name);
@@ -3490,6 +3493,472 @@ document.getElementById('templateNameSave').onclick = async () => {
   }
 };
 
+// ── Routine editor ────────────────────────────────────────────────────────────
+// A routine is order + exercises + set/rep targets + rest + superset grouping.
+// Editing one used to mean STARTING it as a real workout, changing things,
+// long-pressing Finish and saving a duplicate — so the original kept its id and
+// its Plan-tab day assignments while the copy got your edits. This screen edits
+// the routine itself and saves through `putTemplate`, which preserves the id.
+//
+// Deliberately absent: set checkboxes, the rest timer, the plate calculator, PB
+// detection, previous-performance ghosts. None of them mean anything to a
+// routine, and rendering them was most of why the old flow read as a workout.
+
+// Superset rail colours, assigned by the group's INDEX within the routine, so a
+// second pair never wears the same colour as the first. Blue is the primary UI
+// accent and red is destructive, so neither is in the rotation.
+const SUPERSET_COLORS = ['var(--purple)', 'var(--orange)', 'var(--green)', 'var(--amber)'];
+const SUPERSET_LETTERS = 'ABCDEFGH';
+// Group ids in the order they first appear — the index into SUPERSET_COLORS.
+function supersetOrder(exercises) {
+  const order = [];
+  for (const e of exercises || []) {
+    if (e.supersetId && !order.includes(e.supersetId)) order.push(e.supersetId);
+  }
+  return order;
+}
+function supersetStyle(exercises, gid) {
+  const i = supersetOrder(exercises).indexOf(gid);
+  return { color: SUPERSET_COLORS[i % SUPERSET_COLORS.length], letter: SUPERSET_LETTERS[i] || String(i + 1) };
+}
+
+// { id, name, planId, exercises:[{name, category, logType, restTime, supersetId?, sets:[{weight,reps,type}]}] }
+let reState = null;
+
+// The unit of ordering in a template's set list. Library splits and MY_ROUTINES
+// store a per-set rep target; the editor treats a routine as "N sets of R reps"
+// and only rewrites reps when you actually change them, so a routine with mixed
+// targets reads as a range rather than being flattened on open.
+function targetLabel(ex) {
+  const sets = ex.sets?.length || 0;
+  if (!sets) return 'no sets';
+  const reps = ex.sets.map(s => +s.reps || 0);
+  const lo = Math.min(...reps), hi = Math.max(...reps);
+  const lt = resolveLogType(ex);
+  const unit = lt === 'duration' ? 's' : lt === 'cardio' ? 'min' : '';
+  const r = lo === hi ? `${lo}` : `${lo}–${hi}`;
+  return `${sets} × ${r}${unit}`;
+}
+
+function routineEditorDirty() {
+  return !!reState && JSON.stringify(reState) !== reBaseline;
+}
+let reBaseline = '';
+
+async function openRoutineEditor({ templateId = null, planId = null } = {}) {
+  const [templates, plans, activePlan] = await Promise.all([getTemplates(), getPlans(), getActivePlan()]);
+  const t = templateId ? templates.find(x => x.id === templateId) : null;
+  if (templateId && !t) return;
+  reState = {
+    id: t?.id || null,
+    name: t?.name || '',
+    planId: planId || (t ? planOfRoutine(plans, t.id)?.id : null) || activePlan?.id || null,
+    // Deep-copied so Cancel really cancels — the editor must never mutate the
+    // stored template in place.
+    exercises: (t?.exercises || []).map(e => ({
+      name: e.name, category: e.category, logType: e.logType,
+      restTime: e.restTime ?? 60,
+      ...(e.supersetId ? { supersetId: e.supersetId } : {}),
+      sets: (e.sets || []).map(s => ({ weight: s.weight || 0, reps: s.reps || 0,
+        distance: s.distance || 0, duration: s.duration || 0, type: s.type || 'normal' })),
+    })),
+  };
+  reBaseline = JSON.stringify(reState);
+  document.getElementById('reTitle').textContent = t ? 'Edit routine' : 'New routine';
+  document.getElementById('reName').value = reState.name;
+  document.getElementById('reDelete').style.display = t ? '' : 'none';
+  document.getElementById('routineEditor').classList.add('visible');
+  await renderRoutineEditor();
+}
+
+function closeRoutineEditor({ force = false } = {}) {
+  if (!force && routineEditorDirty() && !confirm('Discard your changes to this routine?')) return;
+  epOnPick = null;   // nothing should still be able to push into a closed editor
+  reState = null;
+  document.getElementById('routineEditor').classList.remove('visible');
+}
+
+async function renderRoutineEditor() {
+  if (!reState) return;
+  const plans = await getPlans();
+  const plan = plans.find(p => p.id === reState.planId) || null;
+  document.getElementById('rePlan').innerHTML =
+    `<span style="color:var(--blue);display:flex;flex:0 0 auto">${icon('layout-dashboard', { size: 16 })}</span>` +
+    `<span class="re-plan-name">${plan ? esc(plan.name) : 'No plan'}</span>` +
+    `<span style="color:var(--text-muted);display:flex;flex:0 0 auto">${icon('chevron-down', { size: 16 })}</span>`;
+
+  const list = document.getElementById('reList');
+  const exs = reState.exercises;
+  document.getElementById('reExCount').textContent = `Exercises · ${exs.length}`;
+  if (!exs.length) {
+    list.innerHTML = `<div class="re-empty">No exercises yet — add the first one below.</div>`;
+    refreshIcons();
+    return;
+  }
+
+  // Render top-level UNITS: a lone exercise, or a whole superset group. The
+  // group is the draggable unit because members must stay contiguous — that
+  // invariant is what the rest-gating and the rail depend on.
+  const rowHTML = (e, i, { grip = true } = {}) => `
+    <div class="re-row" data-i="${i}">
+      ${grip ? `<span class="re-grip" data-drag="${i}">${icon('grip-vertical', { size: 17 })}</span>` : '<span style="width:4px"></span>'}
+      <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[e.category] || '#8e8e9a'}"></span>
+      <div class="re-row-main">
+        <div class="re-row-name">${esc(e.name)}</div>
+        <div class="re-row-meta">${esc(e.category || '')} · rest ${fmtRest(e.restTime ?? 60)}</div>
+      </div>
+      <button class="re-target" data-target="${i}">${targetLabel(e)}</button>
+      <button class="re-row-menu" data-menu="${i}" aria-label="Options for ${esc(e.name)}">${icon('ellipsis', { size: 18 })}</button>
+    </div>`;
+
+  let html = '', i = 0;
+  while (i < exs.length) {
+    const gid = exs[i].supersetId;
+    if (!gid) { html += `<div class="re-unit" data-unit="${i}">${rowHTML(exs[i], i)}</div>`; i++; continue; }
+    let j = i;
+    while (j < exs.length && exs[j].supersetId === gid) j++;
+    const { color, letter } = supersetStyle(exs, gid);
+    const idxs = Array.from({ length: j - i }, (_, k) => i + k);
+    html += `
+      <div class="re-unit re-ss" data-unit="${idxs.join(',')}" style="--ss-color:${color}">
+        <span class="re-ss-label"><span class="re-grip" data-drag="${i}">${icon('grip-vertical', { size: 14 })}</span>${icon('repeat', { size: 12 })} Superset ${letter}</span>
+        <div class="re-list-inner">${idxs.map(k => rowHTML(exs[k], k, { grip: false })).join('')}</div>
+      </div>`;
+    i = j;
+  }
+  list.innerHTML = html;
+  refreshIcons();
+}
+
+// Drop any group left with fewer than two members (the last partner was removed
+// or dragged away) — a one-exercise "superset" is just an exercise.
+function reNormalizeSupersets() {
+  const list = reState.exercises;
+  const count = {};
+  for (const e of list) if (e.supersetId) count[e.supersetId] = (count[e.supersetId] || 0) + 1;
+  for (const e of list) if (e.supersetId && count[e.supersetId] < 2) delete e.supersetId;
+}
+
+// ── Reorder: drag a unit by its handle ───────────────────────────────────────
+// Only whole units move. Reordering WITHIN a superset is deliberately not a
+// gesture: the members are contiguous by definition, so the way to break one up
+// is to ungroup it.
+(function wireRoutineEditorDrag() {
+  const list = () => document.getElementById('reList');
+  let unit = null, startY = 0, moved = false;
+
+  document.getElementById('reList').addEventListener('pointerdown', e => {
+    const grip = e.target.closest('.re-grip');
+    if (!grip || !reState) return;
+    unit = grip.closest('.re-unit');
+    if (!unit) return;
+    startY = e.clientY; moved = false;
+    unit.classList.add('dragging');
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  document.getElementById('reList').addEventListener('pointermove', e => {
+    if (!unit) return;
+    if (!moved && Math.abs(e.clientY - startY) < 4) return;
+    moved = true;
+    // Swap past whichever neighbour's midpoint the pointer has crossed.
+    const units = [...list().querySelectorAll(':scope > .re-unit')];
+    const me = unit.getBoundingClientRect();
+    for (const other of units) {
+      if (other === unit) continue;
+      const r = other.getBoundingClientRect();
+      const mid = r.top + r.height / 2;
+      if (e.clientY > mid && r.top > me.top) { other.after(unit); break; }
+      if (e.clientY < mid && r.top < me.top) { other.before(unit); break; }
+    }
+  });
+
+  const end = () => {
+    if (!unit) return;
+    unit.classList.remove('dragging');
+    unit = null;
+    if (!moved) return;
+    // Commit DOM order back to state, keeping each unit's members together.
+    const order = [...list().querySelectorAll(':scope > .re-unit')]
+      .flatMap(u => u.dataset.unit.split(',').map(Number));
+    reState.exercises = order.map(k => reState.exercises[k]).filter(Boolean);
+    reNormalizeSupersets();
+    renderRoutineEditor();
+  };
+  document.getElementById('reList').addEventListener('pointerup', end);
+  document.getElementById('reList').addEventListener('pointercancel', end);
+})();
+
+// ── Row actions ──────────────────────────────────────────────────────────────
+document.getElementById('reList').addEventListener('click', e => {
+  if (!reState) return;
+  const t = e.target.closest('[data-target]');
+  if (t) { openReTargetSheet(+t.dataset.target); return; }
+  const m = e.target.closest('[data-menu]');
+  if (m) { openReExMenu(+m.dataset.menu); return; }
+});
+
+// Sets / reps / rest for one exercise.
+function openReTargetSheet(i) {
+  const ex = reState?.exercises[i];
+  if (!ex) return;
+  const lt = resolveLogType(ex);
+  const repsLabel = lt === 'duration' ? 'Seconds per set' : lt === 'cardio' ? 'Minutes per set' : 'Reps per set';
+  let sets = ex.sets.length || 1;
+  let reps = +ex.sets[0]?.reps || (lt === 'duration' ? 30 : 10);
+  let rest = ex.restTime ?? 60;
+  const mixed = new Set(ex.sets.map(s => +s.reps || 0)).size > 1;
+
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">${esc(ex.name)}</p>
+    ${mixed ? `<p style="font-size:0.75rem;color:var(--text-muted);margin:-8px 0 12px;line-height:1.5">This exercise has different targets per set (${ex.sets.map(s => s.reps).join(', ')}). Changing reps here sets them all the same.</p>` : ''}
+    <div class="re-step-row"><span class="re-step-lbl">Sets</span>
+      <div class="re-step"><button data-d="sets:-1">−</button><span class="re-step-val" id="reStepSets">${sets}</span><button data-d="sets:1">+</button></div></div>
+    <div class="re-step-row"><span class="re-step-lbl">${repsLabel}</span>
+      <div class="re-step"><button data-d="reps:-1">−</button><span class="re-step-val" id="reStepReps">${reps}</span><button data-d="reps:1">+</button></div></div>
+    <div class="re-step-row"><span class="re-step-lbl">Rest</span>
+      <div class="re-step"><button data-d="rest:-15">−</button><span class="re-step-val" id="reStepRest">${fmtRest(rest)}</span><button data-d="rest:15">+</button></div></div>
+    <div class="modal-btns">
+      <button class="btn btn-g" data-act="cancel">Cancel</button>
+      <button class="btn btn-p" data-act="done">Done</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  const close = () => { back.remove(); syncScrollLock(); };
+  let repsTouched = false;
+  back.addEventListener('click', e => {
+    const d = e.target.closest('[data-d]')?.dataset.d;
+    if (d) {
+      const [field, step] = d.split(':');
+      if (field === 'sets') { sets = Math.max(1, Math.min(20, sets + +step)); back.querySelector('#reStepSets').textContent = sets; }
+      if (field === 'reps') { reps = Math.max(1, Math.min(300, reps + +step)); repsTouched = true; back.querySelector('#reStepReps').textContent = reps; }
+      if (field === 'rest') { rest = Math.max(0, Math.min(600, rest + +step)); back.querySelector('#reStepRest').textContent = fmtRest(rest); }
+      return;
+    }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    if (act === 'done') {
+      close();
+      ex.restTime = rest;
+      const tpl = ex.sets[0] || { weight: 0, type: 'normal' };
+      ex.sets = Array.from({ length: sets }, (_, k) => ({
+        ...(ex.sets[k] || { weight: tpl.weight || 0, distance: 0, duration: 0, type: 'normal' }),
+        // An untouched reps stepper leaves a mixed-target routine alone.
+        reps: repsTouched ? reps : (+ex.sets[k]?.reps || reps),
+      }));
+      renderRoutineEditor();
+    }
+  });
+}
+
+function openReExMenu(i) {
+  const ex = reState?.exercises[i];
+  if (!ex) return;
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">${esc(ex.name)}</p>
+    <button class="sheet-btn" data-act="replace">${icon('repeat', { size: 17 })} Replace exercise…</button>
+    <button class="sheet-btn" data-act="superset">${icon('repeat', { size: 17 })} ${ex.supersetId ? 'Edit superset…' : 'Superset…'}</button>
+    <button class="sheet-btn" data-act="remove" style="color:var(--red)">${icon('trash-2', { size: 17 })} Remove from routine</button>
+    <button class="sheet-btn" data-act="cancel" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  refreshIcons();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    close();
+    if (act === 'replace')  openExPicker({ onPick: (name, cat) => reReplaceExercise(i, name, cat) });
+    if (act === 'superset') openReSupersetPicker(i);
+    if (act === 'remove')   { reState.exercises.splice(i, 1); reNormalizeSupersets(); renderRoutineEditor(); }
+  });
+}
+
+async function reReplaceExercise(i, name, category) {
+  const ex = reState?.exercises[i];
+  if (!ex) return;   // the editor closed while the picker was open
+  const all = await getAllExercises();
+  const def = all.find(x => x.name === name);
+  ex.name = name;
+  ex.category = category;
+  // Re-derive the log type for the NEW exercise rather than carrying the old
+  // one's over — the same bug the active-workout swap had.
+  ex.logType = def?.logType || exLogType(name, category);
+  await ensureExercisesInRepo([{ name, category, logType: ex.logType }]);
+  renderRoutineEditor();
+}
+
+function openReSupersetPicker(anchor) {
+  const list = reState.exercises;
+  const gid = list[anchor]?.supersetId || null;
+  const selected = new Set(list.map((_, i) => i).filter(i => i !== anchor && gid && list[i].supersetId === gid));
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  const rows = list.map((e, i) => i === anchor ? '' : `
+    <button class="sheet-btn ss-pick" data-i="${i}" style="display:flex;align-items:center;gap:12px;text-align:left">
+      <span class="ss-tick" style="width:20px;color:var(--purple);display:inline-flex">${selected.has(i) ? icon('check', { size: 16 }) : ''}</span>
+      <span style="flex:1">${esc(e.name)}</span>
+    </button>`).join('');
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">Superset ${esc(list[anchor].name)} with…</p>
+    <p style="font-size:0.78rem;color:var(--text-muted);margin:-8px 0 12px;line-height:1.5">Paired exercises are grouped together and the rest timer only runs after the last one.</p>
+    <div style="max-height:44vh;overflow-y:auto;margin-bottom:6px">${rows || '<div class="empty-state" style="padding:16px 0">Add another exercise first.</div>'}</div>
+    <div class="modal-btns">
+      <button class="btn btn-g" data-act="cancel">Cancel</button>
+      ${gid ? '<button class="btn btn-d" data-act="ungroup">Ungroup</button>' : ''}
+      <button class="btn btn-p" data-act="done">Done</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', e => {
+    const pick = e.target.closest('.ss-pick');
+    if (pick) {
+      const i = +pick.dataset.i;
+      selected.has(i) ? selected.delete(i) : selected.add(i);
+      pick.querySelector('.ss-tick').innerHTML = selected.has(i) ? icon('check', { size: 16 }) : '';
+      return;
+    }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    close();
+    if (act === 'ungroup') {
+      const g = list[anchor].supersetId;
+      if (g) for (const e2 of list) if (e2.supersetId === g) delete e2.supersetId;
+      renderRoutineEditor();
+      return;
+    }
+    if (act === 'done') { reApplySuperset(anchor, [...selected]); }
+  });
+}
+
+// Assign a shared id AND pull the members contiguous — the invariant the rail
+// and the in-workout rest gating both depend on.
+function reApplySuperset(anchor, picks) {
+  const list = reState.exercises;
+  const members = new Set([anchor, ...picks.filter(i => i >= 0 && i < list.length && i !== anchor)]);
+  const oldGid = list[anchor].supersetId || null;
+  if (members.size < 2) {
+    if (oldGid) for (const e of list) if (e.supersetId === oldGid) delete e.supersetId;
+    renderRoutineEditor();
+    return;
+  }
+  if (oldGid) list.forEach((e, i) => { if (e.supersetId === oldGid && !members.has(i)) delete e.supersetId; });
+  const gid = oldGid || ('ss' + uid());
+  const ordered = [...members].sort((a, b) => a - b);
+  const memberExs = ordered.map(i => list[i]);
+  memberExs.forEach(e => e.supersetId = gid);
+  // Pulling the members out never shifts anything BEFORE the first of them, so
+  // the first member's original index is still the right insertion point.
+  const rest = list.filter((_, i) => !members.has(i));
+  rest.splice(ordered[0], 0, ...memberExs);
+  reState.exercises = rest;
+  renderRoutineEditor();
+}
+
+// ── Plan picker ──────────────────────────────────────────────────────────────
+async function openRePlanPicker() {
+  const plans = await getPlans();
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">Which plan?</p>
+    ${plans.map(p => `<button class="sheet-btn" data-pid="${esc(p.id)}">${esc(p.name)} — ${(p.routineIds || []).length} routine${(p.routineIds || []).length === 1 ? '' : 's'}${p.id === reState.planId ? '  ✓' : ''}</button>`).join('')}
+    <button class="sheet-btn" data-act="new" style="color:var(--blue)">${icon('plus', { size: 16 })} New plan…</button>
+    <button class="sheet-btn" data-act="none" style="color:var(--text-muted)">No plan</button>
+    <button class="sheet-btn" data-act="cancel" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  refreshIcons();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', async e => {
+    const pid = e.target.closest('[data-pid]')?.dataset.pid;
+    if (pid) { close(); reState.planId = pid; renderRoutineEditor(); return; }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    close();
+    if (act === 'none') { reState.planId = null; renderRoutineEditor(); return; }
+    if (act === 'new') {
+      const name = prompt('Name this plan')?.trim();
+      if (!name) return;
+      const plan = await createPlan({ name });
+      reState.planId = plan.id;
+      renderRoutineEditor();
+    }
+  });
+}
+
+// ── Wiring ───────────────────────────────────────────────────────────────────
+document.getElementById('reBack').onclick = () => closeRoutineEditor();
+document.getElementById('rePlan').onclick = () => openRePlanPicker();
+document.getElementById('reName').addEventListener('input', e => { if (reState) reState.name = e.target.value; });
+document.getElementById('reAddEx').onclick = () => openExPicker({
+  onPick: async (name, cat) => {
+    if (!reState) return;   // the editor closed while the picker was open
+    const all = await getAllExercises();
+    const def = all.find(x => x.name === name);
+    const logType = def?.logType || exLogType(name, cat);
+    reState.exercises.push({
+      name, category: cat, logType, restTime: 60,
+      sets: Array.from({ length: 3 }, () => ({ weight: 0, reps: logType === 'duration' ? 30 : 10, distance: 0, duration: 0, type: 'normal' })),
+    });
+    await ensureExercisesInRepo([{ name, category: cat, logType }]);
+    renderRoutineEditor();
+  },
+});
+
+document.getElementById('reDelete').onclick = async () => {
+  if (!reState?.id) return;
+  const id = reState.id;
+  closeRoutineEditor({ force: true });
+  await deleteRoutine(id);          // prunes week-plan + plan membership too
+  if (activeTab === 'Library') renderLibrary();
+};
+
+document.getElementById('reSave').onclick = async () => {
+  if (!reState) return;
+  const name = document.getElementById('reName').value.trim();
+  if (!name) { alert('Give the routine a name first.'); document.getElementById('reName').focus(); return; }
+  if (!reState.exercises.length) { alert('Add at least one exercise first.'); return; }
+  const btn = document.getElementById('reSave');
+  btn.disabled = true;
+  try {
+    reNormalizeSupersets();
+    const id = reState.id || uid();
+    await putTemplate({
+      id, name,
+      exercises: reState.exercises.map(e => ({
+        name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
+        ...(e.supersetId ? { supersetId: e.supersetId } : {}),
+        sets: e.sets.map(s => ({ weight: s.weight || 0, reps: s.reps || 0, distance: s.distance || 0, duration: s.duration || 0, type: s.type || 'normal' })),
+      })),
+    }, { planId: reState.planId });
+    // putTemplate only files a NEW routine. An existing one whose plan changed
+    // has to be moved explicitly, or it would sit in both.
+    if (reState.id) await setRoutinePlan(id, reState.planId);
+    closeRoutineEditor({ force: true });
+    renderDashboard();
+    if (activeTab === 'Library') renderLibrary();
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// Move a routine between plans (or out of all of them).
+async function setRoutinePlan(tid, planId) {
+  await removeRoutineFromPlans(tid);
+  if (planId) await addRoutinesToPlan(planId, [tid]);
+}
+
 // ── Routine library (pre-built, science-backed splits) ────────────────────────
 const libraryEl       = document.getElementById('routineLibrary');
 const libraryDetailEl = document.getElementById('libraryDetail');
@@ -3877,10 +4346,16 @@ function renderRoutinesChooser(templates, next = null) {
           <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
         </div>
         <span class="tc-when">${when}</span>
+        <button class="tc-edit" data-tid="${esc(t.id)}" aria-label="Edit ${esc(t.name)}" data-tip="Edit" title="Edit">${icon('pencil', { size: 15 })}</button>
         <button class="tc-del" data-tid="${esc(t.id)}" aria-label="Delete ${esc(t.name)}">${icon('trash-2', { size: 16 })}</button>
       </div>`;
   }).join('');
 
+  tmplEl.querySelectorAll('.tc-edit').forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    closeRoutineChooser();
+    openRoutineEditor({ templateId: b.dataset.tid });
+  });
   tmplEl.querySelectorAll('.tc-del').forEach(b => b.onclick = e => { e.stopPropagation(); deleteRoutine(b.dataset.tid); });
   tmplEl.querySelectorAll('.template-card').forEach(card => {
     card.addEventListener('click', () => {

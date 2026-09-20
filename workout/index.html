@@ -236,6 +236,12 @@
     }
     .template-card:active { background: var(--surface2); }
     .template-card { transition: background .2s ease; -webkit-user-select:none; user-select:none; }
+    .tc-edit {
+      flex:0 0 auto; width:34px; height:34px; border:1px solid var(--border); border-radius:8px; background:var(--surface2);
+      color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .tc-edit:active { background:var(--bg); color:var(--blue); }
     .tc-name { font-size:0.9rem; font-weight:700; }
     .tc-ex   { font-size:0.75rem; color:var(--text-muted); margin-top:2px;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -957,6 +963,99 @@
     }
     .summary-warn-box span { color:var(--text-muted); font-size:0.72rem; }
 
+    /* ── Routine editor (dedicated screen, not the live-workout UI) ── */
+    #routineEditor {
+      /* Above the active workout (50), below the exercise picker (60) — the
+         picker opens FROM this screen, so it has to sit on top of it. */
+      position:fixed; inset:0; background:var(--bg); z-index:55;
+      display:none; flex-direction:column;
+      padding-top:env(safe-area-inset-top);
+    }
+    #routineEditor.visible { display:flex; }
+    .re-head {
+      flex:0 0 auto; display:flex; align-items:center; gap:10px;
+      padding:12px var(--gap); border-bottom:1px solid var(--border);
+    }
+    .re-title { flex:1; font-size:1.06rem; font-weight:700; letter-spacing:-0.2px; min-width:0; }
+    .re-save {
+      flex:0 0 auto; border:none; border-radius:10px; padding:9px 18px; cursor:pointer;
+      background:linear-gradient(135deg,#38bdf8,#2596d1); color:#04131c; font-size:0.84rem; font-weight:700;
+      font-family:inherit; -webkit-tap-highlight-color:transparent;
+    }
+    .re-save:active { transform:scale(0.98); }
+    .re-save:disabled { opacity:0.45; }
+    .re-body {
+      flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+      padding:14px var(--gap) calc(env(safe-area-inset-bottom) + 28px);
+    }
+    .re-label {
+      font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+      color:var(--text-muted); margin:0 0 6px;
+    }
+    .re-input {
+      width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+      padding:12px 14px; color:var(--text); font-family:inherit; font-weight:500; outline:none; margin-bottom:14px;
+    }
+    .re-input:focus { border-color:var(--blue); }
+    .re-plan {
+      width:100%; display:flex; align-items:center; gap:10px; margin-bottom:16px;
+      background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+      padding:12px 14px; color:var(--text); font:inherit; font-size:0.9rem; font-weight:500;
+      cursor:pointer; text-align:left; -webkit-tap-highlight-color:transparent;
+    }
+    .re-plan-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .re-exhead { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .re-hint { font-size:0.7rem; color:var(--text-muted); }
+    .re-list { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+    .re-row {
+      display:flex; align-items:center; gap:11px; touch-action:pan-y;
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:12px 12px 12px 10px; -webkit-tap-highlight-color:transparent;
+    }
+    .re-row.dragging { opacity:0.9; border-color:var(--blue); box-shadow:0 8px 24px rgba(0,0,0,0.45); }
+    .re-grip { color:#4b4b52; display:flex; flex:0 0 auto; cursor:grab; touch-action:none; padding:2px; }
+    .re-row-main { flex:1; min-width:0; }
+    .re-row-name { font-size:0.88rem; font-weight:700; line-height:1.25; }
+    .re-row-meta { font-size:0.7rem; color:var(--text-muted); margin-top:2px; font-variant-numeric:tabular-nums; }
+    .re-target {
+      flex:0 0 auto; background:var(--surface2); border:1px solid var(--border); border-radius:9px;
+      padding:6px 9px; color:var(--text); font:inherit; font-size:0.78rem; font-weight:700;
+      font-variant-numeric:tabular-nums; white-space:nowrap; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .re-row-menu { flex:0 0 auto; background:none; border:none; color:var(--text-muted); cursor:pointer; display:flex; padding:2px; }
+    /* Superset group — the rail colour comes from the group's index, so two
+       pairs in one routine never read as one block. */
+    .re-ss { border-left:3px solid var(--ss-color, var(--purple)); padding-left:13px; margin-left:1px; }
+    .re-ss-label {
+      display:inline-flex; align-items:center; gap:5px; margin-bottom:6px;
+      font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+      color:var(--ss-color, var(--purple));
+    }
+    .re-ss .re-list-inner { display:flex; flex-direction:column; gap:6px; }
+    .re-add {
+      width:100%; padding:12px; border:1px dashed rgba(56,189,248,0.4); border-radius:12px;
+      background:rgba(56,189,248,0.07); color:var(--blue); font:inherit; font-size:0.84rem; font-weight:700;
+      cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .re-delete {
+      width:100%; margin-top:10px; padding:11px; border:1px solid rgba(244,63,94,0.35); border-radius:12px;
+      background:none; color:var(--red); font:inherit; font-size:0.82rem; font-weight:700; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .re-empty { color:var(--text-muted); font-size:0.84rem; line-height:1.6; padding:14px 2px; text-align:center; }
+    /* Set/rep/rest stepper sheet */
+    .re-step-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .re-step-lbl { font-size:0.85rem; font-weight:500; }
+    .re-step { display:flex; align-items:center; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:5px 7px; }
+    .re-step button {
+      width:34px; height:34px; border-radius:8px; background:var(--bg); border:1px solid var(--border);
+      color:var(--text); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .re-step-val { min-width:56px; text-align:center; font-size:0.95rem; font-weight:700; font-variant-numeric:tabular-nums; }
+
     /* ── Routine library ── */
     #routineLibrary, #libraryDetail {
       position:fixed; inset:0; z-index:65; background:var(--bg);
@@ -1621,6 +1720,34 @@
   </div>
   <div class="ep-filters" id="epFilters"></div>
   <div class="ep-list" id="epList"></div>
+</div>
+
+<!-- ── Routine editor ── -->
+<!-- A dedicated editor. Routines used to be "edited" by starting them as a real
+     workout, changing things, long-pressing Finish and saving a DUPLICATE —
+     which orphaned the original's Plan-tab day assignments. This screen shows
+     only what a routine is (order, exercises, set/rep targets, rest, superset
+     grouping) with none of the live-logging machinery: no set checkboxes, no
+     rest timer, no plate calculator, no PB detection. -->
+<div id="routineEditor">
+  <div class="re-head">
+    <button class="back-btn" id="reBack" data-tip="Back" title="Back"><i data-lucide="arrow-left" data-size="24"></i></button>
+    <span class="re-title" id="reTitle">Edit routine</span>
+    <button class="re-save" id="reSave">Save</button>
+  </div>
+  <div class="re-body">
+    <div class="re-label">Routine name</div>
+    <input class="re-input" id="reName" placeholder="Routine name…" autocomplete="off">
+    <div class="re-label">Plan</div>
+    <button class="re-plan" id="rePlan" type="button"></button>
+    <div class="re-exhead">
+      <span class="re-label" id="reExCount" style="margin:0">Exercises</span>
+      <span class="re-hint">drag the handle to reorder</span>
+    </div>
+    <div class="re-list" id="reList"></div>
+    <button class="re-add" id="reAddEx" type="button"><i data-lucide="plus" data-size="16"></i> Add exercise</button>
+    <button class="re-delete" id="reDelete" type="button">Delete routine</button>
+  </div>
 </div>
 
 <!-- ── Routine library ── -->
