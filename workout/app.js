@@ -3363,11 +3363,18 @@ async function putTemplate(tpl, { planId } = {}) {
   else          templates.push(tpl);
   await db.set(STORE, 'templates', templates);
   db.backup();
-  if (i === -1) {
-    const plan = planId ? { id: planId } : await ensureDefaultPlan();
-    await addRoutinesToPlan(plan.id, [tpl.id]);
-  }
+  if (i === -1) await fileNewRoutine(tpl.id, planId);
   return tpl;
+}
+
+// Where a brand-new routine is filed. The three cases are deliberately
+// distinct: an explicit id files there; `null` means DELIBERATELY unfiled (the
+// editor's "No plan", or duplicating a routine that is itself unfiled) and must
+// not be quietly overridden; `undefined` means "wherever new routines go".
+async function fileNewRoutine(tid, planId) {
+  if (planId === null) return;
+  const plan = planId ? { id: planId } : await ensureDefaultPlan();
+  await addRoutinesToPlan(plan.id, [tid]);
 }
 
 // Add several routines at once (a split). Returns the created ids in order.
@@ -3376,8 +3383,10 @@ async function addTemplates(tpls, { planId } = {}) {
   templates.push(...tpls);
   await db.set(STORE, 'templates', templates);
   db.backup();
-  const plan = planId ? { id: planId } : await ensureDefaultPlan();
-  await addRoutinesToPlan(plan.id, tpls.map(t => t.id));
+  if (planId !== null) {
+    const plan = planId ? { id: planId } : await ensureDefaultPlan();
+    await addRoutinesToPlan(plan.id, tpls.map(t => t.id));
+  }
   return tpls.map(t => t.id);
 }
 
@@ -4104,7 +4113,10 @@ document.getElementById('libraryAddBtn').onclick = async () => {
   })), { planId: plan.id });
   libraryDetailEl.classList.remove('visible');
   libraryEl.classList.remove('visible');
+  libSegment = 'plans';
+  libOpenPlans.add(plan.id);
   renderDashboard();
+  if (activeTab === 'Library') renderLibrary();
   alert(`Added "${split.name}" — ${split.days.length} routines, now your active plan.`);
 };
 
@@ -5262,7 +5274,230 @@ function sparklineSVG(vals, { w = 52, h = 16, stroke = 1.6, color = 'var(--blue)
 
 let libFilter = 'all'; // 'all' | 'routines' | 'never' | 'custom'
 
+// ── Library ───────────────────────────────────────────────────────────────────
+// The tab used to be two unrelated things stacked with nothing separating them:
+// a flat list of every routine ever saved, above a catalogue of exercises, with
+// one search box that only ever searched the second. Two panes now — Plans owns
+// routines (grouped by the plan they belong to, editable in place), Exercises
+// owns the catalogue.
+let libSegment = 'plans';           // 'plans' | 'exercises'
+const libOpenPlans = new Set();     // plan ids expanded in the Plans pane
+
 async function renderLibrary() {
+  const plansOn = libSegment === 'plans';
+  document.querySelectorAll('#libSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.seg === libSegment));
+  document.getElementById('libPlansPane').hidden = !plansOn;
+  document.getElementById('libExPane').hidden = plansOn;
+  await (plansOn ? renderLibraryPlans() : renderLibraryExercises());
+}
+
+document.querySelectorAll('#libSeg button').forEach(b => {
+  b.onclick = () => { libSegment = b.dataset.seg; renderLibrary(); };
+});
+
+async function renderLibraryPlans() {
+  const [plans, templates, sessions, activePlan] = await Promise.all([
+    getPlans(), getTemplates(), loadSessions(), getActivePlan()]);
+  const el = document.getElementById('libPlansList');
+
+  // Last time each routine was run, by title — the one number that says whether
+  // a plan is live or abandoned.
+  const lastByName = new Map();
+  for (const s of sessions) {
+    const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+    if (ts && s.title && !lastByName.has(s.title)) lastByName.set(s.title, ts);
+  }
+  const whenOf = name => {
+    const ts = lastByName.get(name);
+    if (!ts) return 'never run';
+    const d = Math.floor((Date.now() - ts) / DAY_MS);
+    return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`;
+  };
+
+  document.getElementById('libCount').textContent =
+    `${plans.length} plan${plans.length === 1 ? '' : 's'} · ${templates.length} routine${templates.length === 1 ? '' : 's'}`;
+
+  const routineRow = t => `
+    <div class="lib-rt" data-tid="${esc(t.id)}">
+      <div class="lib-rt-main">
+        <div class="lib-rt-name">${esc(t.name)}</div>
+        <div class="lib-rt-meta">${(t.exercises || []).length} exercises · ${(t.exercises || []).reduce((a, e) => a + (e.sets?.length || 0), 0)} sets · ${whenOf(t.name)}</div>
+      </div>
+      <button class="lib-rt-btn" data-edit="${esc(t.id)}" aria-label="Edit ${esc(t.name)}" data-tip="Edit" title="Edit">${icon('pencil', { size: 15 })}</button>
+      <button class="lib-rt-btn" data-dup="${esc(t.id)}" aria-label="Duplicate ${esc(t.name)}" data-tip="Duplicate" title="Duplicate">${icon('copy', { size: 15 })}</button>
+      <button class="lib-rt-btn danger" data-del="${esc(t.id)}" aria-label="Delete ${esc(t.name)}" data-tip="Delete" title="Delete">${icon('trash-2', { size: 15 })}</button>
+    </div>`;
+
+  const planCard = plan => {
+    const rts = routinesOfPlan(plan, templates);
+    const isActive = plan.id === activePlan?.id;
+    const open = libOpenPlans.has(plan.id);
+    const lastTs = Math.max(0, ...rts.map(t => lastByName.get(t.name) || 0));
+    const used = lastTs ? `last used ${whenOf(rts.find(t => (lastByName.get(t.name) || 0) === lastTs)?.name || '')}` : 'not used yet';
+    return `
+      <div class="lib-plan${isActive ? ' active' : ''}${open ? ' open' : ''}" data-pid="${esc(plan.id)}">
+        <div class="lib-plan-head" data-toggle="${esc(plan.id)}">
+          <div style="flex:1;min-width:0">
+            <div class="lib-plan-title">
+              <span class="lib-plan-name">${esc(plan.name)}</span>
+              ${isActive ? '<span class="lib-plan-badge">Active</span>' : ''}
+            </div>
+            <div class="lib-plan-meta">${rts.length} routine${rts.length === 1 ? '' : 's'} · ${esc(used)}${plan.splitId ? ' · from splits library' : ''}</div>
+          </div>
+          ${isActive ? '' : `<button class="lib-plan-setactive" data-active="${esc(plan.id)}">Set active</button>`}
+          <button class="lib-plan-menu" data-menu="${esc(plan.id)}" aria-label="Plan options">${icon('ellipsis', { size: 18 })}</button>
+          <span class="lib-plan-chev">${icon('chevron-right', { size: 18 })}</span>
+        </div>
+        ${open ? `<div class="lib-plan-body">
+          ${rts.length ? rts.map(routineRow).join('') : '<div class="routines-empty">No routines in this plan yet.</div>'}
+          <button class="lib-plan-add" data-add="${esc(plan.id)}">${icon('plus', { size: 15 })} New routine in this plan</button>
+        </div>` : ''}
+      </div>`;
+  };
+
+  // Anything not in a plan still has to be reachable, or a routine could go
+  // invisible the moment its plan was deleted.
+  const unfiled = unfiledRoutines(plans, templates);
+  const unfiledHTML = unfiled.length ? `
+    <div class="lib-plan" data-pid="">
+      <div class="lib-plan-head" data-toggle="">
+        <div style="flex:1;min-width:0">
+          <div class="lib-plan-title"><span class="lib-plan-name">Not in a plan</span></div>
+          <div class="lib-plan-meta">${unfiled.length} routine${unfiled.length === 1 ? '' : 's'} · open one to file it</div>
+        </div>
+        <span class="lib-plan-chev">${icon('chevron-right', { size: 18 })}</span>
+      </div>
+      <div class="lib-plan-body">${unfiled.map(routineRow).join('')}</div>
+    </div>` : '';
+
+  el.innerHTML = (plans.length ? plans.map(planCard).join('') : `
+    <div class="routines-empty" style="padding:18px 2px 14px">
+      No plans yet. A plan groups the routines you train together —
+      add a ready-made one with <strong>Browse splits</strong>, or build your own.
+    </div>`) + unfiledHTML;
+  refreshIcons();
+}
+
+// Delegated because the pane is re-rendered on every change; per-render
+// rebinding is what the active-workout listeners were deliberately moved away
+// from, and the same reasoning applies here.
+document.getElementById('libPlansList').addEventListener('click', async e => {
+  const hit = sel => e.target.closest(`[data-${sel}]`)?.dataset[sel];
+
+  const edit = hit('edit');
+  if (edit) { openRoutineEditor({ templateId: edit }); return; }
+
+  const dup = hit('dup');
+  if (dup) { await duplicateRoutine(dup); return; }
+
+  const del = hit('del');
+  if (del) { await deleteRoutine(del); renderLibrary(); return; }
+
+  const add = hit('add');
+  if (add) { openRoutineEditor({ planId: add }); return; }
+
+  const makeActive = hit('active');
+  if (makeActive) { await setActivePlan(makeActive); renderLibrary(); renderDashboard(); return; }
+
+  const menu = hit('menu');
+  if (menu) { openPlanMenu(menu); return; }
+
+  // A routine row opens the EDITOR. It used to start a logged workout on tap,
+  // with no confirm, sitting directly above the search field — one mis-reach
+  // and you were mid-session.
+  const row = e.target.closest('.lib-rt');
+  if (row) { openRoutineEditor({ templateId: row.dataset.tid }); return; }
+
+  const toggle = e.target.closest('[data-toggle]');
+  if (toggle) {
+    const pid = toggle.dataset.toggle;
+    if (!pid) return;   // the "Not in a plan" group is always open
+    libOpenPlans.has(pid) ? libOpenPlans.delete(pid) : libOpenPlans.add(pid);
+    renderLibrary();
+  }
+});
+
+async function duplicateRoutine(tid) {
+  const [templates, plans] = await Promise.all([getTemplates(), getPlans()]);
+  const t = templates.find(x => x.id === tid);
+  if (!t) return;
+  const names = new Set(templates.map(x => x.name));
+  let name = `${t.name} (copy)`, n = 2;
+  while (names.has(name)) name = `${t.name} (copy ${n++})`;
+  // A copy of an unfiled routine stays unfiled — it should not jump into the
+  // active plan just because it was duplicated.
+  const plan = planOfRoutine(plans, tid);
+  await putTemplate({
+    id: uid(), name,
+    exercises: JSON.parse(JSON.stringify(t.exercises || [])),
+  }, { planId: plan ? plan.id : null });
+  renderLibrary();
+  renderDashboard();
+}
+
+function openPlanMenu(pid) {
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">Plan options</p>
+    <button class="sheet-btn" data-act="active">${icon('check', { size: 17 })} Make this my active plan</button>
+    <button class="sheet-btn" data-act="rename">${icon('pencil', { size: 17 })} Rename plan…</button>
+    <button class="sheet-btn" data-act="delete" style="color:var(--red)">${icon('trash-2', { size: 17 })} Delete plan</button>
+    <button class="sheet-btn" data-act="cancel" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  refreshIcons();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', async e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    close();
+    const plans = await getPlans();
+    const plan = plans.find(p => p.id === pid);
+    if (!plan) return;
+    if (act === 'active') { await setActivePlan(pid); renderLibrary(); renderDashboard(); return; }
+    if (act === 'rename') {
+      const name = prompt('Rename plan', plan.name)?.trim();
+      if (!name) return;
+      plan.name = name;
+      await savePlans(plans);
+      renderLibrary(); renderDashboard();
+      return;
+    }
+    if (act === 'delete') {
+      // Deleting a plan must never delete training data. Its routines survive
+      // as unfiled and stay visible under "Not in a plan".
+      const n = (plan.routineIds || []).length;
+      if (!confirm(`Delete the plan "${plan.name}"? Its ${n} routine${n === 1 ? '' : 's'} are kept — they move to "Not in a plan".`)) return;
+      const rest = plans.filter(p => p.id !== pid);
+      await savePlans(rest);
+      if ((await getActivePlanId()) === pid) await setActivePlan(rest[0]?.id || null);
+      libOpenPlans.delete(pid);
+      renderLibrary(); renderDashboard();
+    }
+  });
+}
+
+document.getElementById('libNewPlan').onclick = async () => {
+  const name = prompt('Name this plan')?.trim();
+  if (!name) return;
+  const plan = await createPlan({ name });
+  libOpenPlans.add(plan.id);
+  renderLibrary();
+  renderDashboard();
+};
+document.getElementById('libBrowseSplits').onclick = () => {
+  renderLibraryList();
+  document.getElementById('routineLibrary').classList.add('visible');
+};
+// Creating a custom exercise no longer needs a workout open — openExPicker's
+// onPick is null here, activeSession is null, so customExSave just catalogues it
+// and refreshes this pane.
+document.getElementById('libNewEx').onclick = () => openCustomExModal();
+
+async function renderLibraryExercises() {
   const q      = document.getElementById('libSearch').value.trim();
   const libEl0 = document.getElementById('libraryList2');
   if (libEl0 && !libEl0.children.length && !q)
@@ -5276,38 +5511,17 @@ async function renderLibrary() {
   const stats = buildExerciseStatsMap(sessions);
   const setsByCat = {};
   weeklySetsByCategory(sessions).rows.forEach(r => { setsByCat[r.cat] = r.perWk; });
-  const inRoutines = new Set(templates.flatMap(t => (t.exercises || []).map(e => e.name)));
+  const activePlan = await getActivePlan();
+  const planRoutines = activePlan ? routinesOfPlan(activePlan, templates) : templates;
+  const inRoutines = new Set(planRoutines.flatMap(t => (t.exercises || []).map(e => e.name)));
 
   // Count line
   const loggedCount = visible.filter(e => stats.has(e.name)).length;
   document.getElementById('libCount').textContent = `${visible.length} exercises · ${loggedCount} logged`;
 
-  // Your routines — start any of them straight from the Library (tap to begin).
-  const libRoutinesEl = document.getElementById('libRoutines');
-  libRoutinesEl.innerHTML = `
-    <div class="lib-routines-head">
-      <span class="section-heading" style="margin:0">Your routines</span>
-      <button class="dash-link" id="libBrowseSplits">Browse splits</button>
-    </div>
-    ${templates.length
-      ? templates.map(t => `
-        <div class="lib-routine-card" data-tid="${t.id}">
-          <div class="lib-routine-name">${esc(t.name)}</div>
-          <div class="lib-routine-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
-        </div>`).join('')
-      : `<div class="routines-empty">No routines yet — tap <strong>Browse splits</strong> for ready-made ones.</div>`}
-    <div class="lib-routines-divider">Exercises</div>`;
-  libRoutinesEl.querySelector('#libBrowseSplits').onclick = () => {
-    renderLibraryList();
-    document.getElementById('routineLibrary').classList.add('visible');
-  };
-  libRoutinesEl.querySelectorAll('.lib-routine-card').forEach(card => {
-    card.onclick = () => startEmptyWorkout(templates.find(t => t.id === card.dataset.tid));
-  });
-
   // Filter chips
   const CHIPS = [
-    { v: 'routines', t: 'In my routines' }, { v: 'all', t: 'All' },
+    { v: 'routines', t: 'In my plan' }, { v: 'all', t: 'All' },
     { v: 'never', t: 'Never tried' }, { v: 'custom', t: 'Custom' },
   ];
   document.getElementById('libChips').innerHTML = CHIPS.map(c =>
@@ -5397,7 +5611,7 @@ document.getElementById('cuesClose').onclick = () => document.getElementById('cu
 document.getElementById('cuesModal').addEventListener('click', e => {
   if (e.target === document.getElementById('cuesModal')) document.getElementById('cuesModal').classList.remove('open');
 });
-document.getElementById('libSearch').oninput = renderLibrary;
+document.getElementById('libSearch').oninput = renderLibraryExercises;
 document.getElementById('histSearch').oninput = renderHistory;
 
 // Clear-history was intentionally removed — history is edit-only now, so there's

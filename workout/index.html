@@ -178,17 +178,6 @@
     .chooser-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
     .chooser-close { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px; display:inline-flex; -webkit-tap-highlight-color:transparent; }
     /* Routines section inside the Library tab */
-    .lib-routines-head { display:flex; align-items:baseline; justify-content:space-between; margin:4px 0 10px; }
-    .lib-routine-card {
-      background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--amber);
-      border-radius:12px; padding:12px 14px; margin-bottom:8px; cursor:pointer;
-      -webkit-tap-highlight-color:transparent; transition:transform .12s ease;
-    }
-    .lib-routine-card:active { transform:scale(0.98); background:var(--surface2); }
-    .lib-routine-name { font-size:0.92rem; font-weight:700; }
-    .lib-routine-ex { font-size:0.72rem; color:var(--text-muted); margin-top:3px; line-height:1.4;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .lib-routines-divider { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:16px 0 10px; }
     .tc-next-badge {
       font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
       color:var(--blue); background:rgba(var(--blue-rgb),0.14); border-radius:5px; padding:2px 6px; margin-left:8px;
@@ -1209,6 +1198,80 @@
     .lib-head { display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
     .lib-title { font-size:1.5rem; font-weight:700; letter-spacing:-0.4px; margin:0; }
     .lib-count { font-size:0.7rem; color:var(--text-muted); }
+    /* ── Library: Plans | Exercises segments ── */
+    .lib-seg {
+      display:flex; background:var(--surface2); border:1px solid var(--border);
+      border-radius:11px; padding:3px; gap:3px; margin-bottom:16px;
+    }
+    .lib-seg button {
+      flex:1; padding:9px 0; border:none; border-radius:8px; background:none;
+      color:var(--text-muted); font:inherit; font-size:0.82rem; font-weight:500; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .lib-seg button.on { background:var(--blue); color:#000; font-weight:700; }
+
+    /* Plan card — the ACTIVE one carries a green edge, so which plan the app is
+       working from is visible without opening anything. */
+    .lib-plan {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      padding:14px; margin-bottom:12px;
+    }
+    .lib-plan.active { border-color:rgba(52,211,153,0.35); }
+    .lib-plan-head { display:flex; align-items:flex-start; gap:10px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .lib-plan-title { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .lib-plan-name { font-size:0.95rem; font-weight:700; }
+    .lib-plan-badge {
+      font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--green); background:rgba(52,211,153,0.14); border:1px solid rgba(52,211,153,0.4);
+      border-radius:5px; padding:2px 6px;
+    }
+    .lib-plan-meta { font-size:0.72rem; color:var(--text-muted); margin-top:3px; line-height:1.4; }
+    .lib-plan-chev { color:var(--text-muted); display:flex; flex:0 0 auto; margin-top:3px; transition:transform .15s ease; }
+    .lib-plan.open .lib-plan-chev { transform:rotate(90deg); }
+    .lib-plan-setactive {
+      flex:0 0 auto; border:1px solid rgba(52,211,153,0.4); border-radius:9px;
+      background:rgba(52,211,153,0.10); color:var(--green); font:inherit;
+      font-size:0.72rem; font-weight:700; padding:7px 11px; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .lib-plan-menu { flex:0 0 auto; background:none; border:none; color:var(--text-muted); cursor:pointer; display:flex; padding:2px; margin-top:1px; }
+    .lib-plan-body { margin-top:12px; padding-top:4px; border-top:1px solid var(--border); }
+    .lib-rt {
+      display:flex; align-items:center; gap:8px; padding:9px 0;
+      border-top:1px solid rgba(255,255,255,0.05); cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .lib-rt:first-child { border-top:none; }
+    .lib-rt-main { flex:1; min-width:0; }
+    .lib-rt-name { font-size:0.84rem; font-weight:700; }
+    .lib-rt-meta { font-size:0.7rem; color:var(--text-muted); margin-top:1px; font-variant-numeric:tabular-nums; }
+    .lib-rt-btn {
+      flex:0 0 auto; width:32px; height:32px; border:none; border-radius:9px; background:var(--surface2);
+      color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .lib-rt-btn:active { background:var(--bg); }
+    .lib-rt-btn.danger { color:var(--red); }
+    .lib-plan-add {
+      width:100%; margin-top:10px; padding:11px; border:1px dashed rgba(56,189,248,0.4); border-radius:11px;
+      background:rgba(56,189,248,0.07); color:var(--blue); font:inherit; font-size:0.82rem; font-weight:700;
+      cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .lib-plan-actions { display:flex; gap:8px; margin-top:4px; }
+    .lib-plan-btn {
+      flex:1; padding:12px; border:1px solid rgba(255,255,255,0.15); border-radius:12px;
+      background:none; color:var(--text); font:inherit; font-size:0.82rem; font-weight:700; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; gap:7px;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .lib-search-row { display:flex; gap:8px; margin-bottom:10px; }
+    .lib-search-row .lib-search-wrap { flex:1; min-width:0; margin-bottom:0; }
+    .lib-new-ex {
+      flex:0 0 auto; width:46px; border:1px solid rgba(56,189,248,0.4); border-radius:10px;
+      background:rgba(56,189,248,0.12); color:var(--blue); display:flex; align-items:center;
+      justify-content:center; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+
     .lib-search-wrap {
       display:flex; align-items:center; gap:8px; background:var(--surface2);
       border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:10px;
@@ -1588,13 +1651,33 @@
       <h1 class="lib-title">Library</h1>
       <span class="lib-count" id="libCount"></span>
     </div>
-    <div id="libRoutines"></div>
-    <div class="lib-search-wrap">
-      <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
-      <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
+    <!-- Two things shared this tab with nothing separating them: a list of
+         routines and a catalogue of exercises, with a search box that only ever
+         searched the second one. They are separate panes now. -->
+    <div class="lib-seg" id="libSeg">
+      <button type="button" data-seg="plans">Plans</button>
+      <button type="button" data-seg="exercises">Exercises</button>
     </div>
-    <div class="lib-chips" id="libChips"></div>
-    <div id="libraryList2"></div>
+
+    <div id="libPlansPane">
+      <div id="libPlansList"></div>
+      <div class="lib-plan-actions">
+        <button class="lib-plan-btn" id="libNewPlan" type="button"><i data-lucide="plus" data-size="15"></i> New plan</button>
+        <button class="lib-plan-btn" id="libBrowseSplits" type="button"><i data-lucide="book-open" data-size="15"></i> Browse splits</button>
+      </div>
+    </div>
+
+    <div id="libExPane" hidden>
+      <div class="lib-search-row">
+        <div class="lib-search-wrap">
+          <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
+          <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
+        </div>
+        <button class="lib-new-ex" id="libNewEx" type="button" aria-label="New exercise" data-tip="New exercise" title="New exercise"><i data-lucide="plus" data-size="20"></i></button>
+      </div>
+      <div class="lib-chips" id="libChips"></div>
+      <div id="libraryList2"></div>
+    </div>
   </div>
 
   <!-- Stats (+ History folded in below the charts) -->
