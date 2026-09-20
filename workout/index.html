@@ -887,6 +887,53 @@
     .coach-typing span { width:6px; height:6px; border-radius:50%; background:var(--text-muted); animation:ctd 1s infinite; }
     .coach-typing span:nth-child(2){ animation-delay:.15s; } .coach-typing span:nth-child(3){ animation-delay:.3s; }
     @keyframes ctd { 0%,60%,100%{ opacity:.3; transform:translateY(0);} 30%{ opacity:1; transform:translateY(-3px);} }
+    /* ── Home coach hub — one card, paged ────────────────────────────────────
+       Replaces a vertical stack of daily pick + weekly review + N findings, all
+       in the same box. The frame is constant; only --ch-color, the eyebrow and
+       the actions change per item, so the section never grows and never reads
+       as a wall of identical advice. */
+    .coach-hub {
+      background:linear-gradient(180deg, color-mix(in srgb, var(--ch-color) 9%, transparent), transparent);
+      border:1px solid color-mix(in srgb, var(--ch-color) 35%, transparent);
+      border-radius:16px; padding:14px; touch-action:pan-y;
+    }
+    /* color-mix is widely supported but not universal — fall back to a plain
+       surface card rather than an invisible one. */
+    @supports not (background: color-mix(in srgb, red 50%, transparent)) {
+      .coach-hub { background:var(--surface); border-color:var(--border); }
+    }
+    .ch-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .ch-eyebrow {
+      display:inline-flex; align-items:center; gap:6px; min-width:0;
+      font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em;
+      color:var(--ch-color);
+    }
+    .ch-nav { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+    .ch-metric { font-size:0.7rem; color:var(--text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .ch-count { font-size:0.66rem; font-weight:700; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .ch-pg {
+      width:26px; height:26px; border:none; border-radius:8px; background:rgba(255,255,255,0.06);
+      color:var(--text); display:flex; align-items:center; justify-content:center; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .ch-pg:disabled { color:#4b4b52; cursor:default; }
+    .ch-body { font-size:0.9rem; line-height:1.55; }
+    .ch-body .coach-daily-body { font-size:0.9rem; line-height:1.55; }
+    .ch-body .cf-body { font-size:0.88rem; line-height:1.5; }
+    .ch-body .coach-routine, .ch-body .coach-suggestion, .ch-body .coach-split { margin-top:12px; max-width:100%; }
+    .ch-actions { display:flex; gap:8px; margin-top:13px; }
+    .ch-btn {
+      border:none; border-radius:10px; font:inherit; font-size:0.82rem; font-weight:700;
+      padding:10px 14px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .ch-btn:active { transform:scale(0.98); }
+    .ch-btn:disabled { opacity:0.5; }
+    .ch-btn-primary { flex:1; background:var(--ch-color); color:#0b0b10; }
+    .ch-btn-ghost { background:var(--surface2); color:var(--text-muted); }
+    .ch-dots { display:flex; justify-content:center; gap:5px; margin-top:12px; }
+    .ch-dot { width:5px; height:3px; border-radius:2px; background:rgba(255,255,255,0.18); transition:width .15s ease; }
+    .ch-dot.on { width:16px; background:var(--ch-color); }
+
     /* ── Coach's pick for today (proactive daily AI suggestion) ── */
     .coach-daily {
       background:linear-gradient(180deg, rgba(167,139,250,0.10), rgba(167,139,250,0.02));

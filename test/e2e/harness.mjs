@@ -103,6 +103,36 @@ export function seedSessions(titles = ['Pull Hypertrophy', 'Legs Hypertrophy', '
   return out;
 }
 
+// History shaped to trigger several coach findings at once: a push-heavy ratio
+// (find-balance), one lift clearly rising (find-progress) and one dead flat
+// (find-stall). Used to exercise the coach hub's queue and paging.
+export function seedCoachHistory() {
+  const out = {};
+  // 10 sessions, 3 days apart, newest first.
+  for (let i = 0; i < 10; i++) {
+    const d = new Date(Date.now() - (i + 1) * 3 * 86400000);
+    const date = d.toISOString().slice(0, 10);
+    const id = `cs${i}`;
+    const rising = 60 + (9 - i) * 2.5;     // Overhead Press climbs over time
+    out[`session-${id}`] = {
+      id, title: i % 2 ? 'Push Hypertrophy (Delts)' : 'Upper Strength (Chest Bias)',
+      date, startTime: `${date}T18:00:00.000Z`, duration: 3300, pbs: [],
+      exercises: [
+        // Push-dominant on purpose: three pressing exercises, one pull.
+        { id: `x${i}1`, name: 'Bench Press (Barbell)', category: 'Chest', logType: 'weighted', restTime: 120,
+          sets: Array.from({ length: 4 }, (_, k) => ({ id: `a${k}`, type: 'normal', weight: 90, reps: 5, done: true })) },
+        { id: `x${i}2`, name: 'Overhead Press (Barbell)', category: 'Shoulders', logType: 'weighted', restTime: 120,
+          sets: Array.from({ length: 4 }, (_, k) => ({ id: `b${k}`, type: 'normal', weight: rising, reps: 5, done: true })) },
+        { id: `x${i}3`, name: 'Triceps Pushdown', category: 'Triceps', logType: 'weighted', restTime: 60,
+          sets: Array.from({ length: 4 }, (_, k) => ({ id: `c${k}`, type: 'normal', weight: 40, reps: 12, done: true })) },
+        { id: `x${i}4`, name: 'Barbell Row', category: 'Back', logType: 'weighted', restTime: 90,
+          sets: Array.from({ length: 2 }, (_, k) => ({ id: `d${k}`, type: 'normal', weight: 100, reps: 6, done: true })) },
+      ],
+    };
+  }
+  return out;
+}
+
 export const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png` });
 
 // Read a key straight out of IndexedDB — assertions go against stored state,

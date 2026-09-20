@@ -6165,6 +6165,7 @@ function generateCoachFindings(sessions) {
         actions: [
           { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a routine to rebalance it.`, force: 'suggest_routine_edit' },
           { label: 'Explain', kind: 'ghost', prompt: `Why does a ${r.toFixed(1)}:1 push-to-pull ratio matter, and how should I fix it?` },
+          { label: 'Dismiss', kind: 'dismiss' },
         ],
         key: 'find-balance',
       });
@@ -6186,6 +6187,7 @@ function generateCoachFindings(sessions) {
       actions: [
         { label: 'Open lift', kind: 'open', exercise: prog.name },
         { label: 'Explain', kind: 'ghost', prompt: `How is my ${prog.name} progressing, and what should I do to keep it moving?` },
+        { label: 'Dismiss', kind: 'dismiss' },
       ],
       key: 'find-progress',
     });
@@ -6252,20 +6254,12 @@ function coachEvidence(ev) {
   return '';
 }
 
-function coachFindingCard(f, fi) {
-  const color = _SEV_COLOR[f.severity] || 'var(--blue)';
-  const actions = (f.actions || []).map((a, ai) =>
-    `<button class="cf-btn ${a.kind === 'primary' ? 'cf-btn-primary' : 'cf-btn-ghost'}" data-fi="${fi}" data-ai="${ai}">${esc(a.label)}</button>`).join('');
-  return `
-    <div class="coach-finding" data-fi="${fi}" style="border-left-color:${color}">
-      <div class="cf-head">
-        <span class="cf-eyebrow" style="color:${color}">${esc(f.eyebrow)}</span>
-        <span class="cf-metric">${esc(f.metric || '')}</span>
-      </div>
-      <div class="cf-body">${esc(f.body)}</div>
-      ${f.evidence ? coachEvidence(f.evidence) : ''}
-      ${actions ? `<div class="cf-actions">${actions}</div>` : ''}
-    </div>`;
+// Body only — the hub owns the frame (eyebrow, counter, pager, actions), so a
+// finding, a weekly review and an AI pick all wear the same card.
+function findingBody(f) {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="cf-body">${esc(f.body)}</div>${f.evidence ? coachEvidence(f.evidence) : ''}`;
+  return el;
 }
 
 // ── Coach's pick for today (proactive, once-per-day AI suggestion) ────────────
@@ -6352,26 +6346,22 @@ async function ensureDailySuggestion(onReady) {
   return daily;
 }
 
-function renderDailyCard(daily) {
-  const card = document.createElement('div');
-  card.className = 'coach-daily';
-  card.id = 'coachDailyCard';
-  card.innerHTML = `
-    <div class="coach-daily-head">
-      <span class="coach-daily-eyebrow">${icon('bot', { size: 14 })} Coach's pick for today</span>
-      <button class="coach-daily-x" aria-label="Dismiss" title="Dismiss">${icon('x', { size: 15 })}</button>
-    </div>
-    <div class="coach-daily-body">${esc(daily.text || '')}</div>`;
-  if (daily.routine)    card.appendChild(renderRoutineCard(daily.routine));
-  if (daily.split)      card.appendChild(renderSplitCard(daily.split));
-  if (daily.suggestion) card.appendChild(renderSuggestionCard(daily.suggestion));
-  card.querySelector('.coach-daily-x').onclick = async () => {
-    const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
-    d.dismissedDate = new Date().toISOString().slice(0, 10);
-    await db.set(STORE, 'coach-daily', d);
-    renderDashboard();   // re-render Home so the section reflows
-  };
-  return card;
+function dailyBody(daily) {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="coach-daily-body">${esc(daily.text || '')}</div>`;
+  if (daily.routine)    el.appendChild(renderRoutineCard(daily.routine));
+  if (daily.split)      el.appendChild(renderSplitCard(daily.split));
+  // Persisting the applied flag back into the cached pick is what stops the
+  // Apply button coming back live on the next render.
+  if (daily.suggestion) el.appendChild(renderSuggestionCard(daily.suggestion,
+    () => db.set(STORE, 'coach-daily', daily), { nested: true }));
+  return el;
+}
+
+async function dismissDailyPick(daily) {
+  const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
+  d.dismissedDate = new Date().toISOString().slice(0, 10);
+  await db.set(STORE, 'coach-daily', d);
 }
 
 // Switch to the Coach tab and run a prompt there (used by Home action buttons).
@@ -6416,26 +6406,92 @@ function computeWeeklyReview(sessions) {
   return { sessions: cntThis, tonnes: +(volThis / 1000).toFixed(1), pbs: pbThis, note, delta: cntThis - cntPrev };
 }
 
-function renderWeeklyCard(wk) {
-  const card = document.createElement('div');
-  card.className = 'dash-weekly';
-  card.innerHTML = `
-    <span class="dw-eyebrow">${icon('chart-line', { size: 13 })} Weekly review</span>
+function weeklyBody(wk) {
+  const el = document.createElement('div');
+  el.innerHTML = `
     <div class="dw-grid">
       <div class="dw-stat"><div class="dw-n ${wk.delta >= 0 ? 'up' : ''}">${wk.sessions}</div><div class="dw-k">sessions</div></div>
       <div class="dw-stat"><div class="dw-n">${wk.tonnes}t</div><div class="dw-k">volume</div></div>
       <div class="dw-stat"><div class="dw-n ${wk.pbs ? 'up' : ''}">${wk.pbs}</div><div class="dw-k">PBs</div></div>
     </div>
-    <div class="dw-note">${wk.note}</div>
-    <button class="dw-cta">${icon('bot', { size: 15 })} Ask for a full review</button>`;
-  card.querySelector('.dw-cta').onclick = () =>
-    askCoachFromHome('Give me a full weekly review: what went well, what lagged, and the single most important change for next week — cite my numbers.', false);
-  return card;
+    <div class="dw-note">${wk.note}</div>`;
+  return el;
 }
 
 // ── Home "Your coach" section — proactive picks + observations, base of ops ───
 // This is where the coach talks TO the user (daily pick + data-driven findings).
 // The Coach tab itself is reserved for the user asking direct questions.
+// ── Home "Your coach" — ONE card at a time ───────────────────────────────────
+// This used to be a vertical STACK: the daily AI pick, then the weekly review,
+// then every rule-based finding, all at once, all in the same box, every day.
+// Two of them (find-balance, find-progress) had no dismiss action at all, so
+// they sat there until the underlying number moved. That is what made the coach
+// read as "the same prompts every day".
+//
+// Now it is one card you page through. Everything the coach wants to say is in
+// one queue, ordered by how much it should interrupt you, and each item is
+// actioned or dismissed on its own.
+const _SEV_RANK = { warn: 0, stalling: 1, tip: 2, good: 3 };
+let _coachIdx = 0;
+let _coachSig = '';
+let _coachQueue = [];
+
+function buildCoachQueue({ daily, weekly, findings, needsKey }) {
+  const q = [];
+  // Today's pick first — it is about the session you are about to do. Then
+  // findings worth acting on, most severe first. The weekly review is a summary,
+  // so it comes after anything actionable.
+  if (daily) q.push({
+    id: 'daily', color: 'var(--purple)', ic: 'bot', eyebrow: "Coach · today's pick",
+    body: () => dailyBody(daily),
+    actions: [{ label: 'Dismiss for today', kind: 'ghost', run: () => dismissDailyPick(daily) }],
+  });
+  [...findings]
+    .sort((a, b) => (_SEV_RANK[a.severity] ?? 9) - (_SEV_RANK[b.severity] ?? 9))
+    .forEach(f => q.push({
+      id: f.key, color: _SEV_COLOR[f.severity] || 'var(--blue)',
+      ic: f.severity === 'warn' ? 'triangle-alert' : f.severity === 'good' ? 'trending-up' : 'zap',
+      eyebrow: f.eyebrow, metric: f.metric,
+      body: () => findingBody(f),
+      actions: (f.actions || []).map(a => ({
+        label: a.label,
+        kind: a.kind === 'primary' ? 'primary' : 'ghost',
+        run: async () => {
+          if (a.kind === 'dismiss') return dismissSuggestion(f.key);
+          if (a.kind === 'open')    { openExerciseDetail(a.exercise); return false; }
+          askCoachFromHome(a.prompt, a.force || false); return false;
+        },
+      })),
+    }));
+  if (weekly) q.push({
+    id: `weekly-${isoWeek(new Date())}`, color: 'var(--green)', ic: 'chart-line',
+    eyebrow: `Week ${isoWeek(new Date())} review`,
+    body: () => weeklyBody(weekly),
+    actions: [
+      { label: 'Full review', kind: 'primary', run: () => {
+        askCoachFromHome('Give me a full weekly review: what went well, what lagged, and the single most important change for next week — cite my numbers.', false);
+        return false;
+      } },
+      // Dismissible per ISO week, so it comes back next Monday rather than never.
+      { label: 'Dismiss', kind: 'ghost', run: () => dismissSuggestion(`weekly-${isoWeek(new Date())}`) },
+    ],
+  });
+  if (needsKey) q.push({
+    id: 'needs-key', color: 'var(--purple)', ic: 'key', eyebrow: 'AI coach',
+    body: () => {
+      const el = document.createElement('div');
+      el.innerHTML = `<div class="cf-body">Add your Anthropic API key to unlock proactive, data-driven picks here each day — an altered session, a split swap, or an observation from your training.</div>`;
+      return el;
+    },
+    actions: [{ label: 'Add API key', kind: 'primary', run: async () => {
+      document.getElementById('coachKeyInput').value = await coachGetKey();
+      document.getElementById('coachKeyModal').classList.add('open');
+      return false;
+    } }],
+  });
+  return q;
+}
+
 async function renderDashCoach(sessions) {
   const el = document.getElementById('dashCoach');
   if (!el) return;
@@ -6444,68 +6500,108 @@ async function renderDashCoach(sessions) {
   _coachFindings = findings;
 
   const cachedDaily = await getCachedDaily();
-  const weekly = computeWeeklyReview(sessions);
+  const weeklyRaw = computeWeeklyReview(sessions);
+  const weekly = dismissed.includes(`weekly-${isoWeek(new Date())}`) ? null : weeklyRaw;
   const hasKey = !!(await coachGetKey());
-  // Prompt to unlock the AI coach: shown only when there's no key AND nothing
-  // else to show yet, so the user learns why there are no AI picks and how to fix
-  // it. (Rule-based observations still appear without a key.)
-  const needsKeyHint = !hasKey && !cachedDaily && !findings.length && sessions.length > 0;
+  // Only worth explaining the missing key when there is nothing else to show —
+  // rule-based observations still appear without one.
+  const needsKey = !hasKey && !cachedDaily && !findings.length && sessions.length > 0;
 
-  if (!findings.length && !cachedDaily && !needsKeyHint && !weekly) { el.innerHTML = ''; }
-  else {
-    el.innerHTML = `
-      <div class="dash-coach-head">
-        <span class="dash-coach-title">${icon('bot', { size: 17 })} Your coach</span>
-        <button class="dash-coach-open">Ask →</button>
-      </div>
-      <div class="dash-coach-cards"></div>`;
-    el.querySelector('.dash-coach-open').onclick = () => document.querySelector('.tab[data-tab="Coach"]').click();
-    const cards = el.querySelector('.dash-coach-cards');
-    if (cachedDaily) cards.appendChild(renderDailyCard(cachedDaily));
-    if (weekly)      cards.appendChild(renderWeeklyCard(weekly));
-    cards.insertAdjacentHTML('beforeend', findings.map((f, i) => coachFindingCard(f, i)).join(''));
-    if (needsKeyHint) {
-      const hint = document.createElement('div');
-      hint.className = 'coach-finding';
-      hint.style.borderLeftColor = 'var(--purple)';
-      hint.innerHTML = `
-        <div class="cf-head"><span class="cf-eyebrow" style="color:var(--purple)">AI coach</span></div>
-        <div class="cf-body">Add your Anthropic API key to unlock proactive, data-driven picks here each day — an altered session, a split swap, or an observation from your training.</div>
-        <div class="cf-actions"><button class="cf-btn cf-btn-primary" id="dashCoachKey">Add API key</button></div>`;
-      cards.appendChild(hint);
-      hint.querySelector('#dashCoachKey').onclick = async () => {
-        document.getElementById('coachKeyInput').value = await coachGetKey();
-        document.getElementById('coachKeyModal').classList.add('open');
-      };
-    }
-    wireFindingButtons(cards);
-    refreshIcons();
+  _coachQueue = buildCoachQueue({ daily: cachedDaily, weekly, findings, needsKey });
+
+  if (!_coachQueue.length) {
+    el.innerHTML = '';
+  } else {
+    // Keep your place while the queue is unchanged; a changed queue starts over
+    // rather than landing you on an unrelated card.
+    const sig = _coachQueue.map(i => i.id).join('|');
+    if (sig !== _coachSig) { _coachSig = sig; _coachIdx = 0; }
+    _coachIdx = Math.max(0, Math.min(_coachIdx, _coachQueue.length - 1));
+    paintCoachHub();
   }
 
   // Kick off today's AI pick in the background (only while actually viewing Home,
-  // so a background dashboard re-render off-tab doesn't fire the API); refresh the
-  // section in place when it lands.
+  // so a background dashboard re-render off-tab doesn't fire the API).
   if (activeTab === 'Dashboard') {
-    ensureDailySuggestion(() => { if (activeTab === 'Dashboard') renderDashCoach(sessions); });
+    ensureDailySuggestion(() => { if (activeTab === 'Dashboard') renderDashboard(); });
   }
 }
 
-// Wire finding action buttons (shared by Home; findings live in _coachFindings).
-function wireFindingButtons(root) {
-  root.querySelectorAll('.cf-btn').forEach(btn => {
+function paintCoachHub() {
+  const el = document.getElementById('dashCoach');
+  const n = _coachQueue.length;
+  const item = _coachQueue[_coachIdx];
+  if (!item) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="dash-coach-head">
+      <span class="dash-coach-title">${icon('bot', { size: 16 })} Your coach</span>
+      <button class="dash-coach-open">Ask →</button>
+    </div>
+    <div class="coach-hub" style="--ch-color:${item.color}">
+      <div class="ch-head">
+        <span class="ch-eyebrow">${icon(item.ic, { size: 14 })} ${esc(item.eyebrow)}</span>
+        <span class="ch-nav">
+          ${item.metric ? `<span class="ch-metric">${esc(item.metric)}</span>` : ''}
+          ${n > 1 ? `<span class="ch-count">${_coachIdx + 1} / ${n}</span>
+          <button class="ch-pg" data-dir="-1" aria-label="Previous"${_coachIdx === 0 ? ' disabled' : ''}>${icon('chevron-left', { size: 14 })}</button>
+          <button class="ch-pg" data-dir="1" aria-label="Next"${_coachIdx === n - 1 ? ' disabled' : ''}>${icon('chevron-right', { size: 14 })}</button>` : ''}
+        </span>
+      </div>
+      <div class="ch-body"></div>
+      <div class="ch-actions"></div>
+      ${n > 1 ? `<div class="ch-dots">${_coachQueue.map((_, i) => `<span class="ch-dot${i === _coachIdx ? ' on' : ''}"></span>`).join('')}</div>` : ''}
+    </div>`;
+
+  el.querySelector('.dash-coach-open').onclick = () => document.querySelector('.tab[data-tab="Coach"]').click();
+  el.querySelector('.ch-body').appendChild(item.body());
+
+  const acts = el.querySelector('.ch-actions');
+  acts.innerHTML = (item.actions || []).map((a, i) =>
+    `<button class="ch-btn ${a.kind === 'primary' ? 'ch-btn-primary' : 'ch-btn-ghost'}" data-ai="${i}">${esc(a.label)}</button>`).join('');
+  acts.querySelectorAll('.ch-btn').forEach(btn => {
     btn.onclick = async () => {
-      const f = _coachFindings[+btn.dataset.fi];
-      const a = f?.actions?.[+btn.dataset.ai];
+      const a = item.actions[+btn.dataset.ai];
       if (!a) return;
-      if (a.kind === 'dismiss') {
-        await dismissSuggestion(f.key);
-        renderDashboard();
-        return;
-      }
-      if (a.kind === 'open') { openExerciseDetail(a.exercise); return; }
-      askCoachFromHome(a.prompt, a.force || false);
+      btn.disabled = true;
+      // `false` means "this navigated away" — don't re-render behind the user.
+      const rerender = await a.run();
+      if (rerender !== false) renderDashboard();
+      else btn.disabled = false;
     };
   });
+
+  const hub = el.querySelector('.coach-hub');
+  hub.querySelectorAll('.ch-pg').forEach(b => {
+    b.onclick = () => stepCoachHub(+b.dataset.dir);
+  });
+  wireCoachHubSwipe(hub);
+  refreshIcons();
+}
+
+function stepCoachHub(dir) {
+  const n = _coachQueue.length;
+  if (n < 2) return;
+  _coachIdx = Math.max(0, Math.min(n - 1, _coachIdx + dir));
+  paintCoachHub();
+}
+
+// Horizontal swipe to page. Guarded on the dominant axis so it never steals a
+// vertical scroll of the page behind it — the card is tall and sits mid-screen.
+function wireCoachHubSwipe(hub) {
+  let x0 = 0, y0 = 0, tracking = false;
+  hub.addEventListener('pointerdown', e => {
+    if (e.target.closest('button, a, input')) return;
+    x0 = e.clientX; y0 = e.clientY; tracking = true;
+  });
+  hub.addEventListener('pointerup', e => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    stepCoachHub(dx < 0 ? 1 : -1);
+  });
+  hub.addEventListener('pointercancel', () => { tracking = false; });
 }
 
 function scrollCoachDown() {
@@ -6532,7 +6628,7 @@ function renderCoachMessage(m) {
   if (m.routine) wrap.appendChild(renderRoutineCard(m.routine));
   if (m.split)   wrap.appendChild(renderSplitCard(m.split));
   if (m.action)  wrap.appendChild(renderActionCard(m.action));
-  if (m.suggestion) wrap.appendChild(renderSuggestionCard(m.suggestion));
+  if (m.suggestion) wrap.appendChild(renderSuggestionCard(m.suggestion, persistCoachThread));
   return wrap;
 }
 
@@ -6546,7 +6642,13 @@ function describeOp(op) {
   return esc(op.action || '');
 }
 
-function renderSuggestionCard(sug) {
+// `onApplied` lets the CALLER persist the applied flag, because the suggestion
+// object lives in whatever owns it — a coach-thread turn, or the cached daily
+// pick. Without it the card came back enabled on every re-render and tapping
+// Apply a second time re-ran the operations, duplicating every `add`.
+// `nested` = rendered inside the coach hub, which already owns dismissal — two
+// Dismiss buttons on one card, meaning different things, is worse than none.
+function renderSuggestionCard(sug, onApplied, { nested = false } = {}) {
   const card = document.createElement('div');
   card.className = 'coach-suggestion';
   const ops = (sug.operations || []).map(describeOp).join('<br>');
@@ -6554,16 +6656,19 @@ function renderSuggestionCard(sug) {
     <div class="coach-sugg-head">${icon('zap', { size: 15 })} Suggested change · ${esc(sug.routine || '')}</div>
     <div class="coach-sugg-body">${ops || '—'}</div>
     <div class="coach-routine-btns">
-      <button class="cr-start cs-apply">✓ Apply to routine</button>
-      <button class="cr-save cs-dismiss">Dismiss</button>
+      <button class="cr-start cs-apply"${sug.applied ? ' disabled' : ''}>${sug.applied ? '✓ Applied' : '✓ Apply to routine'}</button>
+      ${sug.applied || nested ? '' : '<button class="cr-save cs-dismiss">Dismiss</button>'}
     </div>`;
   card.querySelector('.cs-apply').onclick = async ev => {
     const btn = ev.currentTarget; btn.disabled = true;
     const ok = await applyRoutineEdit(sug);
     btn.textContent = ok ? '✓ Applied' : "Couldn't find that routine";
-    if (ok) card.querySelector('.cs-dismiss')?.remove();
+    if (!ok) { btn.disabled = false; return; }
+    sug.applied = true;
+    await onApplied?.();
+    card.querySelector('.cs-dismiss')?.remove();
   };
-  card.querySelector('.cs-dismiss').onclick = () => card.remove();
+  card.querySelector('.cs-dismiss')?.addEventListener('click', () => card.remove());
   return card;
 }
 
