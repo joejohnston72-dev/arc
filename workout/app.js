@@ -512,7 +512,17 @@ document.querySelectorAll('.tab').forEach(btn => {
 // ── Workout start / open ──────────────────────────────────────────────────────
 document.getElementById('startEmptyBtn').onclick = () => { closeRoutineChooser(); startEmptyWorkout(); };
 document.getElementById('newRoutineBtn').onclick = () => { closeRoutineChooser(); openRoutineEditor({}); };
-document.getElementById('dashAllHistory').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
+document.getElementById('dashAllHistory').onclick = async () => {
+  // Progress opens on the calendar, with History below 5 stat boxes, a PR
+  // timeline, milestones and three charts — so switching tabs alone left the
+  // user to hunt for the thing they just asked for.
+  document.querySelector('.tab[data-tab="Stats"]').click();
+  // Both renders are async and rebuild everything ABOVE the history list, so
+  // scrolling before they settle lands on an offset that then moves. They are
+  // idempotent and `loadSessions` is memoised, so awaiting them here is cheap.
+  await Promise.all([renderStats(), renderHistory()]);
+  document.getElementById('histSearch')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 
 // Ghost targets: what the inputs *suggest* (placeholder), never pre-filled values.
 function ghostsFor(prevSets, templateSet, si) {
@@ -4257,56 +4267,63 @@ function computeNextTemplate(templates, sessions) {
   return { template: pick.t, lastTs: pick.lastTs, ranked };
 }
 
-function nextSessionCard(next, sessions) {
-  const t = next.template;
-  const exNames = (t.exercises || []).map(e => e.name);
-  const tags = exNames.slice(0, 3).map(n => `<span class="next-tag">${esc(n)}</span>`).join('')
-    + (exNames.length > 3 ? `<span class="next-tag">+${exNames.length - 3} more</span>` : '');
-  const totalSets = t.exercises.reduce((a, e) => a + (e.sets?.length || 0), 0);
-  const mins = Math.max(20, Math.round(totalSets * 3.5 / 5) * 5);
-  const daysAgo = next.lastTs ? Math.floor((Date.now() - next.lastTs) / DAY_MS) : null;
-  const lastTxt = daysAgo == null ? 'never done'
-    : daysAgo === 0 ? 'done today'
-    : `last done ${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`;
-  // The pick is scored, not positional, so say what won it — otherwise "next" looks
-  // arbitrary the moment it stops matching the list order.
-  const runnerUp = next.ranked?.[1];
-  const why = daysAgo == null ? "you haven't run this one yet"
-    : runnerUp && runnerUp.fatigue > 0.25 && runnerUp.fatigue > (next.ranked[0].fatigue + 0.15)
-      ? `it's your most rested option`
-      : `it's gone the longest without a session`;
-  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt} — ${why}.`;
-  const byCat = {}; weeklySetsByCategory(sessions).rows.forEach(r => { byCat[r.cat] = r.perWk; });
-  const catSets = {};
-  t.exercises.forEach(e => { if (e.category && e.category !== 'Cardio') catSets[e.category] = (catSets[e.category] || 0) + (e.sets?.length || 0); });
-  const primary = Object.entries(catSets).sort((a, b) => b[1] - a[1])[0];
-  if (primary && byCat[primary[0]] != null) {
-    const cur = Math.round(byCat[primary[0]]);
-    const to = Math.round(byCat[primary[0]] + primary[1]);
-    rationale += ` ${primary[0]} sits at ${cur} sets/wk — this session brings it to ${to}.`;
+// The hero is the ACTIVE PLAN and its routines, not a guess at which one you
+// owe. It used to be "NEXT IN YOUR SPLIT" — a single scored pick with a
+// paragraph arguing for itself — which was wrong often enough to be noise, and
+// structurally wrong once a plan was abandoned: computeNextTemplate caps
+// daysSince at 30, so a routine you stopped doing pins there and stays the top
+// recommendation forever. Pick your own session; the app just lists them.
+function planHeroCard(plan, routines, sessions) {
+  const lastByName = new Map();
+  for (const s of sessions) {
+    const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
+    if (ts && s.title && !lastByName.has(s.title)) lastByName.set(s.title, ts);
   }
+  const whenOf = name => {
+    const ts = lastByName.get(name);
+    if (!ts) return 'never done';
+    const d = Math.floor((Date.now() - ts) / DAY_MS);
+    return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+  };
+  const SHOWN = 5;
+  const shown = routines.slice(0, SHOWN);
+  const rest  = routines.length - shown.length;
+
+  const rows = shown.map(t => `
+    <button class="ph-row" data-start="${esc(t.id)}">
+      <span class="ph-row-main">
+        <span class="ph-row-name">${esc(t.name)}</span>
+        <span class="ph-row-meta">${(t.exercises || []).length} exercises · ${whenOf(t.name)}</span>
+      </span>
+      <span class="ph-play">${icon('play', { size: 16 })}</span>
+    </button>`).join('');
+
   return `
-    <div class="next-card">
-      <div class="next-eyebrow">${icon('zap', { size: 13 })} NEXT IN YOUR SPLIT</div>
-      <div class="next-name">${esc(t.name)}</div>
-      <div class="next-rationale">${esc(rationale)}</div>
-      <div class="next-tags">${tags}</div>
-      <div class="next-actions">
-        <button class="next-start" data-tid="${t.id}">${icon('play', { size: 19 })} Start ${esc(t.name)}</button>
-        <button class="next-more" aria-label="Choose a different routine">${icon('repeat', { size: 16 })} Swap</button>
+    <div class="plan-hero">
+      <div class="ph-head">
+        <span class="ph-eyebrow">${icon('layout-dashboard', { size: 13 })} ACTIVE PLAN</span>
+        <button class="ph-change" id="phChange">Change</button>
+      </div>
+      <div class="ph-name">${esc(plan.name)}</div>
+      <div class="ph-sub">${routines.length} routine${routines.length === 1 ? '' : 's'} · tap one to start</div>
+      <div class="ph-rows">${rows}</div>
+      <div class="ph-foot">
+        ${rest > 0 ? `<button class="ph-link" id="phMore">+ ${rest} more routine${rest === 1 ? '' : 's'}</button><span class="ph-sep"></span>` : ''}
+        <button class="ph-link strong" id="phEmpty">${icon('plus', { size: 13 })} Empty workout</button>
       </div>
     </div>`;
 }
 
 function emptyHeroCard() {
   return `
-    <div class="next-card">
-      <div class="next-eyebrow">${icon('zap', { size: 13 })} GET STARTED</div>
-      <div class="next-name">No routine yet</div>
-      <div class="next-rationale">Add a ready-made split from the Library, or start an empty workout and build as you go.</div>
-      <div class="next-actions">
-        <button class="next-start hero-empty-start">${icon('play', { size: 19 })} Start empty workout</button>
-        <button class="next-more hero-empty-lib" aria-label="Browse library">${icon('book-open', { size: 20 })}</button>
+    <div class="plan-hero">
+      <div class="ph-head"><span class="ph-eyebrow">${icon('zap', { size: 13 })} GET STARTED</span></div>
+      <div class="ph-name">No plan yet</div>
+      <div class="ph-sub">A plan groups the routines you train together. Add a ready-made split, or just start lifting and build as you go.</div>
+      <div class="ph-foot" style="margin-top:14px">
+        <button class="ph-link strong" id="phEmpty">${icon('play', { size: 13 })} Start empty workout</button>
+        <span class="ph-sep"></span>
+        <button class="ph-link" id="phBrowse">${icon('book-open', { size: 13 })} Browse splits</button>
       </div>
     </div>`;
 }
@@ -4343,27 +4360,35 @@ async function deleteRoutine(id) {
   renderDashboard();
 }
 
-function renderRoutinesChooser(templates, next = null) {
+// The "start something else" sheet. It used to rank every routine by a fatigue
+// score, which made the order shift under you between visits. Plan order is
+// stable and is the order you actually think in, so the active plan's routines
+// come first in their own order, then everything else.
+function renderRoutinesChooser(templates, activePlan = null, planRoutines = null) {
   const tmplEl = document.getElementById('templatesList');
   if (!tmplEl) return;
   document.getElementById('routinesEmpty').style.display = templates.length ? 'none' : '';
   document.getElementById('routinesHint').style.display = templates.length ? '' : 'none';
 
-  // Same ranking the hero uses, so the sheet reads as "what to train next" top to
-  // bottom instead of a static queue you have to keep tidy by hand.
-  const nextId = next?.template?.id || null;
-  const list = next?.ranked?.length ? next.ranked : templates.map((t, i) => ({ t, i, lastTs: 0 }));
+  const inPlan = planRoutines || [];
+  const inPlanIds = new Set(inPlan.map(t => t.id));
+  const others = templates.filter(t => !inPlanIds.has(t.id));
+  const list = [
+    ...inPlan.map(t => ({ t, group: activePlan?.name || null })),
+    ...others.map(t => ({ t, group: 'Other routines' })),
+  ];
 
-  tmplEl.innerHTML = list.map(({ t, lastTs }) => {
-    const d = lastTs ? Math.floor((Date.now() - lastTs) / DAY_MS) : null;
-    const when = d == null ? 'never' : d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`;
+  let lastGroup = Symbol('none');
+  tmplEl.innerHTML = list.map(({ t, group }) => {
+    const head = group !== lastGroup ? `<div class="tc-group">${esc(group || 'Routines')}</div>` : '';
+    lastGroup = group;
     return `
+      ${head}
       <div class="template-card" data-tid="${t.id}">
         <div class="tc-main">
-          <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
+          <div class="tc-name">${esc(t.name)}</div>
           <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
         </div>
-        <span class="tc-when">${when}</span>
         <button class="tc-edit" data-tid="${esc(t.id)}" aria-label="Edit ${esc(t.name)}" data-tip="Edit" title="Edit">${icon('pencil', { size: 15 })}</button>
         <button class="tc-del" data-tid="${esc(t.id)}" aria-label="Delete ${esc(t.name)}">${icon('trash-2', { size: 16 })}</button>
       </div>`;
@@ -4412,7 +4437,13 @@ async function renderPlan() {
 
   const byDate = {};
   sessions.forEach(s => { const d = s.date || (s.startTime || '').slice(0, 10); (byDate[d] = byDate[d] || []).push(s); });
-  const next = computeNextTemplate(templates, sessions);
+  // Only the ACTIVE plan's routines are candidates. computeNextTemplate caps
+  // daysSince at 30, so a routine from a split you abandoned pins there and
+  // outranks everything you actually train — which is most of why the old
+  // "next in your split" was wrong.
+  const activePlan = await getActivePlan();
+  const candidates = activePlan ? routinesOfPlan(activePlan, templates) : templates;
+  const next = computeNextTemplate(candidates.length ? candidates : templates, sessions);
   const tById = id => templates.find(t => t.id === id);
 
   const days = [];
@@ -4543,11 +4574,15 @@ async function renderDashboard() {
   const recentEl0 = document.getElementById('recentList');
   if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(1);
 
-  const [templates, sessions, streakSettings, bodyLog, nutri] = await Promise.all([
-    getTemplates(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday()]);
+  const [templates, sessions, streakSettings, bodyLog, nutri, plans, activePlan] = await Promise.all([
+    getTemplates(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday(),
+    getPlans(), getActivePlan()]);
   const body = bodyStats(bodyLog);
-  const next = computeNextTemplate(templates, sessions);
-  renderRoutinesChooser(templates, next);
+  // Routines of the active plan, in the plan's own order. With no plan at all
+  // (a pre-plans install mid-migration, or every plan deleted) fall back to the
+  // flat list so the hero is never empty while routines exist.
+  const planRoutines = activePlan ? routinesOfPlan(activePlan, templates) : templates;
+  renderRoutinesChooser(templates, activePlan, planRoutines);
   renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
@@ -4562,7 +4597,7 @@ async function renderDashboard() {
     .flatMap(s => (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)))
     .reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
 
-  const heroHTML = next ? nextSessionCard(next, sessions) : emptyHeroCard();
+  const heroHTML = planRoutines.length ? planHeroCard(activePlan || { name: 'Your routines' }, planRoutines, sessions) : emptyHeroCard();
 
   const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;
   // Snapshot: the two halves of the app on one screen — training streak, body, nutrition.
@@ -4604,11 +4639,17 @@ async function renderDashboard() {
     ${tilesHTML}`;
 
   // Wire the hero + tiles
-  const startBtn = dashTop.querySelector('.next-start[data-tid]');
-  if (startBtn) startBtn.onclick = () => { const t = templates.find(x => x.id === startBtn.dataset.tid); startEmptyWorkout(t); };
-  dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
-  dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
-  dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
+  dashTop.querySelectorAll('.ph-row[data-start]').forEach(btn => {
+    btn.onclick = () => startEmptyWorkout(templates.find(t => t.id === btn.dataset.start));
+  });
+  dashTop.querySelector('#phMore')?.addEventListener('click', openRoutineChooser);
+  dashTop.querySelector('#phEmpty')?.addEventListener('click', () => startEmptyWorkout());
+  dashTop.querySelector('#phChange')?.addEventListener('click', () => openPlanSwitcher());
+  dashTop.querySelector('#phBrowse')?.addEventListener('click', () => {
+    document.querySelector('.tab[data-tab="Library"]').click();
+    libSegment = 'plans';
+    renderLibrary().then(() => document.getElementById('libBrowseSplits')?.click());
+  });
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
@@ -4629,9 +4670,54 @@ async function renderDashboard() {
   const recent = sessions.slice(0, 4);
   const headingEl = document.getElementById('dashRecentHeading');
   if (headingEl) headingEl.textContent = recent.length > 1 ? 'Recent' : 'Last session';
-  recentEl.innerHTML = recent.map(s => workoutCard(s)).join('');
-  recentEl.querySelectorAll('.workout-card').forEach(card => {
-    card.onclick = () => openHistoryDetail(card.dataset.sid);
+  // Flat rows, not `.workout-card`. The card was byte-identical to a coach
+  // finding — same surface, same hairline, same 4px blue rail, same padding —
+  // so a read-only observation and a tappable record of a session you did read
+  // as the same object. History is the quietest layer on this screen now.
+  recentEl.innerHTML = recent.map(s => dashHistoryRow(s)).join('');
+  recentEl.querySelectorAll('.dash-hrow').forEach(row => {
+    row.onclick = () => openHistoryDetail(row.dataset.sid);
+  });
+}
+
+function dashHistoryRow(s) {
+  const done = (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done));
+  const vol  = done.reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
+  const pbs  = s.pbs?.length || 0;
+  return `
+    <div class="dash-hrow" data-sid="${esc(s.id)}">
+      <div class="dash-hrow-main">
+        <div class="dash-hrow-name">${esc(s.title || 'Workout')}</div>
+        <div class="dash-hrow-meta">${fmtDate(s.date || s.startTime || '')} · ${fmtTime(s.duration || 0)} · ${Math.round(vol).toLocaleString()} kg</div>
+      </div>
+      ${pbs ? `<span class="dash-hrow-pb">${icon('trophy', { size: 12 })} ${pbs}</span>` : ''}
+      <span class="dash-hrow-chev">${icon('chevron-right', { size: 15 })}</span>
+    </div>`;
+}
+
+// Switch the active plan from the hero, without a trip to the Library.
+async function openPlanSwitcher() {
+  const [plans, activeId] = await Promise.all([getPlans(), getActivePlanId()]);
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop open';
+  back.innerHTML = `<div class="modal">
+    <p class="modal-title">Active plan</p>
+    ${plans.length ? plans.map(p => `<button class="sheet-btn" data-pid="${esc(p.id)}">${esc(p.name)} — ${(p.routineIds || []).length} routine${(p.routineIds || []).length === 1 ? '' : 's'}${p.id === activeId ? '  ✓' : ''}</button>`).join('')
+      : '<div class="routines-empty">No plans yet — add one from the Library.</div>'}
+    <button class="sheet-btn" data-act="library" style="color:var(--blue)">${icon('book-open', { size: 16 })} Manage plans in Library</button>
+    <button class="sheet-btn" data-act="cancel" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+  </div>`;
+  document.body.appendChild(back);
+  syncScrollLock();
+  refreshIcons();
+  const close = () => { back.remove(); syncScrollLock(); };
+  back.addEventListener('click', async e => {
+    const pid = e.target.closest('[data-pid]')?.dataset.pid;
+    if (pid) { close(); await setActivePlan(pid); renderDashboard(); return; }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (e.target === back || act === 'cancel') { close(); return; }
+    close();
+    if (act === 'library') { libSegment = 'plans'; document.querySelector('.tab[data-tab="Library"]').click(); }
   });
 }
 
@@ -6193,7 +6279,8 @@ let _dailyBusy = false;
 async function generateDailySuggestion(today) {
   try {
     const system = await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      loadSessions: loadSessionsCanonical, getTemplates: getActivePlanTemplates,
+      getAllExercises, getStreakSettings,
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
@@ -6659,10 +6746,21 @@ const COACH_NEEDS_KEY = new Set(['nokey', 'unavailable', 'proxy_unconfigured', '
 // assembleContext (malformed history, a bad session row) used to bubble up and
 // make EVERY coach message fail with a generic error; now it degrades to a
 // minimal prompt so the chat still works.
+// The routines the coach should reason about: the active plan's, in plan order,
+// falling back to everything when there is no plan yet.
+async function getActivePlanTemplates() {
+  const [templates, activePlan] = await Promise.all([getTemplates(), getActivePlan()]);
+  const inPlan = activePlan ? routinesOfPlan(activePlan, templates) : [];
+  return inPlan.length ? inPlan : templates;
+}
+
 async function buildCoachSystem() {
   try {
     return await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      // The coach reasons about "the split you are on", so it gets the ACTIVE
+      // plan's routines in plan order — not every routine you have ever saved.
+      loadSessions: loadSessionsCanonical, getTemplates: getActivePlanTemplates,
+      getAllExercises, getStreakSettings,
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
   } catch (_) {

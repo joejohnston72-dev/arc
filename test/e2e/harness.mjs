@@ -80,6 +80,29 @@ export async function boot({ port = 4173, seed = null } = {}) {
   return { browser, ctx, page, errors, dialogs };
 }
 
+// A handful of realistic logged sessions, newest first, for the screens that
+// only exist once there is history (Today's recent rows, stats, the coach).
+export function seedSessions(titles = ['Pull Hypertrophy', 'Legs Hypertrophy', 'Push Hypertrophy (Delts)', 'Upper Strength (Chest Bias)']) {
+  const out = {};
+  titles.forEach((title, i) => {
+    const d = new Date(Date.now() - (i + 1) * 2 * 86400000);
+    const date = d.toISOString().slice(0, 10);
+    const id = `seed${i}`;
+    out[`session-${id}`] = {
+      id, title, date, startTime: `${date}T18:00:00.000Z`, duration: 3000 + i * 240,
+      pbs: i === 0 ? [{ exercise: 'Barbell Row', type: 'weight', label: '100 kg' }] : [],
+      exercises: [
+        { id: `e${i}a`, name: 'Barbell Row', category: 'Back', logType: 'weighted', restTime: 90,
+          sets: [{ id: 's1', type: 'normal', weight: 100, reps: 6, done: true },
+                 { id: 's2', type: 'normal', weight: 100, reps: 6, done: true }] },
+        { id: `e${i}b`, name: 'Bench Press (Dumbbell)', category: 'Chest', logType: 'weighted', restTime: 90,
+          sets: [{ id: 's3', type: 'normal', weight: 38, reps: 8, done: true }] },
+      ],
+    };
+  });
+  return out;
+}
+
 export const shot = (page, name) => page.screenshot({ path: `${SHOTS}/${name}.png` });
 
 // Read a key straight out of IndexedDB — assertions go against stored state,
