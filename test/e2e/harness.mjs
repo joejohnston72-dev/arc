@@ -37,6 +37,11 @@ export async function boot({ port = 4173, seed = null } = {}) {
   await ctx.route('**/sw.js', route => route.fulfill({ status: 404, body: '' }));
   await ctx.route('https://cdn.jsdelivr.net/**', route => route.abort());
   await ctx.route('https://fonts.googleapis.com/**', route => route.abort());
+  // The coach's own endpoints. Aborting them keeps a "send a message" test from
+  // reaching the real API, and turns the failure into the same clean ERR_FAILED
+  // the noise filter already knows about.
+  await ctx.route('https://api.anthropic.com/**', route => route.abort());
+  await ctx.route('**/functions/v1/**', route => route.abort());
 
   const page = await ctx.newPage();
   // One dialog handler for the whole run — confirm()/alert() are load-bearing in

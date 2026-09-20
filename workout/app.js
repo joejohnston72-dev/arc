@@ -505,7 +505,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     if (activeTab === 'Plan')      { renderPlan();      }
     if (activeTab === 'Library')   { renderLibrary();   }
     if (activeTab === 'Stats')     { renderStats(); renderHistory(); }
-    if (activeTab === 'Coach')     { renderCoach();     }
+    if (activeTab === 'Coach')     { renderCoach(); lastCoachKb = -1; fitCoachColumn(); }
   };
 });
 
@@ -695,9 +695,38 @@ function unfitActiveWorkout() {
   lastKb = -1;
   syncScrollLock();
 }
+// Height of the on-screen keyboard, or 0. Tiny insets and the iOS input
+// accessory bar are ignored so they don't cause a reflow.
+function keyboardHeight() {
+  const vv = window.visualViewport;
+  if (!vv) return 0;
+  const kb = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+  return kb > 80 ? kb : 0;
+}
+
+// The Coach column is `position:fixed`, which anchors it to the LAYOUT viewport
+// — so the keyboard just covered the composer and you could not see what you
+// were typing. All the elaborate keyboard handling built for #activeWorkout
+// simply never applied here, because fitActiveWorkout early-returns unless that
+// overlay is visible. Same treatment, its own element.
+let coachFitRaf = 0, lastCoachKb = -1;
+function fitCoachColumn() {
+  cancelAnimationFrame(coachFitRaf);
+  coachFitRaf = requestAnimationFrame(() => {
+    const sec = document.getElementById('secCoach');
+    if (!sec?.classList.contains('active')) return;
+    const kb = keyboardHeight();
+    if (kb === lastCoachKb) return;     // no change → no reflow, no jitter
+    lastCoachKb = kb;
+    sec.style.setProperty('--kb', kb ? kb + 'px' : '0px');
+    if (kb) scrollCoachDown();          // keep the latest reply above the keyboard
+  });
+}
+
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', fitActiveWorkout);
-  window.visualViewport.addEventListener('scroll', fitActiveWorkout);
+  const onViewport = () => { fitActiveWorkout(); fitCoachColumn(); };
+  window.visualViewport.addEventListener('resize', onViewport);
+  window.visualViewport.addEventListener('scroll', onViewport);
 }
 
 // ── Restore an in-progress workout after a kill/reload ────────────────────────
@@ -6125,11 +6154,15 @@ async function saveCoachProfileSheet() {
 // data-driven observations) lives on the Home screen (renderDashCoach) instead.
 async function renderCoach() {
   await loadCoachThread();
-  renderCoachMemory();
   const thread = document.getElementById('coachThread');
+  // The memory strip scrolls with the thread now, so it is a CHILD of the
+  // element this function empties — keep the node and re-attach it.
+  const mem = document.getElementById('coachMem');
   thread.innerHTML = '';
+  if (mem) thread.appendChild(mem);
+  renderCoachMemory();
   if (!coachThread.length) {
-    thread.innerHTML = `<div class="coach-empty">Ask me anything — training, form, programming, progression, or “what should I train today?”.<br><br>I also post a daily pick and observations on your <strong>Home</strong> screen.</div>`;
+    thread.insertAdjacentHTML('beforeend', `<div class="coach-empty">Ask me anything — training, form, programming, progression, or “what should I train today?”.<br><br>I also post a daily pick and observations on your <strong>Home</strong> screen.</div>`);
     return;
   }
   coachThread.forEach(m => thread.appendChild(renderCoachMessage(m)));
@@ -6604,6 +6637,15 @@ function wireCoachHubSwipe(hub) {
   hub.addEventListener('pointercancel', () => { tracking = false; });
 }
 
+// Empty the thread WITHOUT destroying the memory strip, which is one of its
+// children now rather than pinned chrome above it.
+function emptyCoachThread() {
+  const thread = document.getElementById('coachThread');
+  const mem = document.getElementById('coachMem');
+  thread.innerHTML = '';
+  if (mem) thread.appendChild(mem);
+}
+
 function scrollCoachDown() {
   const t = document.getElementById('coachThread');
   requestAnimationFrame(() => { t.scrollTop = t.scrollHeight; });
@@ -6882,7 +6924,7 @@ async function sendCoach(text, forceTool = false) {
 
   const available = await coachHasTransport();
   const thread = document.getElementById('coachThread');
-  if (thread.querySelector('.coach-empty') || thread.querySelector('.coach-findings')) thread.innerHTML = '';
+  if (thread.querySelector('.coach-empty') || thread.querySelector('.coach-findings')) emptyCoachThread();
 
   // user bubble
   const userMsg = { role: 'user', text };
@@ -6890,6 +6932,7 @@ async function sendCoach(text, forceTool = false) {
   thread.appendChild(renderCoachMessage(userMsg));
   persistCoachThread();
   document.getElementById('coachInput').value = '';
+  autoGrowCoachInput();   // a sent multi-line question must not leave a tall box
   scrollCoachDown();
 
   if (!available) {
@@ -7095,9 +7138,28 @@ async function resendCoach(text, forceTool = false) {
 }
 
 // ── Coach wiring ──────────────────────────────────────────────────────────────
-document.getElementById('coachSend').onclick = () => sendCoach(document.getElementById('coachInput').value);
-document.getElementById('coachInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); sendCoach(e.target.value); }
+// The composer is a textarea that grows to ~5 lines then scrolls, so a real
+// question can be written and read before it is sent.
+const coachInputEl = document.getElementById('coachInput');
+function autoGrowCoachInput() {
+  coachInputEl.style.height = 'auto';
+  coachInputEl.style.height = coachInputEl.scrollHeight + 'px';
+}
+function submitCoachInput(force) {
+  const text = coachInputEl.value;
+  if (!text.trim()) return;
+  sendCoach(text, force || false);
+  coachInputEl.value = '';
+  autoGrowCoachInput();
+}
+coachInputEl.addEventListener('input', autoGrowCoachInput);
+document.getElementById('coachSend').onclick = () => submitCoachInput();
+coachInputEl.addEventListener('keydown', e => {
+  // Return used to send unconditionally, so finishing a paragraph fired off the
+  // half-written question. It adds a line now; sending is the button, or the
+  // usual chat-app modifier chord.
+  if (e.key !== 'Enter' || e.isComposing) return;
+  if (e.metaKey || e.ctrlKey) { e.preventDefault(); submitCoachInput(); }
 });
 document.querySelectorAll('.coach-chip[data-prompt]').forEach(chip => {
   // data-force may be "1" (force draft_routine) or a specific tool name.

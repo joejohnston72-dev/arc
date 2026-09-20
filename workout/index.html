@@ -84,7 +84,6 @@
     /* Icon-in-button alignment (Lucide) */
     .new-routine-btn, .coach-chip { display:inline-flex; align-items:center; gap:5px; }
     .import-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
-    .coach-chip-key, .coach-chip-clear { justify-content:center; }
     .sheet-btn .lc { vertical-align:-0.2em; margin-right:2px; }
     .header-btn .lc, .back-btn .lc { pointer-events:none; }
 
@@ -835,11 +834,18 @@
       position:fixed; left:0; right:0;
       /* Anchored straight to the safe area (no title header any more) and to the
          tab bar — a deterministic full-height column, so the composer always sits
-         just above the tab bar and the thread fills the rest. */
+         just above the tab bar and the thread fills the rest.
+         `--kb` is the on-screen keyboard's height, set from visualViewport by
+         fitCoachColumn(). A fixed element is anchored to the LAYOUT viewport, so
+         without this the keyboard simply covers the composer: you could not see
+         what you were typing. */
       top:calc(env(safe-area-inset-top) + 6px);
-      bottom:calc(56px + env(safe-area-inset-bottom));      /* just above the tab bar */
+      bottom:calc(56px + env(safe-area-inset-bottom) + var(--kb, 0px));
     }
-    .coach-thread { flex:1; overflow-y:auto; padding:12px var(--gap) 8px; display:flex; flex-direction:column; gap:10px; }
+    /* min-height:0 so a long thread scrolls instead of pushing the composer off
+       the bottom. It only worked before because overflow-y happens to zero the
+       automatic minimum size — true by accident, not by design. */
+    .coach-thread { flex:1; min-height:0; overflow-y:auto; padding:12px var(--gap) 8px; display:flex; flex-direction:column; gap:10px; }
     .coach-msg { max-width:85%; padding:10px 13px; border-radius:14px; font-size:0.9rem; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
     .coach-msg.user { align-self:flex-end; background:var(--blue); color:#000; border-bottom-right-radius:4px; }
     .coach-msg.bot  { align-self:flex-start; background:var(--surface); color:var(--text); border-bottom-left-radius:4px; }
@@ -947,7 +953,7 @@
     .coach-daily .coach-routine, .coach-daily .coach-suggestion { margin-top:12px; max-width:100%; }
     .coach-daily.loading .coach-daily-body { opacity:0.75; }
     /* Routine card inside a bot message */
-    .coach-routine { align-self:flex-start; background:var(--surface); border:1px solid rgba(56,189,248,0.3); border-radius:14px; padding:14px; max-width:92%; }
+    .coach-routine { align-self:flex-start; background:var(--surface); border:1px solid rgba(56,189,248,0.3); border-radius:14px; padding:14px; max-width:85%; }
     .coach-routine-name { font-size:0.95rem; font-weight:700; margin-bottom:8px; }
     .coach-routine-ex { display:flex; justify-content:space-between; gap:10px; font-size:0.8rem; padding:3px 0; color:var(--text-muted); }
     .coach-routine-ex b { color:var(--text); font-weight:500; }
@@ -965,7 +971,7 @@
     .coach-split .cs-save-all { background:var(--orange); color:#000; }
     /* Coach action confirmation card (exercises added / workouts logged) */
     .coach-action {
-      align-self:flex-start; max-width:92%;
+      align-self:flex-start; max-width:85%;
       background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.4);
       border-radius:14px; padding:12px 14px;
     }
@@ -974,7 +980,7 @@
     .coach-action-list li::before { content:'· '; color:var(--text-muted); }
     /* Coach routine-improvement suggestion card */
     .coach-suggestion {
-      align-self:flex-start; max-width:92%;
+      align-self:flex-start; max-width:85%;
       background:rgba(167,139,250,0.1); border:1px solid rgba(167,139,250,0.45);
       border-radius:14px; padding:13px 14px;
     }
@@ -988,31 +994,56 @@
       color:var(--text); font-size:0.75rem; font-weight:500; padding:7px 12px; cursor:pointer;
       white-space:nowrap; flex-shrink:0; -webkit-tap-highlight-color:transparent;
     }
-    .coach-chip-key, .coach-chip-clear { padding:7px 11px; color:var(--text-muted); }
     .coach-input {
-      flex-shrink:0; display:flex; gap:8px; align-items:center;
-      padding:8px var(--gap) calc(env(safe-area-inset-bottom) + 8px);
+      flex-shrink:0; display:flex; gap:8px; align-items:flex-end;
+      /* No env(safe-area-inset-bottom) here: #secCoach.active already ends above
+         it, so adding it again floated the composer ~34px off the tab bar with a
+         dead band of page underneath — the black bar. */
+      padding:8px var(--gap) 10px;
       border-top:1px solid rgba(255,255,255,0.07); background:var(--bg);
     }
-    .coach-input input {
-      flex:1; background:var(--surface2); border:1px solid rgba(255,255,255,0.08);
-      border-radius:20px; padding:11px 16px; color:var(--text); outline:none;
+    .coach-input textarea {
+      flex:1; min-width:0; background:var(--surface2); border:1px solid rgba(255,255,255,0.08);
+      border-radius:18px; padding:11px 16px; color:var(--text); outline:none;
+      /* font:inherit, or the composer renders in the system font while every
+         bubble above it is Google Sans. The 16px floor (iOS zoom) comes from the
+         global input rule and must not drop below it. */
+      font:inherit; font-size:16px; line-height:1.4;
+      resize:none; overflow-y:auto; max-height:8.4em;   /* ~5 lines, then it scrolls */
     }
-    .coach-input input:focus { border-color:var(--blue); }
-    .coach-input button {
-      width:42px; height:42px; border-radius:50%; border:none; background:var(--blue);
-      color:#000; font-size:1.1rem; cursor:pointer; flex-shrink:0;
+    .coach-input textarea:focus { border-color:var(--blue); }
+    .coach-input textarea::placeholder { color:var(--text-muted); }
+    .coach-send {
+      width:42px; height:42px; border-radius:50%; border:none;
+      background:linear-gradient(135deg,#38bdf8,#2596d1); color:#04131c;
+      cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .coach-send:active { transform:scale(0.96); }
+    .coach-hint {
+      flex:0 0 auto; padding:0 var(--gap) 8px; font-size:0.64rem; color:#5c5c63;
     }
 
     /* ── Coach identity header + persistent-memory strip ── */
-    .coach-head { flex-shrink:0; display:flex; align-items:center; gap:11px; padding:2px var(--gap) 8px; }
+    .coach-head { flex-shrink:0; display:flex; align-items:center; gap:10px; padding:2px var(--gap) 8px; }
+    .coach-head-txt { flex:1; min-width:0; }
+    /* Key and clear used to live at the END of the horizontally scrolling chip
+       row — roughly 370px past the right edge on a 390px screen, with the
+       scrollbar hidden. The no-key error message literally said "tap 🔑 below". */
+    .coach-hbtn {
+      width:34px; height:34px; border-radius:10px; flex:0 0 auto;
+      background:var(--surface); border:1px solid var(--border); color:var(--text-muted);
+      display:flex; align-items:center; justify-content:center; cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .coach-hbtn:active { background:var(--surface2); color:var(--text); }
     .coach-badge { width:36px; height:36px; border-radius:11px; flex:0 0 auto; display:flex; align-items:center; justify-content:center;
       background:linear-gradient(150deg,rgba(56,189,248,0.22),rgba(167,139,250,0.22)); border:1px solid rgba(56,189,248,0.35); color:var(--blue); }
     .coach-head-title { font-size:1.02rem; font-weight:700; letter-spacing:-.2px; }
     .coach-head-sub { font-size:0.72rem; color:var(--text-muted); display:flex; align-items:center; gap:5px; margin-top:1px; }
     .coach-live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); }
-    .coach-mem { flex-shrink:0; display:flex; align-items:center; gap:9px; margin:0 var(--gap) 8px; padding:9px 12px; border-radius:12px;
-      background:var(--surface); border:1px solid var(--border); text-align:left; color:inherit; font:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; width:calc(100% - 2*var(--gap)); }
+    .coach-mem { flex:0 0 auto; align-self:stretch; display:flex; align-items:center; gap:9px; margin:0 0 4px; padding:9px 12px; border-radius:12px;
+      background:var(--surface); border:1px solid var(--border); text-align:left; color:inherit; font:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; }
     .coach-mem:active { background:var(--surface2); }
     .coach-mem-ic { color:var(--purple); flex:0 0 auto; display:flex; }
     .coach-mem-txt { font-size:0.73rem; color:var(--text-muted); line-height:1.35; flex:1; min-width:0; }
@@ -1838,9 +1869,14 @@
         <div class="coach-head-title">Coach</div>
         <div class="coach-head-sub"><span class="coach-live-dot"></span> Reads your training data live</div>
       </div>
+      <button class="coach-hbtn" id="coachKeyBtn" type="button" aria-label="API key" data-tip="API key" title="API key"><i data-lucide="key" data-size="16"></i></button>
+      <button class="coach-hbtn" id="coachClearBtn" type="button" aria-label="Clear chat" data-tip="Clear chat" title="Clear chat"><i data-lucide="trash-2" data-size="16"></i></button>
     </div>
-    <button class="coach-mem" id="coachMem" type="button"></button>
-    <div class="coach-thread" id="coachThread"></div>
+    <!-- The memory strip lives INSIDE the scrolling thread. Pinned, it was 40px
+         of permanent chrome on a column already shortened by the tab bar. -->
+    <div class="coach-thread" id="coachThread">
+      <button class="coach-mem" id="coachMem" type="button"></button>
+    </div>
     <div class="coach-chips" id="coachChips">
       <!-- Chips carry the user's INTENT only. The coach's system prompt already
            holds the method (read TRAINING BALANCE / RECOVERY / PROGRESSION, follow
@@ -1853,13 +1889,14 @@
       <button class="coach-chip" data-prompt="What should I train today?"><i data-lucide="calendar" data-size="15"></i> Today's session</button>
       <button class="coach-chip" data-prompt="How's my progress?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
       <button class="coach-chip" data-prompt="Review my last workout."><i data-lucide="search" data-size="15"></i> Review last</button>
-      <button class="coach-chip coach-chip-key" id="coachKeyBtn" data-tip="API key" title="API key"><i data-lucide="key" data-size="16"></i></button>
-      <button class="coach-chip coach-chip-clear" id="coachClearBtn" data-tip="Clear chat" title="Clear chat"><i data-lucide="trash-2" data-size="16"></i></button>
     </div>
+    <!-- A textarea, not an input: a coaching app whose composer cannot wrap or
+         hold a second line is not one you can ask a real question in. -->
     <div class="coach-input">
-      <input id="coachInput" placeholder="Ask your coach…" autocomplete="off">
-      <button id="coachSend" aria-label="Send" data-tip="Send" title="Send"><i data-lucide="send" data-size="19"></i></button>
+      <textarea id="coachInput" rows="1" placeholder="Ask your coach…" autocomplete="off"></textarea>
+      <button class="coach-send" id="coachSend" aria-label="Send" data-tip="Send" title="Send"><i data-lucide="send" data-size="19"></i></button>
     </div>
+    <div class="coach-hint">Return adds a line · <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+Return or the button sends</div>
   </div>
 
   <nav class="tabs">
