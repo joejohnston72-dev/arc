@@ -378,9 +378,12 @@
 
     /* ── Exercise block (in active workout) ── */
     .ex-block { margin-bottom:20px; }
-    /* Superset grouping — a purple rail down the left connects paired exercises */
+    /* Superset grouping — a coloured rail down the left connects paired
+       exercises. --ss-color is set per block from the group's index in the
+       session (buildExerciseBlock), so a second pair in the same workout is
+       never the same colour as the first. */
     .ex-block.ss-member {
-      border-left:3px solid var(--purple);
+      border-left:3px solid var(--ss-color, var(--purple));
       padding-left:13px; margin-left:1px;
     }
     .ex-block.ss-member:not(.ss-last) { margin-bottom:8px; }   /* tighter within a group */
@@ -388,7 +391,7 @@
     .ss-label {
       display:inline-flex; align-items:center; gap:5px; margin-bottom:8px;
       font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
-      color:var(--purple);
+      color:var(--ss-color, var(--purple));
     }
     .ex-block-header {
       display:flex; align-items:center; gap:8px; margin-bottom:10px;
@@ -541,7 +544,7 @@
       background:var(--surface2); border:1px solid rgba(255,255,255,0.06);
       touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     }
-    #activeWorkout.reordering .ex-block.ss-member { border-left:3px solid var(--purple); }
+    #activeWorkout.reordering .ex-block.ss-member { border-left:3px solid var(--ss-color, var(--purple)); }
     #activeWorkout.reordering .ex-block-header { margin-bottom:0; }
     #activeWorkout.reordering .ex-name { cursor:grab; }
     #activeWorkout.reordering .ex-chev,

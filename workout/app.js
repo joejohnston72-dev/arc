@@ -124,6 +124,24 @@ const LOGTYPES = {
   duration:   { cols: ['time'],               head: ['Time'],        label: 'Time / hold' },
   cardio:     { cols: ['distance', 'time'],   head: ['km', 'Time'],  label: 'Distance & time (cardio)' },
 };
+// Superset rail colours, assigned by the group's INDEX within the routine, so a
+// second pair never wears the same colour as the first. Blue is the primary UI
+// accent and red is destructive, so neither is in the rotation.
+const SUPERSET_COLORS = ['var(--purple)', 'var(--orange)', 'var(--green)', 'var(--amber)'];
+const SUPERSET_LETTERS = 'ABCDEFGH';
+// Group ids in the order they first appear — the index into SUPERSET_COLORS.
+function supersetOrder(exercises) {
+  const order = [];
+  for (const e of exercises || []) {
+    if (e.supersetId && !order.includes(e.supersetId)) order.push(e.supersetId);
+  }
+  return order;
+}
+function supersetStyle(exercises, gid) {
+  const i = supersetOrder(exercises).indexOf(gid);
+  return { color: SUPERSET_COLORS[i % SUPERSET_COLORS.length], letter: SUPERSET_LETTERS[i] || String(i + 1) };
+}
+
 // User edits to the core library (via the "…" → Edit exercise sheet). Keyed by
 // the built-in exercise's canonical name → { category?, logType? }. Loaded once
 // at init (loadExOverrides) and kept in sync on every edit. Custom exercises are
@@ -881,6 +899,11 @@ function buildExerciseBlock(ex, ei) {
   if (inSS) block.classList.add('ss-member');
   if (firstOfGroup) block.classList.add('ss-first');
   if (lastOfGroup)  block.classList.add('ss-last');
+  // Every group used to wear the same purple rail labelled just "Superset", so
+  // two pairs in one session read as one long block. Colour and letter come
+  // from the group's index within the session, same as in the routine editor.
+  const ss = inSS ? supersetStyle(activeSession.exercises, ex.supersetId) : null;
+  if (ss) block.style.setProperty('--ss-color', ss.color);
   const color = CATEGORY_COLORS[ex.category] || '#8e8e9a';
   const lt = resolveLogType(ex);
   const cfg = LOGTYPES[lt];
@@ -889,7 +912,7 @@ function buildExerciseBlock(ex, ei) {
   const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
 
   block.innerHTML = `
-    ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
+    ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset ${ss.letter}</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
       <span class="ex-grip" aria-hidden="true">${icon('grip-vertical', { size: 17 })}</span>
       <div class="ex-cat-dot" style="background:${color}"></div>
@@ -1847,7 +1870,10 @@ function openExMenuSheet(ei) {
   const ssBtn = document.getElementById('exMenuSuperset');
   if (activeSession.exercises.length > 1) {
     ssBtn.style.display = '';
-    ssBtn.innerHTML = `${icon('repeat', { size: 17 })} ${ex.supersetId ? 'Edit superset…' : 'Superset…'}`;
+    // Name the group in the menu too, so "Edit superset…" says WHICH one when
+    // the session has more than one.
+    const ssInfo = ex.supersetId ? supersetStyle(activeSession.exercises, ex.supersetId) : null;
+    ssBtn.innerHTML = `${icon('repeat', { size: 17 })} ${ssInfo ? `Edit superset ${ssInfo.letter}…` : 'Superset…'}`;
   } else {
     ssBtn.style.display = 'none';
   }
@@ -3552,23 +3578,8 @@ document.getElementById('templateNameSave').onclick = async () => {
 // detection, previous-performance ghosts. None of them mean anything to a
 // routine, and rendering them was most of why the old flow read as a workout.
 
-// Superset rail colours, assigned by the group's INDEX within the routine, so a
-// second pair never wears the same colour as the first. Blue is the primary UI
-// accent and red is destructive, so neither is in the rotation.
-const SUPERSET_COLORS = ['var(--purple)', 'var(--orange)', 'var(--green)', 'var(--amber)'];
-const SUPERSET_LETTERS = 'ABCDEFGH';
-// Group ids in the order they first appear — the index into SUPERSET_COLORS.
-function supersetOrder(exercises) {
-  const order = [];
-  for (const e of exercises || []) {
-    if (e.supersetId && !order.includes(e.supersetId)) order.push(e.supersetId);
-  }
-  return order;
-}
-function supersetStyle(exercises, gid) {
-  const i = supersetOrder(exercises).indexOf(gid);
-  return { color: SUPERSET_COLORS[i % SUPERSET_COLORS.length], letter: SUPERSET_LETTERS[i] || String(i + 1) };
-}
+// Superset colours live with the other shared constants near the top of the
+// file — the live workout and the editor both draw rails from them.
 
 // { id, name, planId, exercises:[{name, category, logType, restTime, supersetId?, sets:[{weight,reps,type}]}] }
 let reState = null;

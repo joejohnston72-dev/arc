@@ -109,7 +109,7 @@ const is = (c, m) => (c ? pass++ : (fail++, console.log(`FAIL ${m}`)));
 
 // ── routine editor ───────────────────────────────────────────────────────────
 {
-  const SRC = region('const SUPERSET_COLORS', 'let reState = null;')
+  const SRC = region('const SUPERSET_COLORS', '// User edits to the core library')
             + '\n' + fn('function targetLabel')
             + '\n' + fn('function reNormalizeSupersets')
             + '\n' + fn('function reApplySuperset');
