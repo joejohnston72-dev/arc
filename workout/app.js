@@ -444,6 +444,11 @@ let sessionStartMs  = 0;      // duration derives from this — no on-screen cou
                               // instead of focus on the workout itself). Still recorded for stats.
 let sessionRecords  = {};     // per-exercise all-time bests, for PB detection + typo guard
 let routineMode     = false;
+// Set when routineMode was entered to EDIT an existing routine rather than build
+// a new one. Reusing the id on save is what makes an edit an edit: the routine
+// keeps its week-plan day assignments and its place in its plan, instead of
+// becoming a duplicate the user has to hunt down and delete.
+let editingTemplateId = null;
 
 const sessionSecsNow = () => Math.max(0, Math.floor((Date.now() - sessionStartMs) / 1000));
 let backfillDate = null;   // when set, the in-progress workout saves to this past date (calendar backfill)
@@ -475,6 +480,7 @@ function saveActiveSession() {
   db.set(STORE, 'active-session', {
     session: activeSession,
     routineMode,
+    editingTemplateId,
     title: document.getElementById('awTitle').value,
     savedAt: Date.now(),
   });
@@ -530,6 +536,7 @@ function freshSet(tpl, prevSets, si) {
 
 async function startEmptyWorkout(prefill = null, backfill = null) {
   routineMode = false;
+  editingTemplateId = null;
   backfillDate = backfill;
   autoNotedEx.clear();   // fresh coach-note tracking per workout
   document.getElementById('awFinishBtn').textContent = backfill ? 'Save' : 'Finish';
@@ -575,8 +582,9 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
 }
 
 // Build a routine from scratch — reuses the workout editor, but Finish saves a template.
-function startNewRoutine(prefill = null) {
+function startNewRoutine(prefill = null, { editId = null } = {}) {
   routineMode = true;
+  editingTemplateId = editId;
   activeSession = {
     id: uid(),
     title: prefill?.name || '',
@@ -715,6 +723,7 @@ async function checkForAbandonedSession() {
     return;
   }
   routineMode = !!saved.routineMode;
+  editingTemplateId = saved.editingTemplateId || null;
   activeSession = saved.session;
   activeSession.pbs ||= [];
   sessionStartMs = Date.parse(activeSession.startTime) || (Date.now() - 60000);
@@ -2486,6 +2495,7 @@ function cancelWorkout() {
   releaseWakeLock();
   skipRest();
   routineMode = false;
+  editingTemplateId = null;
   backfillDate = null;
   activeSession = null;
   clearActiveSessionStore();
@@ -3238,16 +3248,174 @@ async function backfillCustomRepRanges() {
 // ── Templates ─────────────────────────────────────────────────────────────────
 async function getTemplates() { return (await db.get(STORE, 'templates')) || []; }
 
+// ── Training plans ────────────────────────────────────────────────────────────
+// A PLAN is the container a set of routines belongs to — what a library split
+// becomes when you add it, or a group you build yourself. Before this, adding a
+// split exploded its days into the one flat `templates` array with nothing
+// linking them, so three splits read as twelve unrelated routines and there was
+// no way to say "I'm running THIS one now".
+//
+//   'plans'       → [{ id, name, splitId?, tagline?, routineIds:[], createdAt }]
+//   'active-plan' → planId | null   (the plan Today/Plan/Coach work from)
+//
+// `templates` keeps its exact shape — a plan holds routine IDS, not copies — so
+// every existing read path (renderRoutinesChooser, renderLibrary, renderPlan,
+// the coach context) keeps working untouched while the UI catches up.
+// `routineIds` is ORDERED: it is the split's day order, which is information
+// the old flatten threw away.
+async function getPlans()    { return (await db.get(STORE, 'plans')) || []; }
+async function savePlans(ps) { await db.set(STORE, 'plans', ps); db.backup(); }
+async function getActivePlanId() { return (await db.get(STORE, 'active-plan')) || null; }
+
+// Resolve the active plan against the stored list. A dangling active-plan id
+// (its plan was deleted) falls back to the first plan rather than leaving the
+// app with no active plan at all.
+function resolveActivePlan(plans, activeId) {
+  if (!plans.length) return null;
+  return plans.find(p => p.id === activeId) || plans[0];
+}
+async function getActivePlan() {
+  const [plans, activeId] = await Promise.all([getPlans(), getActivePlanId()]);
+  return resolveActivePlan(plans, activeId);
+}
+async function setActivePlan(planId) {
+  await db.set(STORE, 'active-plan', planId || null);
+  db.backup();
+}
+
+// The plan a routine belongs to, or null if it is unfiled.
+function planOfRoutine(plans, tid) {
+  return plans.find(p => (p.routineIds || []).includes(tid)) || null;
+}
+
+// Templates of a plan, in the plan's own order. Dangling ids (a routine deleted
+// without pruning) are skipped rather than rendering as holes.
+function routinesOfPlan(plan, templates) {
+  if (!plan) return [];
+  const byId = new Map(templates.map(t => [t.id, t]));
+  return (plan.routineIds || []).map(id => byId.get(id)).filter(Boolean);
+}
+
+// Routines in no plan at all — imported before plans existed, or orphaned.
+function unfiledRoutines(plans, templates) {
+  const filed = new Set(plans.flatMap(p => p.routineIds || []));
+  return templates.filter(t => !filed.has(t.id));
+}
+
+async function createPlan({ name, splitId = null, tagline = null, routineIds = [], makeActive = false }) {
+  const plans = await getPlans();
+  const plan = {
+    id: uid(), name,
+    ...(splitId ? { splitId } : {}),
+    ...(tagline ? { tagline } : {}),
+    routineIds: [...routineIds],
+    createdAt: new Date().toISOString(),
+  };
+  plans.push(plan);
+  await savePlans(plans);
+  if (makeActive || plans.length === 1) await setActivePlan(plan.id);
+  return plan;
+}
+
+// The plan new routines land in. Falls back to creating one so a routine can
+// never be saved into nowhere.
+async function ensureDefaultPlan() {
+  const active = await getActivePlan();
+  if (active) return active;
+  return createPlan({ name: 'My routines', makeActive: true });
+}
+
+async function addRoutinesToPlan(planId, tids) {
+  if (!tids.length) return;
+  const plans = await getPlans();
+  const plan = plans.find(p => p.id === planId);
+  if (!plan) return;
+  plan.routineIds = plan.routineIds || [];
+  for (const tid of tids) if (!plan.routineIds.includes(tid)) plan.routineIds.push(tid);
+  await savePlans(plans);
+}
+
+// Strip a routine id from every plan. Called on delete — a plan holding a
+// deleted id renders a hole and breaks its own ordering.
+async function removeRoutineFromPlans(tid) {
+  const plans = await getPlans();
+  let changed = false;
+  for (const p of plans) {
+    const next = (p.routineIds || []).filter(id => id !== tid);
+    if (next.length !== (p.routineIds || []).length) { p.routineIds = next; changed = true; }
+  }
+  if (changed) await savePlans(plans);
+}
+
+// ── The single funnel every routine write goes through ───────────────────────
+// Before this there were five independent `templates.push({id: uid(), ...})`
+// sites and NO way to update a routine in place — "editing" one meant saving a
+// duplicate and deleting the original, which silently orphaned its week-plan
+// day assignments. `putTemplate` preserves the id, so an edit keeps its
+// schedule, its plan membership and its history association.
+async function putTemplate(tpl, { planId } = {}) {
+  const templates = await getTemplates();
+  const i = templates.findIndex(t => t.id === tpl.id);
+  if (i !== -1) templates[i] = { ...templates[i], ...tpl };
+  else          templates.push(tpl);
+  await db.set(STORE, 'templates', templates);
+  db.backup();
+  if (i === -1) {
+    const plan = planId ? { id: planId } : await ensureDefaultPlan();
+    await addRoutinesToPlan(plan.id, [tpl.id]);
+  }
+  return tpl;
+}
+
+// Add several routines at once (a split). Returns the created ids in order.
+async function addTemplates(tpls, { planId } = {}) {
+  const templates = await getTemplates();
+  templates.push(...tpls);
+  await db.set(STORE, 'templates', templates);
+  db.backup();
+  const plan = planId ? { id: planId } : await ensureDefaultPlan();
+  await addRoutinesToPlan(plan.id, tpls.map(t => t.id));
+  return tpls.map(t => t.id);
+}
+
+// ── One-time migration ───────────────────────────────────────────────────────
+// Folds a pre-plans install's flat `templates` into a single plan, in the order
+// they were saved, and makes it active. Runs after the cloud restore so it sees
+// the real templates rather than an empty local store. Idempotent: the flag
+// syncs, so a second device won't build a second plan over the same routines.
+async function ensurePlansMigrated() {
+  if (await db.get(STORE, 'plans-migrated')) return;
+  const [plans, templates] = await Promise.all([getPlans(), getTemplates()]);
+  if (!plans.length && templates.length) {
+    await createPlan({ name: 'My routines', routineIds: templates.map(t => t.id), makeActive: true });
+  } else if (plans.length) {
+    // Plans already exist (restored from another device) — just catch any
+    // routine that predates them so nothing sits unfiled.
+    const orphans = unfiledRoutines(plans, templates);
+    if (orphans.length) {
+      const target = resolveActivePlan(plans, await getActivePlanId());
+      if (target) await addRoutinesToPlan(target.id, orphans.map(t => t.id));
+    }
+  }
+  await db.set(STORE, 'plans-migrated', true);
+  db.backup();
+}
+
 async function seedMyRoutinesOnce() {
   const done = await db.get(STORE, 'my-routines-seeded');
   if (done) return;
   const templates = await getTemplates();
   const existingNames = new Set(templates.map(t => t.name));
-  for (const day of MY_ROUTINES) {
-    if (existingNames.has(day.name)) continue;
-    templates.push({ id: uid(), name: day.name, exercises: day.exercises });
+  const fresh = MY_ROUTINES
+    .filter(day => !existingNames.has(day.name))
+    .map(day => ({ id: uid(), name: day.name, exercises: day.exercises }));
+  if (fresh.length) {
+    // The seed IS a split (Upper/Lower + Push/Pull/Legs hypertrophy), so it gets
+    // its own plan in MY_ROUTINES order rather than landing in whatever plan
+    // happened to be active.
+    const plan = await createPlan({ name: 'My split', makeActive: true });
+    await addTemplates(fresh, { planId: plan.id });
   }
-  await db.set(STORE, 'templates', templates);
   await db.set(STORE, 'my-routines-seeded', true);
 }
 
@@ -3295,20 +3463,23 @@ function openSaveTemplateModal() {
 document.getElementById('templateNameSave').onclick = async () => {
   const name = document.getElementById('templateNameInput').value.trim();
   if (!name) return;
-  const templates = await getTemplates();
-  templates.push({
-    id: uid(), name,
+  // `editingTemplateId` is set when this session was opened to edit an existing
+  // routine — reusing its id is what keeps week-plan day assignments, plan
+  // membership and the routine's own identity intact instead of saving a
+  // duplicate the user then has to delete.
+  await putTemplate({
+    id: editingTemplateId || uid(), name,
     exercises: activeSession.exercises.map(e => ({
       name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
       ...(e.supersetId ? { supersetId: e.supersetId } : {}),
       sets: e.sets.map(s => ({ weight: s.weight || s.tW || 0, reps: s.reps || s.tR || 0, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
     })),
   });
-  await db.set(STORE, 'templates', templates);
   document.getElementById('templateNameModal').classList.remove('open');
 
   if (routineMode) {
     routineMode = false;
+    editingTemplateId = null;
     activeSession = null;
     clearActiveSessionStore();
     document.getElementById('activeWorkout').classList.remove('visible');
@@ -3427,30 +3598,45 @@ function openSplitDetail(splitId) {
   libraryDetailEl.classList.add('visible');
 }
 
+// Adding a split creates a PLAN carrying the split's identity, with its days as
+// that plan's routines in order. It used to flatten the days into the shared
+// `templates` array and skip any whose NAME already existed — which silently
+// added nothing when two splits share a day name (ROUTINE_LIBRARY really does
+// have `Full Body A`/`B` in both full-body-3day and minimalist-2day, with
+// different exercises) and then claimed the split was already added. Identity
+// is the split id now, so same-named days across different plans are fine.
 document.getElementById('libraryAddBtn').onclick = async () => {
   const split = ROUTINE_LIBRARY.find(s => s.id === openSplitId);
   if (!split) return;
-  const templates = await getTemplates();
-  const existingNames = new Set(templates.map(t => t.name));
-  let added = 0;
-  for (const day of split.days) {
-    if (existingNames.has(day.name)) continue;
-    templates.push({
-      id: uid(), name: day.name,
-      exercises: day.exercises.map(e => ({
-        name: e.name, category: e.category, restTime: e.restTime,
-        sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, type: s.type })),
-      })),
-    });
-    added++;
+  const plans = await getPlans();
+  const already = plans.find(p => p.splitId === split.id);
+  if (already) {
+    await setActivePlan(already.id);
+    libraryDetailEl.classList.remove('visible');
+    libraryEl.classList.remove('visible');
+    renderDashboard();
+    alert(`"${split.name}" is already one of your plans — it's now your active plan.`);
+    return;
   }
-  await db.set(STORE, 'templates', templates);
+  const plan = await createPlan({
+    name: split.name, splitId: split.id, tagline: split.tagline || null, makeActive: true,
+  });
+  // logType and supersetId were dropped here while every other save path kept
+  // them, so a kettlebell-carry day lost its duration typing and a paired
+  // superset came back ungrouped.
+  await addTemplates(split.days.map(day => ({
+    id: uid(), name: day.name,
+    exercises: day.exercises.map(e => ({
+      name: e.name, category: e.category, restTime: e.restTime,
+      logType: resolveLogType(e),
+      ...(e.supersetId ? { supersetId: e.supersetId } : {}),
+      sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
+    })),
+  })), { planId: plan.id });
   libraryDetailEl.classList.remove('visible');
   libraryEl.classList.remove('visible');
   renderDashboard();
-  alert(added > 0
-    ? `Added ${added} routine${added > 1 ? 's' : ''} from "${split.name}" — find them on your dashboard.`
-    : `"${split.name}" is already in your routines.`);
+  alert(`Added "${split.name}" — ${split.days.length} routines, now your active plan.`);
 };
 
 // ── Streak (weekly, with an editable seed) ────────────────────────
@@ -3652,11 +3838,20 @@ function updateCoachBadge() {
 // the mode is gone: the sheet now lists routines in recommended order, newest-due
 // first, which is the same thing the hero is telling you. Delete is a visible
 // button rather than a hidden long-press.
+// Deleting a routine used to filter `templates` and nothing else, leaving every
+// Plan-tab day assigned to it pointing at an id that no longer resolves — the
+// day silently reverted to "Open" and the user's planned week evaporated. Prune
+// both the week plan and plan membership alongside the routine itself.
 async function deleteRoutine(id) {
   const ts = await getTemplates();
   const t = ts.find(x => x.id === id);
   if (!confirm(`Delete routine "${t?.name || ''}"? This can't be undone.`)) return;
   await db.set(STORE, 'templates', ts.filter(x => x.id !== id));
+  await removeRoutineFromPlans(id);
+  const map = await getWeekPlanMap();
+  let touched = false;
+  for (const [date, tid] of Object.entries(map)) if (tid === id) { delete map[date]; touched = true; }
+  if (touched) await db.set(STORE, 'week-plan', map);
   db.backup();
   renderDashboard();
 }
@@ -4424,18 +4619,16 @@ document.getElementById('hdDateSave').onclick = async () => {
   renderDashboard();
 };
 
-async function saveTemplate(name, exercises) {
-  const templates = await getTemplates();
-  templates.push({
+async function saveTemplate(name, exercises, { planId, quiet = false } = {}) {
+  await putTemplate({
     id: uid(), name,
     exercises: exercises.map(e => ({
       name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
       ...(e.supersetId ? { supersetId: e.supersetId } : {}),
       sets: e.sets.filter(s => s.done||s.weight||s.reps||s.duration||s.distance).map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
     })),
-  });
-  await db.set(STORE, 'templates', templates);
-  alert('Saved as routine!');
+  }, { planId });
+  if (!quiet) alert('Saved as routine!');
 }
 
 // Live mm:ss mask for the history-edit time fields (same behaviour as the
@@ -5627,7 +5820,7 @@ async function applyRoutineEdit(sug) {
       }
     }
   }
-  await db.set(STORE, 'templates', templates);
+  await putTemplate(t);
   renderDashboard();
   return true;
 }
@@ -5735,18 +5928,17 @@ function renderSplitCard(split) {
     </div>`;
   card.querySelector('.cs-save-all').onclick = async ev => {
     const btn = ev.currentTarget; btn.disabled = true;
-    const templates = await getTemplates();
-    for (const r of routines) {
-      templates.push({
-        id: uid(), name: r.name,
-        exercises: r.exercises.map(e => ({
-          name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
-          sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
-        })),
-      });
-    }
-    await db.set(STORE, 'templates', templates);
-    db.backup();
+    // A coach-drafted split is a plan, same as one added from the library —
+    // its days belong together and in this order.
+    const plan = await createPlan({ name: split.name || 'Coach split', makeActive: true });
+    await addTemplates(routines.map(r => ({
+      id: uid(), name: r.name,
+      exercises: r.exercises.map(e => ({
+        name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
+        ...(e.supersetId ? { supersetId: e.supersetId } : {}),
+        sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
+      })),
+    })), { planId: plan.id });
     renderDashboard();
     btn.textContent = `✓ Saved ${routines.length} routines`;
   };
@@ -6080,6 +6272,7 @@ try { await Promise.race([restore, new Promise(r => setTimeout(r, 12000))]); } c
 await loadExOverrides();   // library edits (exercise types/categories) before any render
 await loadExAliases();     // exercise identity merges — before any history render
 loadBarWeight();           // remembered barbell weight for the plate calculator (non-blocking)
+await ensurePlansMigrated();   // fold pre-plans flat routines into one plan
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
