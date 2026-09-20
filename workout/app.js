@@ -3962,8 +3962,14 @@ document.getElementById('reSave').onclick = async () => {
   }
 };
 
-// Move a routine between plans (or out of all of them).
+// Move a routine between plans (or out of all of them). A no-op when it is
+// already where it should be: `routineIds` is the split's DAY ORDER, and a
+// remove-then-add would silently drop the routine to the bottom of its plan
+// every time you edited it.
 async function setRoutinePlan(tid, planId) {
+  const plans = await getPlans();
+  const current = planOfRoutine(plans, tid);
+  if ((current?.id || null) === (planId || null)) return;
   await removeRoutineFromPlans(tid);
   if (planId) await addRoutinesToPlan(planId, [tid]);
 }

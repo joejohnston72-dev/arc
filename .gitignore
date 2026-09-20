@@ -7,3 +7,6 @@ design/**/*.built.html
 
 # Seeded design-canvas output for the UX rebuild
 design/ux-rebuild/arc-ux-rebuild.html
+
+# Test artefacts
+test/e2e/shots/

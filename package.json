@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "name": "arc",
+  "description": "Test-only manifest. Arc itself has NO build step and no runtime dependencies — this exists so `node test/run-e2e.mjs` can resolve Playwright. Nothing here is served or shipped.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/unit/logic.test.mjs && node test/run-e2e.mjs",
+    "test:unit": "node test/unit/logic.test.mjs",
+    "test:e2e": "node test/run-e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

@@ -28,7 +28,7 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v81** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v82** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
@@ -42,8 +42,11 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 - **Auth:** Supabase email **OTP code** (not magic link). Session faked in preview via `localStorage['sb-xjcnkivlkfzdycbyxxlx-auth-token']`.
 - **Service worker:** network-first + `cache:'no-cache'`; auto-updates (polls every 60s, reloads on controllerchange). If updates won't land: delete PWA + re-add.
 
-## Verifying in preview (how I test)
-`preview_start` name `life-dashboard` (port 3457, in `~/.claude/launch.json`). Then `preview_eval` to set a fake Supabase token in localStorage and navigate to `/workout/`. Drive the UI via dispatched events; assert via IndexedDB reads. Screenshot for visual checks.
+## Verifying (how I test)
+**`npm test`** — no build step, no framework, plain Node scripts under `test/`. Nothing there ships (`package.json` is a test-only manifest; `node_modules/` and `test/e2e/shots/` are gitignored).
+- **`test/unit/logic.test.mjs`** — `app.js` is one non-modular script that touches the DOM at load, so it can't be imported. Each function under test is **sliced out of the real file by brace matching** and evaluated with stubs, so a test can never pass against a stale copy: rename a function and the slice throws instead of silently testing nothing.
+- **`test/e2e/*.test.mjs`** — serves the repo over HTTP and drives it in Chromium via Playwright. Exactly two things are faked: `test/e2e/supabase-stub.js` is routed in over `shared/supabase.js` (the real one pulls the SDK from a CDN and every sync call would hit Supabase), and `sw.js` is 404'd so a stale service-worker cache can't mask a change. **Assertions read IndexedDB, not the DOM**, wherever the question is "what was actually stored". Screenshots land in `test/e2e/shots/`. `ARC_CHROME=<path>` points at a Chromium binary when Playwright's bundled one isn't present (in the cloud sandbox: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`).
+- Harness noise (the deliberate sw.js 404, the aborted CDN) is filtered in `harness.mjs`, so a suite failing on `page errors` means a real one.
 
 ## Modules
 - **Architecture:** **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and **Arc** (`workout/`) are independent home-screen PWAs on a shared Supabase project. Arc reads today's nutrition from the shared `calories` store and links out to CalorieAI (`CALORIE_APP_URL`, `getNutritionToday()`), but is otherwise standalone.
