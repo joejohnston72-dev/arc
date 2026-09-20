@@ -4177,23 +4177,13 @@ document.getElementById('libraryAddBtn').onclick = async () => {
 };
 
 // ── Streak (weekly, with an editable seed) ────────────────────────
-async function renderStreakChip(sessions) {
-  const settings = await getStreakSettings();
-  const { weeks, thisWeekCount, target } = computeStreak(sessions, settings);
-  const el = document.getElementById('streakChip');
-  if (!el) return;
-  const flame = `<span style="color:var(--amber);display:inline-flex;vertical-align:-0.2em">${icon('flame', { size: 16 })}</span>`;
-  el.innerHTML = weeks > 0
-    ? `${flame} <strong>${weeks}-week streak</strong> · ${thisWeekCount}/${target} this week`
-    : `${flame} ${thisWeekCount}/${target} workouts this week`;
-}
-
-document.getElementById('streakChip').onclick = async () => {
+async function openStreakSettings() {
   const s = await getStreakSettings();
   document.getElementById('streakSeedInput').value   = s.seed || '';
   document.getElementById('streakTargetInput').value = s.target || 3;
   document.getElementById('streakModal').classList.add('open');
-};
+}
+
 document.getElementById('streakCancel').onclick = () => document.getElementById('streakModal').classList.remove('open');
 document.getElementById('streakModal').addEventListener('click', e => {
   if (e.target === document.getElementById('streakModal')) document.getElementById('streakModal').classList.remove('open');
@@ -4207,7 +4197,7 @@ document.getElementById('streakSave').onclick = async () => {
     seedDate: seed !== prev.seed ? new Date().toISOString().slice(0,10) : (prev.seedDate || new Date().toISOString().slice(0,10)),
   });
   document.getElementById('streakModal').classList.remove('open');
-  renderStreakChip(await loadSessions());
+  renderDashboard();   // the streak tile shows the new target
 };
 
 // ── Skeleton loaders (shown while IndexedDB/stats resolve) ────────────────────
@@ -4366,14 +4356,6 @@ function emptyHeroCard() {
         <button class="ph-link" id="phBrowse">${icon('book-open', { size: 13 })} Browse splits</button>
       </div>
     </div>`;
-}
-
-// The Coach tab no longer carries an attention sticker — proactive coach content
-// lives on Home now (renderDashCoach), so there's nothing to badge here. Kept as a
-// guaranteed clear so any previously-stuck badge is removed on the next render.
-function updateCoachBadge() {
-  const tab = document.querySelector('.tab[data-tab="Coach"]');
-  tab?.querySelector('.tab-badge')?.remove();
 }
 
 // Routines list lives in the Swap sheet. It used to double as an order editor —
@@ -4623,7 +4605,6 @@ async function renderDashboard() {
   // flat list so the hero is never empty while routines exist.
   const planRoutines = activePlan ? routinesOfPlan(activePlan, templates) : templates;
   renderRoutinesChooser(templates, activePlan, planRoutines);
-  renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
   const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' });
@@ -4655,16 +4636,19 @@ async function renderDashboard() {
     : `<div><div class="snap-val">Calories</div><div class="snap-lbl">via CalorieAI</div></div><div class="snap-sub flat">Open ${icon('arrow-right', { size: 11 })}</div>`;
   const tilesHTML = `
     <div class="dash-snapshot">
-      <div class="snap-tile" id="tileStreak">
+      <div class="snap-tile" id="tileStreak" role="button" tabindex="0" aria-label="Streak settings">
+        <span class="snap-go">${icon('chevron-right', { size: 13 })}</span>
         <span class="snap-ico" style="background:rgba(var(--amber-rgb),0.14);color:var(--amber)">${icon('flame', { size: 16 })}</span>
         <div><div class="snap-val">${streakVal}</div><div class="snap-lbl">Streak</div></div>
         <div class="snap-sub flat">${thisWeekCount} / ${target} this week</div>
       </div>
-      <div class="snap-tile" id="tileBody">
+      <div class="snap-tile" id="tileBody" role="button" tabindex="0" aria-label="Log bodyweight">
+        <span class="snap-go">${icon('chevron-right', { size: 13 })}</span>
         <span class="snap-ico" style="background:rgba(var(--blue-rgb),0.14);color:var(--blue)">${icon('scale', { size: 16 })}</span>
         ${bodyTile}
       </div>
-      <div class="snap-tile" id="tileCal">
+      <div class="snap-tile" id="tileCal" role="button" tabindex="0" aria-label="Open CalorieAI">
+        <span class="snap-go">${icon('arrow-up-right', { size: 13 })}</span>
         ${calRing}
         ${calTile}
       </div>
@@ -4690,7 +4674,7 @@ async function renderDashboard() {
     libSegment = 'plans';
     renderLibrary().then(() => document.getElementById('libBrowseSplits')?.click());
   });
-  dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
+  dashTop.querySelector('#tileStreak')?.addEventListener('click', openStreakSettings);
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
 
@@ -4698,7 +4682,6 @@ async function renderDashboard() {
   // base of operations, rendered into #dashCoach below the snapshot. The Coach tab
   // is reserved for direct questions, so it carries no attention sticker.
   renderDashCoach(sessions);
-  updateCoachBadge();
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
@@ -5081,13 +5064,13 @@ function renderHistoryDetailBody() {
 
   body.innerHTML = `
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="stat-box" id="hdDateBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;min-width:80px;text-align:center;cursor:pointer">
+      <div class="stat-box hd-editable" id="hdDateBox" role="button" tabindex="0" style="min-width:80px">
         <div class="stat-val">${fmtDate(s.date||s.startTime||'')}</div>
-        <div class="stat-label">Date ${icon('pencil', { size: 11 })}</div>
+        <div class="stat-label">${icon('pencil', { size: 11 })} Edit date</div>
       </div>
-      <div class="stat-box" id="hdDurBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center;cursor:pointer">
+      <div class="stat-box hd-editable" id="hdDurBox" role="button" tabindex="0">
         <div class="stat-val">${fmtTime(s.duration||0)}</div>
-        <div class="stat-label">Duration ${icon('pencil', { size: 11 })}</div>
+        <div class="stat-label">${icon('pencil', { size: 11 })} Edit duration</div>
       </div>
       <div class="stat-box" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center">
         <div class="stat-val">${Math.round(vol).toLocaleString()}</div>

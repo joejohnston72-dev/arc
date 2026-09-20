@@ -71,13 +71,6 @@
       font-size:0.68rem; font-weight:500; cursor:pointer; position:relative;
       display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
     }
-    .tab-badge {
-      position:absolute; top:2px; left:calc(50% + 6px);
-      min-width:16px; height:16px; padding:0 4px; box-sizing:border-box;
-      border-radius:8px; background:var(--blue); color:#000;
-      font-size:0.6rem; font-weight:700; line-height:1;
-      display:flex; align-items:center; justify-content:center;
-    }
     .tab .ti { font-size:1.1rem; display:flex; align-items:center; justify-content:center; height:22px; color:currentColor; }
     .tab.active { color: var(--blue); }
 
@@ -273,10 +266,11 @@
     .wc-date  { font-size:0.72rem; color:var(--text-muted); }
     .wc-meta  { font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; }
     .wc-exercises { display:flex; flex-wrap:wrap; gap:5px; }
-    .wc-ex-tag {
-      font-size:0.68rem; background:var(--surface2); border-radius:5px;
-      padding:2px 8px; color:var(--text-muted);
-    }
+    /* These were pills on --surface2 with a radius — the same treatment as
+       .lib-chip and .rl-pill, which ARE filters you tap. They are a read-only
+       list of what was in the session, so they read as text now. */
+    .wc-ex-tag { font-size:0.68rem; color:var(--text-muted); }
+    .wc-ex-tag:not(:last-child)::after { content:' ·'; color:#4b4b52; }
     .template-card {
       background: var(--surface); border:1px solid var(--border); border-radius: 12px;
       border-left: 4px solid var(--amber);
@@ -739,13 +733,6 @@
     .ep-else-head { font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); padding:14px 0 6px; border-top:1px solid var(--border); margin-top:6px; }
 
     /* ── Streak chip ── */
-    #streakChip {
-      display:flex; align-items:center; justify-content:center; gap:6px;
-      background:var(--surface); border:1px solid rgba(251,191,36,0.25); border-radius:12px;
-      color:var(--text); font-size:0.85rem; padding:10px 14px; margin-bottom:14px;
-      cursor:pointer; -webkit-tap-highlight-color:transparent; width:100%;
-    }
-    #streakChip strong { color:var(--amber); }
 
     /* ── PB toast ── */
     #pbToast {
@@ -1071,7 +1058,9 @@
     .dash-weekly { background:var(--surface); border:1px solid rgba(52,211,153,0.28); border-radius:var(--radius); padding:16px; }
     .dw-eyebrow { display:inline-flex; align-items:center; gap:6px; font-size:0.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--green); }
     .dw-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:12px; }
-    .dw-stat { background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:10px 8px; text-align:center; }
+    /* Bordered boxes on --surface2, i.e. exactly .snap-tile, which IS tappable.
+       Same shape, no border, no press state: a readout, not a control. */
+    .dw-stat { background:rgba(255,255,255,0.04); border-radius:11px; padding:10px 8px; text-align:center; }
     .dw-n { font-size:1.15rem; font-weight:700; font-variant-numeric:tabular-nums; }
     .dw-n.up { color:var(--green); } .dw-n.warn { color:var(--amber); }
     .dw-k { font-size:0.6rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-top:3px; }
@@ -1522,7 +1511,21 @@
     .snap-tile {
       background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:11px 12px;
       display:flex; flex-direction:column; gap:8px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+      position:relative;
     }
+    /* All three of these open something — one of them leaves the app entirely —
+       and none of them said so. The corner glyph is the affordance: a chevron
+       for in-app, an out-arrow for CalorieAI. */
+    .snap-go { position:absolute; top:9px; right:9px; color:#4b4b52; display:flex; pointer-events:none; }
+    /* The two editable boxes in a history detail sat among read-only stat boxes
+       with only an 11px pencil to distinguish them. */
+    .hd-editable {
+      background:var(--surface); border:1px solid rgba(56,189,248,0.3); border-radius:10px;
+      padding:10px 14px; text-align:center; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    }
+    .hd-editable:active { background:var(--surface2); }
+    .hd-editable .stat-label { color:var(--blue); display:inline-flex; align-items:center; gap:4px; }
+    .snap-tile:active .snap-go { color:var(--blue); }
     .snap-tile:active { background:var(--surface2); }
     .snap-ico { width:26px; height:26px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; }
     .snap-val { font-size:1.02rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.05; }
@@ -1689,8 +1692,10 @@
     .ed-id-chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
     .ed-id-chip { display:inline-flex; align-items:center; gap:5px; font-size:0.8rem; font-weight:600; color:var(--text);
       background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:6px 6px 6px 11px; }
+    /* This un-merges an exercise identity — a destructive-ish action that was a
+       12px hit target. 32px minimum, like everything else you can tap. */
     .ed-id-x { display:inline-flex; align-items:center; justify-content:center; background:none; border:none; color:var(--text-muted);
-      cursor:pointer; padding:2px; border-radius:6px; -webkit-tap-highlight-color:transparent; }
+      cursor:pointer; padding:7px; margin:-7px -4px -7px 0; border-radius:6px; -webkit-tap-highlight-color:transparent; }
     .ed-id-x:active { color:var(--red); background:rgba(var(--red-rgb),0.12); }
     .ed-id-merge { display:inline-flex; align-items:center; gap:7px; font-size:0.82rem; font-weight:700; color:var(--blue);
       background:rgba(var(--blue-rgb),0.10); border:1px solid rgba(var(--blue-rgb),0.3); border-radius:11px; padding:10px 13px; cursor:pointer;
@@ -1758,7 +1763,6 @@
 
   <!-- Dashboard -->
   <div class="section active" id="secDashboard">
-    <button id="streakChip" data-tip="Streak settings" title="Streak settings" style="display:none"></button>
     <div id="dashTop"></div>
 
     <div id="dashCoach"></div>
