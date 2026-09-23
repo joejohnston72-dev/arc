@@ -1,0 +1,341 @@
+<title>ARC Week Ring</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Google+Sans:400,500,700&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#131518; --surface:#1c1f23; --surface2:#262a2f;
+    --text:#e8eaed; --muted:#979ca4; --faint:#6b7078; --border:rgba(255,255,255,0.10);
+    --blue:#9fb8cc; --teal:#8fc2bb; --orange:#d6b48e; --purple:#b3aad6;
+    --amber:#d8b774; --green:#93c2a4; --red:#d88685; --on-accent:#142029;
+    --sw:1.5; --ease:cubic-bezier(.2,.8,.2,1);
+    --font:'Google Sans','Product Sans',Roboto,-apple-system,system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:15px/1.5 var(--font); margin:0; }
+  .wrap { max-width:1000px; margin:0 auto; padding-inline:20px; padding-block:32px 80px; }
+  h1 { font-size:2rem; font-weight:700; letter-spacing:-0.5px; margin:0; }
+  h2 { font-size:1.15rem; font-weight:700; letter-spacing:-0.3px; margin:0 0 4px; }
+  .eyebrow { font-size:.7rem; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .lede { color:var(--muted); max-width:64ch; margin:8px 0 0; }
+  .sub { color:var(--muted); font-size:.88rem; margin:0; max-width:66ch; }
+  section { margin-top:44px; display:grid; gap:16px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+  .chip { font-size:.76rem; font-weight:500; background:var(--surface2); border-radius:8px; padding:4px 9px; color:var(--muted); }
+  .chip b { color:var(--text); font-weight:500; }
+
+  /* Icons (B · duotone) */
+  .ic { display:block; flex:none; overflow:visible; }
+  .ic .ln { fill:none; stroke:currentColor; stroke-width:var(--sw); stroke-linecap:round; stroke-linejoin:round; }
+  .ic .fl { fill:var(--tint,currentColor); fill-opacity:var(--fo,.26); stroke:none; }
+
+  /* Story */
+  .story { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:12px; align-items:center;
+    background:var(--surface); border-radius:18px; padding:22px; }
+  .step { display:grid; justify-items:center; gap:10px; text-align:center; }
+  .step p { margin:0; font-size:.84rem; color:var(--muted); max-width:24ch; }
+  .step b { color:var(--text); font-weight:500; display:block; }
+  .arrow { color:var(--faint); font-size:1.2rem; }
+  .step .apptile { width:96px; height:96px; border-radius:22.5%; overflow:hidden; }
+  @media (max-width:640px){ .story { grid-template-columns:1fr; } .arrow { transform:rotate(90deg); justify-self:center; } }
+
+  /* Marks */
+  .marks { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  .mark { background:var(--surface); border-radius:16px; padding:16px; display:grid; gap:10px; align-content:start; }
+  .mark .big { width:100%; max-width:150px; aspect-ratio:1; border-radius:22.5%; overflow:hidden; }
+  .mark svg { display:block; width:100%; height:100%; }
+  .mark .sizes { display:flex; align-items:end; gap:10px; }
+  .mark .sm { overflow:hidden; border-radius:22.5%; flex:none; }
+  .mark b { font-size:.95rem; }
+  .mark .k { font:700 .7rem var(--font); color:var(--muted); }
+  .mark p { margin:0; font-size:.82rem; color:var(--muted); }
+
+  /* Phones */
+  .phones { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:20px; justify-items:center; }
+  .phone-wrap { display:grid; gap:10px; justify-items:center; width:100%; max-width:360px; }
+  .phone-cap { font-size:.84rem; color:var(--muted); text-align:center; }
+  .phone-cap b { color:var(--text); font-weight:500; }
+  .phone { width:100%; max-width:360px; background:var(--bg); border:1px solid var(--border); border-radius:40px;
+    overflow:hidden; display:flex; flex-direction:column; height:700px; position:relative; box-shadow:0 30px 60px -30px #000; }
+  .screen { flex:1; padding:22px 16px 0; display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+  .status { display:flex; justify-content:space-between; font-size:.72rem; font-weight:700; padding:0 8px; }
+
+  .datehead { display:flex; align-items:center; gap:12px; }
+  .datehead .dt { flex:1; }
+  .weekday { font-size:1.5rem; font-weight:700; letter-spacing:-0.6px; line-height:1.1; }
+  .weekmeta { font-size:.72rem; color:var(--muted); }
+  .wk { position:relative; width:52px; height:52px; flex:none; }
+  .wk svg { width:100%; height:100%; display:block; }
+  .wk .n { position:absolute; inset:0; display:grid; place-items:center; font-size:.7rem; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  .next-card { border-radius:22px; padding:16px; display:grid; gap:8px;
+    background:linear-gradient(165deg, color-mix(in srgb, var(--blue) 15%, var(--surface)), var(--surface) 72%);
+    border:1px solid rgba(159,184,204,.24); box-shadow:0 18px 34px -24px rgba(159,184,204,.55); }
+  .next-eyebrow { display:flex; align-items:center; gap:5px; font-size:.64rem; font-weight:700; letter-spacing:.06em; color:var(--blue); }
+  .next-name { font-size:1.25rem; font-weight:700; letter-spacing:-0.4px; }
+  .next-rat { font-size:.78rem; color:var(--muted); line-height:1.45; }
+  .next-actions { display:flex; gap:8px; margin-top:4px; }
+  .next-start { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; background:var(--blue); color:var(--on-accent);
+    border-radius:14px; padding:11px; font-weight:700; font-size:.86rem; }
+  .next-more { display:flex; align-items:center; gap:5px; background:var(--surface2); border-radius:14px; padding:11px 13px; font-size:.8rem; font-weight:500; }
+
+  .snap { display:grid; grid-template-columns:.9fr 1fr 1fr; gap:8px; }
+  .tile { display:flex; flex-direction:column; gap:7px; background:var(--surface); border-radius:14px; padding:10px; }
+  .tile.open { background:none; border-right:1px solid var(--border); border-radius:0; padding:8px 10px 8px 2px; }
+  .tile .ico { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; }
+  .sv { font-size:1rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.05; }
+  .sl { font-size:.56rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-top:3px; }
+  .ss { font-size:.62rem; color:var(--muted); }
+  .cal { position:relative; width:30px; height:30px; }
+  .cal span { position:absolute; inset:0; display:grid; place-items:center; font-size:.5rem; font-weight:700; color:var(--orange); }
+
+  .coach-note { background:rgba(179,170,214,.10); border-radius:20px 20px 20px 6px; padding:12px 14px; display:flex; gap:9px; font-size:.78rem; line-height:1.45; }
+  .coach-note .ic { color:var(--purple); }
+  .done-banner { display:flex; align-items:center; gap:8px; font-size:.78rem; background:rgba(216,183,116,.10); color:var(--text); border-radius:14px; padding:10px 12px; }
+  .done-banner .ic { color:var(--amber); }
+
+  .tabbar { display:flex; background:rgba(28,31,35,.92); border-top:1px solid var(--border); padding:8px 4px 22px; }
+  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; font-size:.64rem; font-weight:500; color:var(--muted); }
+  .tab.on { color:var(--pc); }
+
+  /* Splash */
+  .splash { flex:1; display:grid; place-items:center; align-content:center; gap:18px; }
+  .splash .logo { width:112px; height:112px; }
+  .splash .wm { font-size:1.6rem; font-weight:700; letter-spacing:-0.02em; }
+  .splash .tag { font-size:.8rem; color:var(--muted); margin-top:-12px; }
+  .draw path { stroke-dasharray:var(--len); stroke-dashoffset:0; animation:draw 1.1s var(--ease) both; animation-delay:var(--d); }
+  @keyframes draw { from { stroke-dashoffset:var(--len); } }
+  .replay { font:500 .8rem var(--font); color:var(--text); background:var(--surface2); border:0; border-radius:10px; padding:7px 12px; cursor:pointer; }
+  .replay:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+  @media (prefers-reduced-motion:reduce){ .draw path { animation:none; } }
+
+  .family { display:flex; flex-wrap:wrap; gap:28px; align-items:center; background:var(--surface); border-radius:16px; padding:20px; }
+  .family figure { margin:0; display:grid; justify-items:center; gap:8px; }
+  .family figcaption { font-size:.76rem; color:var(--muted); text-align:center; }
+
+  .decide { background:var(--surface); border-radius:16px; padding:6px 18px; }
+  .decide ol { margin:0; padding-left:18px; }
+  .decide li { padding:10px 0; border-bottom:1px solid var(--border); font-size:.9rem; }
+  .decide li:last-child { border-bottom:0; }
+  .decide span { color:var(--muted); }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">ARC · Design study · Draft 2 · 23 Sep 2026</div>
+  <h1>The week ring</h1>
+  <p class="lede">One element that is both the logo and a live part of the app. Your training week shows as a segmented ring at the top of Today. Complete the week and the ring fills in all four pillar colours, and that full ring is the app icon.</p>
+  <div class="chips">
+    <span class="chip">Icons <b>B · Duotone</b></span>
+    <span class="chip">Stroke <b>1.5</b></span>
+    <span class="chip">Tabs <b>faint fill, full when selected</b></span>
+    <span class="chip">🏆 / 🔥 <b>replaced by glyphs</b></span>
+  </div>
+
+  <section>
+    <div><h2>How it connects</h2></div>
+    <div class="story" id="story"></div>
+  </section>
+
+  <section>
+    <div><h2>Logo variants</h2><p class="sub">Four segments = four sessions, the default weekly target. Segments run clockwise from 12 o'clock, the same way every ring in the app fills. Shown at 150, 60 and 29px.</p></div>
+    <div class="marks" id="marks"></div>
+  </section>
+
+  <section>
+    <div><h2>In the app</h2><p class="sub">Today with the new ring in the date header, B icons at 1.5px and the flame and trophy glyphs in place of emoji. Mid-week the ring fills in Train blue; a complete week turns it into the logo.</p></div>
+    <div class="phones" id="phones"></div>
+  </section>
+
+  <section>
+    <div><h2>Launch</h2><p class="sub">The ring draws itself in on open instead of a blank load, so the first frame of the app is the home-screen icon.</p></div>
+    <div class="phones">
+      <div class="phone-wrap">
+        <div class="phone" style="height:520px"><div class="screen"><div class="status"><span>9:41</span><span>●●●</span></div>
+          <div class="splash"><div class="logo" id="splashLogo"></div><div class="wm">ARC</div><div class="tag">Train with intent.</div></div>
+        </div></div>
+        <button class="replay" id="replay" type="button">Replay</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div><h2>Ring family</h2><p class="sub">Every ring in the app shares one construction: round caps, a 10% white track, clockwise from 12 o'clock. Segmented rings count things; continuous rings measure amounts.</p></div>
+    <div class="family" id="family"></div>
+  </section>
+
+  <section>
+    <div><h2>To decide</h2></div>
+    <div class="decide"><ol>
+      <li>Logo: Full week, Full week + A, Mist week or Week in motion</li>
+      <li>Should the segment count follow the user's weekly target? <span>(a target of 3 draws three segments in the app; the logo always stays at four)</span></li>
+      <li>Week-complete moment: colour change only, or a short fill animation plus the trophy banner</li>
+      <li>Launch animation: yes / no</li>
+    </ol></div>
+  </section>
+</div>
+
+<script>
+const P = d => `<path d="${d}"/>`;
+const C = (cx,cy,r) => `<circle cx="${cx}" cy="${cy}" r="${r}"/>`;
+const R = (x,y,w,h,rx) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}"/>`;
+const pt = (cx,cy,r,a) => [+(cx+r*Math.cos(a*Math.PI/180)).toFixed(2), +(cy+r*Math.sin(a*Math.PI/180)).toFixed(2)];
+function arc(cx,cy,r,a0,a1){ const [x0,y0]=pt(cx,cy,r,a0),[x1,y1]=pt(cx,cy,r,a1);
+  return `M${x0} ${y0}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1} ${y1}`; }
+
+const A = {
+  home:     { l:P('M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1h-4v-5a3 3 0 0 0-6 0v5H5a1 1 0 0 1-1-1z'),
+              f:P('M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1h-4v-5a3 3 0 0 0-6 0v5H5a1 1 0 0 1-1-1z') },
+  calendar: { l:R(3.5,5,17,15,3)+P('M8 3v4M16 3v4M3.5 10h17'),
+              f:P('M6.5 5h11a3 3 0 0 1 3 3v2h-17V8a3 3 0 0 1 3-3z') },
+  progress: { l:P('M4 4v14a2 2 0 0 0 2 2h14')+P('M8 16c3.5 0 6-2.5 7.5-5.5S18.5 7 20 7'),
+              f:P('M8 16c3.5 0 6-2.5 7.5-5.5S18.5 7 20 7v10H8z') },
+  coach:    { l:P('M11 4h2a7 7 0 0 1 0 14H4v-7a7 7 0 0 1 7-7z')+P('M12 8.2c.25 1.45 1.1 2.3 2.6 2.6-1.5.3-2.35 1.15-2.6 2.6-.25-1.45-1.1-2.3-2.6-2.6 1.5-.3 2.35-1.15 2.6-2.6z'),
+              f:P('M11 4h2a7 7 0 0 1 0 14H4v-7a7 7 0 0 1 7-7z') },
+  library:  { l:P('M12 7v13')+P('M12 7C10 5.5 7 5 4 5.5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-13c-3-.5-6 0-8 1.5z'),
+              f:P('M12 7C10 5.5 7 5 4 5.5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-13c-3-.5-6 0-8 1.5z') },
+  train:    { l:R(5,6.5,3,11,1.5)+R(16,6.5,3,11,1.5)+P('M8 12h8M2.8 9.5v5M21.2 9.5v5'),
+              f:R(5,6.5,3,11,1.5)+R(16,6.5,3,11,1.5) },
+  play:     { l:P('M8 5.8v12.4a1 1 0 0 0 1.52.85l10-6.2a1 1 0 0 0 0-1.7l-10-6.2A1 1 0 0 0 8 5.8z'),
+              f:P('M8 5.8v12.4a1 1 0 0 0 1.52.85l10-6.2a1 1 0 0 0 0-1.7l-10-6.2A1 1 0 0 0 8 5.8z') },
+  timer:    { l:C(12,13,8)+P('M10 2.5h4M12 13V9'), f:P('M12 13V5a8 8 0 0 1 8 8z') },
+  check:    { l:C(12,12,9)+P('m8 12.3 2.7 2.7L16.2 9.5'), f:C(12,12,9) },
+  trophy:   { l:P('M7 4h10v5a5 5 0 0 1-10 0z')+P('M7 6H4.5v1A3 3 0 0 0 7.4 10M17 6h2.5v1a3 3 0 0 1-2.9 3M12 14v4M8 20h8'),
+              f:P('M7 4h10v5a5 5 0 0 1-10 0z') },
+  flame:    { l:P('M12 21a6 6 0 0 1-6-6c0-3 1.5-5 3-6.5 0 2 1 3 2 3.5 0-3 1-5.5 3.5-8 .5 3 4.5 6 4.5 11a6 6 0 0 1-6 6z'),
+              f:P('M12 21a6 6 0 0 1-6-6c0-3 1.5-5 3-6.5 0 2 1 3 2 3.5 0-3 1-5.5 3.5-8 .5 3 4.5 6 4.5 11a6 6 0 0 1-6 6z') },
+  fuel:     { l:P('M3.5 11h17a8.5 8.5 0 0 1-17 0z')+P('M9.5 7.5c-.8-.9-.2-1.7.4-2.5s.8-1.6 0-2.5M14.5 7.5c-.8-.9-.2-1.7.4-2.5s.8-1.6 0-2.5'),
+              f:P('M3.5 11h17a8.5 8.5 0 0 1-17 0z') },
+  weight:   { l:R(3.5,3.5,17,17,5)+P('M8 11a4 4 0 0 1 8 0M12 11l1.6-2.4'), f:R(3.5,3.5,17,17,5) },
+  plus:     { l:P('M12 5v14M5 12h14'), f:'' },
+  search:   { l:C(11,11,6.5)+P('m16 16 4.5 4.5'), f:C(11,11,6.5) },
+  edit:     { l:P('M15 4.5 19.5 9 9 19.5H4.5V15z')+P('m12.5 7 4.5 4.5'), f:P('M15 4.5 19.5 9 9 19.5H4.5V15z') },
+  sync:     { l:P('M19.5 12a7.5 7.5 0 0 1-13.3 4.8M4.5 12a7.5 7.5 0 0 1 13.3-4.8')+P('M18.5 3.5v3.8h-3.8M5.5 20.5v-3.8h3.8'), f:'' },
+  trash:    { l:P('M4 7h16M9.5 7V4.5h5V7M6 7l.9 12.1A1.5 1.5 0 0 0 8.4 20.5h7.2a1.5 1.5 0 0 0 1.5-1.4L18 7'),
+              f:P('M6 7h12l-.9 12.1a1.5 1.5 0 0 1-1.5 1.4H8.4a1.5 1.5 0 0 1-1.5-1.4z') },
+};
+
+function ic(k, { size=20, c, fo=.26, fill=true } = {}) {
+  const g = A[k];
+  const style = [c ? `--tint:var(--${c})` : '', `--fo:${fo}`].join(';');
+  return `<svg class="ic" viewBox="0 0 24 24" width="${size}" height="${size}" style="${style}" aria-hidden="true">${fill && g.f ? `<g class="fl">${g.f}</g>` : ''}<g class="ln">${g.l}</g></svg>`;
+}
+
+// ── Week ring geometry ─────────────────────────────────────────────────────
+const PILLARS = ['#9fb8cc', '#8fc2bb', '#d6b48e', '#b3aad6']; // Train, Progress, Fuel, Coach
+// n segments clockwise from 12 o'clock; visual gap `gap`° after round caps
+function segs(cx, cy, r, sw, n, gap) {
+  const cap = sw / r * 180 / Math.PI, step = 360 / n;
+  return Array.from({ length:n }, (_, i) => {
+    const a0 = -90 + i*step + (gap + cap)/2, a1 = -90 + (i+1)*step - (gap + cap)/2;
+    return { d: arc(cx, cy, r, a0, a1), len: (a1 - a0) * Math.PI / 180 * r };
+  });
+}
+const TRACK = 'rgba(255,255,255,0.10)';
+
+// In-app ring (viewBox 48)
+function weekRing(done, n = 4, { complete = false } = {}) {
+  return `<svg viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke-linecap="round" stroke-width="4.5">` +
+    segs(24, 24, 19, 4.5, n, 10).map((s, i) =>
+      `<path d="${s.d}" stroke="${complete ? PILLARS[i % 4] : i < done ? 'var(--blue)' : TRACK}"/>`).join('') + `</svg>`;
+}
+
+// App tile (viewBox 512)
+let uid = 0;
+function tile(inner, { plain = false } = {}) {
+  const u = ++uid;
+  return `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="bg${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e2227"/><stop offset="1" stop-color="#121417"/></linearGradient>
+      <radialGradient id="wa${u}" cx=".72" cy=".22" r=".7"><stop offset="0" stop-color="#9fb8cc" stop-opacity=".16"/><stop offset="1" stop-color="#9fb8cc" stop-opacity="0"/></radialGradient>
+      <linearGradient id="mi${u}" gradientUnits="userSpaceOnUse" x1="96" y1="416" x2="416" y2="96"><stop offset="0" stop-color="#8ea8bd"/><stop offset="1" stop-color="#c3d3e0"/></linearGradient>
+      <filter id="sh${u}" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#05070a" flood-opacity=".55"/></filter>
+    </defs>
+    ${plain ? '' : `<rect width="512" height="512" fill="url(#bg${u})"/><rect width="512" height="512" fill="url(#wa${u})"/>`}
+    <g filter="url(#sh${u})" fill="none" stroke-linecap="round" stroke-linejoin="round">${inner.replaceAll('MIST', `url(#mi${u})`)}</g></svg>`;
+}
+const RING = segs(256, 256, 150, 54, 4, 14);
+const ringPaths = (cols, extra = '') => RING.map((s, i) =>
+  `<path d="${s.d}" stroke="${cols[i]}" stroke-width="54" style="--len:${s.len.toFixed(1)};--d:${i * 0.12}s" ${extra}/>`).join('');
+const MONO_A = `<path d="M210 334A150 150 0 0 1 256 186A150 150 0 0 1 302 334" stroke="MIST" stroke-width="30"/><circle cx="256" cy="290" r="16" fill="MIST"/>`;
+
+const MARKS = [
+  { k:'1', t:'Full week', p:'Four pillar colours, the exact ring you see when a week is complete. Most direct link to the app.',
+    svg: ringPaths(PILLARS) },
+  { k:'2', t:'Full week + A', p:'Adds the arc-A from draft 1 inside the ring. Carries the name; busier at 29px.',
+    svg: ringPaths(PILLARS) + MONO_A },
+  { k:'3', t:'Mist week', p:'Same ring in the brand mist gradient. Quieter and closer to the current icon; the pillar colours appear only in the app.',
+    svg: ringPaths(['MIST','MIST','MIST','MIST']) },
+  { k:'4', t:'Week in motion', p:'Three segments lit, one on the track. Says "in progress" and invites the tap. Less symmetrical, more personality.',
+    svg: RING.map((s, i) => `<path d="${s.d}" stroke="${i < 3 ? PILLARS[i] : 'rgba(255,255,255,0.12)'}" stroke-width="54"/>`).join('') },
+];
+document.getElementById('marks').innerHTML = MARKS.map(m => `
+  <div class="mark">
+    <div class="big">${tile(m.svg)}</div>
+    <div class="sizes"><div class="sm" style="width:60px;height:60px">${tile(m.svg)}</div><div class="sm" style="width:29px;height:29px">${tile(m.svg)}</div></div>
+    <span class="k">OPTION ${m.k}</span><b>${m.t}</b><p>${m.p}</p>
+  </div>`).join('');
+
+// Story strip
+document.getElementById('story').innerHTML = `
+  <div class="step"><div class="wk" style="width:84px;height:84px">${weekRing(2)}<span class="n" style="font-size:.95rem">2/4</span></div><p><b>Tuesday</b>Two sessions in, ring fills in Train blue</p></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="wk" style="width:84px;height:84px">${weekRing(4, 4, { complete:true })}</div><p><b>Week complete</b>Ring turns into all four pillar colours</p></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="apptile">${tile(ringPaths(PILLARS))}</div><p><b>Home screen</b>The same ring is the app icon</p></div>`;
+
+// Phone mocks
+const calRing = pct => { const r = 13, c = 2 * Math.PI * r;
+  return `<div class="cal"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="${r}" fill="none" stroke="${TRACK}" stroke-width="3.5"/><circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--orange)" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - pct)).toFixed(1)}" transform="rotate(-90 15 15)"/></svg><span>${Math.round(pct * 100)}%</span></div>`; };
+const TABS = [['home','Today','blue'],['calendar','Plan','blue'],['progress','Progress','teal'],['coach','Coach','purple'],['library','Library','blue']];
+const tabbar = () => `<div class="tabbar">${TABS.map(([k, n, c], i) =>
+  `<div class="tab${i === 0 ? ' on' : ''}" style="--pc:var(--${c})">${ic(k, { size:22, c: i === 0 ? c : null, fo: i === 0 ? .3 : .1 })}${n}</div>`).join('')}</div>`;
+
+function phone({ day, meta, done, complete, hero, extra, streak, streakSub, kcal, pct }) {
+  return `<div class="phone"><div class="screen">
+    <div class="status"><span>9:41</span><span>●●●</span></div>
+    <div class="datehead"><div class="dt"><div class="weekday">${day}</div><div class="weekmeta">${meta}</div></div>
+      <div class="wk">${weekRing(done, 4, { complete })}${complete ? '' : `<span class="n">${done}/4</span>`}</div></div>
+    ${extra}
+    ${hero}
+    <div class="snap">
+      <div class="tile open"><div class="ico" style="background:rgba(143,194,187,.14);color:var(--teal)">${ic('flame', { size:16, c:'teal' })}</div><div><div class="sv">${streak}</div><div class="sl">Streak</div></div><div class="ss">${streakSub}</div></div>
+      <div class="tile" style="background:rgba(214,180,142,.08)"><div class="ico" style="background:rgba(214,180,142,.16);color:var(--orange)">${ic('weight', { size:16, c:'orange' })}</div><div><div class="sv">82.4 kg</div><div class="sl">Bodyweight</div></div><div class="ss">−0.6 kg</div></div>
+      <div class="tile" style="background:rgba(214,180,142,.08)">${calRing(pct)}<div><div class="sv">${kcal}</div><div class="sl">of 2,600 kcal</div></div><div class="ss">142g protein</div></div>
+    </div>
+    <div class="coach-note">${ic('coach', { size:18, c:'purple' })}<div>Quads at 22 sets/wk vs 9 for hamstrings. Rebalance toward hinges on Thursday.</div></div>
+  </div>${tabbar()}</div>`;
+}
+const heroNext = `<div class="next-card">
+  <div class="next-eyebrow">${ic('train', { size:13, c:'blue' })} NEXT IN YOUR SPLIT</div>
+  <div class="next-name">Pull A</div>
+  <div class="next-rat">Last pull was 4 days ago. Back sits at 11 sets/wk; this session brings it to 17.</div>
+  <div class="next-actions"><div class="next-start">${ic('play', { size:17, fill:false })} Start Pull A</div><div class="next-more">${ic('sync', { size:15 })} Swap</div></div></div>`;
+const heroRest = `<div class="next-card">
+  <div class="next-eyebrow">${ic('check', { size:13, c:'blue' })} WEEK DONE</div>
+  <div class="next-name">Rest day</div>
+  <div class="next-rat">4 of 4 sessions logged. Total volume up 6% on last week; recovery beats a fifth session.</div>
+  <div class="next-actions"><div class="next-start">${ic('play', { size:17, fill:false })} Train anyway</div><div class="next-more">${ic('sync', { size:15 })} Swap</div></div></div>`;
+document.getElementById('phones').innerHTML = `
+  <div class="phone-wrap">${phone({ day:'Tuesday', meta:'Week 38 · day 2', done:2, complete:false, hero:heroNext, extra:'', streak:'6 wks', streakSub:'2 / 4 this week', kcal:'1,840', pct:.71 })}
+    <div class="phone-cap"><b>Mid-week.</b> Ring counts sessions, Train blue.</div></div>
+  <div class="phone-wrap">${phone({ day:'Sunday', meta:'Week 38 · day 7', done:4, complete:true, hero:heroRest,
+      extra:`<div class="done-banner">${ic('trophy', { size:18, c:'amber' })}<div><b>Week complete.</b> 7 weeks in a row.</div></div>`,
+      streak:'7 wks', streakSub:'4 / 4 this week', kcal:'2,410', pct:.93 })}
+    <div class="phone-cap"><b>Week complete.</b> Ring becomes the logo.</div></div>`;
+
+// Splash
+function drawSplash() {
+  document.getElementById('splashLogo').innerHTML =
+    tile(`<g class="draw">${ringPaths(PILLARS)}</g>`, { plain:true });
+}
+drawSplash();
+document.getElementById('replay').addEventListener('click', drawSplash);
+
+// Family
+document.getElementById('family').innerHTML = `
+  <figure><div class="wk" style="width:64px;height:64px">${weekRing(3)}<span class="n">3/4</span></div><figcaption>Week ring<br>counts sessions</figcaption></figure>
+  <figure><div class="wk" style="width:64px;height:64px">${weekRing(2, 3)}<span class="n">2/3</span></div><figcaption>Target of 3<br>three segments</figcaption></figure>
+  <figure><div style="transform:scale(2.1);margin:17px">${calRing(.71)}</div><figcaption>Calories<br>continuous amount</figcaption></figure>
+  <figure><div class="wk" style="width:64px;height:64px">${weekRing(4, 4, { complete:true })}</div><figcaption>Week complete<br>pillar colours</figcaption></figure>
+  <figure><div style="width:64px;height:64px;border-radius:22.5%;overflow:hidden">${tile(ringPaths(PILLARS))}</div><figcaption>App icon<br>same ring</figcaption></figure>`;
+</script>
