@@ -4034,9 +4034,9 @@ function bwChartSVG(points) {
   const line = points.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
   const li = points.length - 1;
   return `<svg class="bw-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <path d="${line} L${X(li).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z" fill="rgba(var(--teal-rgb),0.14)"/>
-    <path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${X(li).toFixed(1)}" cy="${Y(points[li]).toFixed(1)}" r="3.5" fill="var(--blue)"/>
+    <path d="${line} L${X(li).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z" fill="rgba(var(--orange-rgb),0.14)"/>
+    <path d="${line}" fill="none" stroke="var(--fuel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(points[li]).toFixed(1)}" r="3.5" fill="var(--fuel)"/>
   </svg>`;
 }
 
@@ -4113,7 +4113,7 @@ async function renderStats() {
       <div class="stat-box"><div class="stat-val">${totals.workouts}</div><div class="stat-label">Workouts</div></div>
       <div class="stat-box"><div class="stat-val">${totals.hours.toFixed(0)}h</div><div class="stat-label">Trained</div></div>
       <div class="stat-box"><div class="stat-val">${(totals.volume/1000).toFixed(1)}t</div><div class="stat-label">Lifted</div></div>
-      <div class="stat-box"><div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('flame', { size: 17 })}</span> ${streak.weeks}</div><div class="stat-label">Wk streak</div></div>
+      <div class="stat-box"><div class="stat-val"><span style="color:var(--prog);display:inline-flex;vertical-align:-0.15em">${icon('flame', { size: 17 })}</span> ${streak.weeks}</div><div class="stat-label">Wk streak</div></div>
       <div class="stat-box"><div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 17 })}</span> ${trophies}</div><div class="stat-label">Trophies</div></div>
     </div>
 

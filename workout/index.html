@@ -1486,6 +1486,71 @@
     .ex-coach-note { background:color-mix(in srgb, var(--coach) 10%, var(--bg)); border:0; border-radius:14px 14px 14px 5px; }
     .summary-coach { background:color-mix(in srgb, var(--coach) 9%, var(--bg)); border:0; border-radius:18px 18px 18px 6px; }
 
+
+    /* Progress — open data: sections split by hairlines, numbers on the canvas */
+    #secStats .seg button.on { background:var(--surface); color:var(--prog); box-shadow:0 1px 0 rgba(255,255,255,0.04) inset; }
+    #secStats .stats-card {
+      background:none; border:0; border-radius:0; border-top:1px solid var(--border);
+      padding:18px 0 8px; margin:0;
+    }
+    #secStats .stats-card.month-card { border-top:0; padding-top:2px; }
+    #secStats .stats-card-title { font-size:0.64rem; text-transform:uppercase; letter-spacing:.09em; color:var(--prog); }
+    #secStats .stats-card-sub { text-transform:none; letter-spacing:0; }
+    .month-nav-btn { background:none; border:1px solid var(--border); border-radius:10px; color:var(--text-muted); }
+    .month-title { font-size:1.05rem; letter-spacing:-0.2px; }
+    .month-totals { gap:0; margin-bottom:18px; }
+    .month-stat { background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
+    .month-stat:first-child { border-left:0; padding-left:0; }
+    .month-stat-val { color:var(--text); font-size:1.5rem; }
+    .cal-cell { background:rgba(255,255,255,0.035); border-radius:9px; }
+    .cal-empty { background:none; }
+    .cal-trained { background:rgba(var(--teal-rgb),calc(0.16 + var(--i,0.5) * 0.5)); }
+    .cal-trained span { color:var(--text); }
+    .cal-today { outline:1.5px solid rgba(255,255,255,0.45); outline-offset:-1.5px; }
+    .stats-totals { gap:0; row-gap:14px; margin:6px 0 16px; }
+    .stats-totals .stat-box { background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; min-width:33.3%; }
+    .stats-totals .stat-box:nth-child(3n+1) { border-left:0; padding-left:0; }
+    .stats-totals .stat-val { font-size:1.4rem; letter-spacing:-0.4px; }
+    .milestone-chip { background:rgba(var(--amber-rgb),0.08); border:0; border-radius:999px; padding:5px 11px; }
+    .mb-track { background:rgba(255,255,255,0.05); }
+    .data-disclosure { border-top-color:var(--border); }
+
+    /* Workout screen — Train. Calm surfaces, satisfying feedback, no glow */
+    .fm-rail-bar.current { background:var(--train); }
+    .set-input { background:var(--surface); border-color:rgba(255,255,255,0.06); border-radius:10px; }
+    .set-input:focus { border-color:rgba(var(--blue-rgb),0.7); background:color-mix(in srgb, var(--train) 8%, var(--surface)); }
+    .set-check { transition:background .2s var(--ease), border-color .2s var(--ease), transform .24s var(--ease); }
+    .set-row.done td { background:rgba(var(--green-rgb),0.11); }
+    .set-row.done .set-input { background:transparent; border-color:transparent; }
+    .ex-rest-value { background:none; border-color:var(--border); border-radius:10px; }
+    .add-exercise-btn { border-style:solid; border-color:rgba(var(--blue-rgb),0.28); border-radius:14px; background:rgba(var(--blue-rgb),0.05); }
+    .add-set-mini { border-style:solid; border-color:rgba(255,255,255,0.07); border-radius:10px; }
+    #restBar {
+      background:var(--surface); border:1px solid rgba(var(--blue-rgb),0.22); border-radius:18px;
+      box-shadow:0 14px 28px -22px rgba(var(--blue-rgb),0.6);
+    }
+    #restBarFill { background:rgba(var(--blue-rgb),0.12); }
+    .rest-bar-step { background:none; border-color:var(--border); border-radius:10px; }
+    .rest-bar-skip { border-radius:10px; }
+    #restBar.done-state { background:rgba(var(--green-rgb),0.14); border-color:rgba(var(--green-rgb),0.7); animation:restPulse 1.2s var(--ease) infinite; }
+    @keyframes restPulse {
+      0%,100% { box-shadow:0 0 0 0 rgba(var(--green-rgb),0); }
+      50%     { box-shadow:0 0 0 6px rgba(var(--green-rgb),0.22); }
+    }
+    #miniBar { box-shadow:0 12px 26px -16px rgba(var(--blue-rgb),0.7); border-radius:14px; }
+
+    /* Finish summary — PB wash, open numbers */
+    .summary-sheet { border-radius:24px 24px 0 0; }
+    .summary-pbs { border:0; border-radius:16px; background:rgba(var(--amber-rgb),0.08); }
+    .summary-pb-row { border-top-color:rgba(var(--amber-rgb),0.16); }
+    .summary-badge { border:0; }
+    .summary-stats { gap:0; }
+    .summary-stats .stat-box { background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
+    .summary-stats .stat-box:first-child { border-left:0; padding-left:0; }
+    .summary-compare-figs { gap:0; }
+    .summary-compare-fig { background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
+    .summary-compare-fig:first-child { border-left:0; padding-left:0; }
+
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
     .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }

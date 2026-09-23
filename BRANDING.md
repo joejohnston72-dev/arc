@@ -151,7 +151,7 @@ Ink on filled accents: `--on-accent #142029` (blue), `--on-warm #2a1f12`,
 ### Semantic signals (meaning only)
 | Meaning | Token | Hex |
 |---|---|---|
-| PB / streak / warm-up | `--amber` | `#d8b774` |
+| PB / trophies / warm-up | `--amber` | `#d8b774` |
 | Success / set done | `--green` | `#93c2a4` |
 | Destructive / error | `--red` | `#d88685` |
 
