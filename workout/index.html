@@ -43,7 +43,18 @@
     body { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); overscroll-behavior: none; }
     /* No horizontal movement anywhere — a stray-wide child must never let the page pan
        sideways (that hijacks set-row swipes into a page-scroll and reads as a "zoom"). */
-    html, body { overflow-x: hidden; max-width: 100%; }
+    /* html's overflow is handed to the VIEWPORT (no sideways pan), so html itself
+       isn't a scroll container. body must use `clip`, not `hidden`: overflow-x:hidden
+       forces overflow-y to compute to auto, making <body> an accidental scroll
+       container — and on iOS, fixed layers inside a scroll container drift with
+       momentum scrolling (the tab bar lifting mid-scroll). clip crops the same
+       without creating one. */
+    html { overflow-x: hidden; max-width: 100%; }
+    body { overflow-x: clip; max-width: 100%; }
+    /* Promote the fixed bars to their own compositing layer from first paint, so
+       iOS never scrolls them with the page before it has built their layer (the
+       "lifts on the first scroll after opening a tab" case). */
+    .tabs, #miniBar { transform:translateZ(0); -webkit-backface-visibility:hidden; backface-visibility:hidden; }
     /* Kill double-tap zoom + 300ms tap delay app-wide */
     html, body, button, input, select { touch-action: manipulation; }
     /* Inputs must be >=16px or iOS auto-zooms on focus */
@@ -1457,6 +1468,10 @@
       background:color-mix(in srgb, var(--coach) 9%, var(--bg));
       border:0; border-radius:20px 20px 20px 6px; padding:14px 15px;
     }
+    /* Stacked coach bubbles need air between them — touching, the speech-corner
+       radii of one card and the next form a notch. One gap, no per-card margins. */
+    .dash-coach-cards { display:flex; flex-direction:column; gap:10px; }
+    .dash-coach-cards > .coach-daily, .dash-coach-cards > .coach-finding, .dash-coach-cards > .dash-weekly { margin:0; }
     .dw-eyebrow { color:var(--coach); }
     .dw-stat { background:none; border:0; border-radius:0; border-left:1px solid rgba(var(--purple-rgb),0.18); text-align:left; padding:2px 0 2px 10px; }
     .dw-stat:first-child { border-left:0; padding-left:0; }
@@ -1623,6 +1638,12 @@
     .cp-stepper button { background:var(--surface); }
     .summary-warn-box { border:0; border-radius:16px; }
 
+
+    /* Stale home-screen install prompt (checkStaleInstall in app.js) */
+    .stale-install { background:rgba(var(--amber-rgb),0.10); border-radius:16px; padding:12px 14px; margin-bottom:14px; }
+    .si-head { display:flex; align-items:center; gap:7px; font-size:0.82rem; font-weight:700; color:var(--amber); margin-bottom:5px; }
+    .si-body { font-size:0.8rem; line-height:1.5; color:var(--text); }
+    .si-body b { font-weight:700; }
 
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }

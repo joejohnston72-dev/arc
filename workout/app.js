@@ -702,6 +702,19 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', fitActiveWorkout);
 }
 
+// iOS 26 keyboard bug (WebKit 297779): after the keyboard closes, the visual
+// viewport can keep a stale offset, so fixed layers (tab bar, headers) sit shifted
+// until something forces a re-layout. A 1px scroll round-trip makes WebKit
+// recompute it. Runs only once focus has really left all text fields.
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+    window.scrollBy(0, 1);
+    window.scrollBy(0, -1);
+  }, 300);
+});
+
 // Coach keyboard fit. #secCoach is a fixed column pinned above the tab bar, but on
 // iOS the keyboard only shrinks the VISUAL viewport — the composer ended up under
 // the keyboard and the page panned, clipping the header. While the keyboard is up
@@ -6128,6 +6141,32 @@ refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
     location.reload();
   });
 }
+
+// Stale home-screen install. The 59pt strip under the tab bar comes from the old
+// `black-translucent` status-bar style; index.html now uses `black`, but iOS keeps
+// the style it saved when the app was ADDED, so an existing install keeps the bug
+// until it's re-added from Safari. Under the stale style the top safe-area inset
+// is the status-bar height (>0); under `black` the web view starts below the
+// status bar and the inset is 0 — so a non-zero inset in standalone = stale install.
+function checkStaleInstall() {
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  if (!standalone) return;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;left:0;width:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
+  document.body.appendChild(probe);
+  const inset = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  if (inset < 20 || document.getElementById('staleInstall')) return;
+  const note = document.createElement('div');
+  note.id = 'staleInstall';
+  note.className = 'stale-install';
+  note.innerHTML = `
+    <div class="si-head">${icon('refresh-cw', { size: 14 })} Re-add Arc to finish an update</div>
+    <div class="si-body">iOS is still using this install's old screen setting, which leaves a gap under the tab bar.
+      Remove Arc from your Home Screen, then in Safari tap Share → <b>Add to Home Screen</b>. Your data restores from the cloud when you sign in.</div>`;
+  document.getElementById('secDashboard').prepend(note);
+}
+checkStaleInstall();
 
 renderDashboard();
 renderHistory();
