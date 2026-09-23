@@ -10,7 +10,12 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#131518">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- NOT black-translucent: on iOS 26 standalone that gives a full-screen frame
+       but a layout viewport short by the top safe area, which iOS places either
+       under the status bar or at the top — a 59pt bare strip at the top (Progress)
+       or under the tab bar (Coach). `black` lays the app out below the status bar,
+       so the viewport fills the screen and nothing flips. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="ARC">
   <link rel="apple-touch-icon" href="icon.png">
   <link rel="stylesheet" href="../styles.css">
@@ -1617,6 +1622,7 @@
     .ed-target { border-color:rgba(var(--blue-rgb),0.24); background:rgba(var(--blue-rgb),0.06); }
     .cp-stepper button { background:var(--surface); }
     .summary-warn-box { border:0; border-radius:16px; }
+
 
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
