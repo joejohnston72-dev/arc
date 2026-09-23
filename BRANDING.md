@@ -15,7 +15,7 @@ through the doc and the app:
 | Lever | Locked choice | Notes |
 |---|---|---|
 | **Name** | **ARC** | Shipped: `<title>`, PWA install name, in-app header, manifests. |
-| **Look** | **Charcoal + electric blue, warm accents** | Neutral charcoal/grey surfaces (Apple-like), electric-blue `#38bdf8` primary, orange/red as the warm energy accents. |
+| **Look** | **Slate & Mist, four pillars** | Cool graphite surfaces, soft mist-blue primary; each pillar (Train, Progress, Fuel, Coach) owns a hue and a shape. See §5. |
 | **Coach voice** | **Technical & precise — explain the why** | Backs every call with the mechanism/number behind it. |
 
 The name is live everywhere. The palette moved from the old blue-tinted
@@ -119,53 +119,51 @@ it on a pure-white or busy background, or stretch/skew it.
 
 ---
 
-## 5. Colour system
+## 5. Colour system — Slate & Mist, four pillars
 
-**Charcoal canvas, one electric-blue primary, warm accents for energy.** Neutral
-charcoal/grey surfaces (iOS system-gray tones) give an Apple-like premium base
-with no colour cast — so the accent, not the background, is what you notice.
-Colour is used sparingly; the accent should feel earned. (These are the live
-`styles.css` / `workout` tokens.)
+**Cool graphite canvas, soft desaturated accents, no glow.** The base is a
+slightly blue-biased charcoal; accents sit at ~30% saturation so nothing reads
+as neon. Source mockups: `design/palette-study.html`.
 
-### Surfaces (neutral charcoal — no blue tint)
+### Surfaces
 | Token | Hex | Use |
 |---|---|---|
-| `--bg` | `#0c0c0d` | App background / canvas (near-black charcoal) |
-| `--surface` | `#1c1c1e` | Cards, tiles, sheets, tab bar fill (iOS systemGray6) |
-| `--surface2` | `#2c2c2e` | Inputs, chips, nested surfaces (iOS systemGray5) |
-| `--text` | `#f5f5f7` | Primary text |
-| `--text-muted` | `#98989f` | Secondary text, labels, captions |
-| `--border` | `rgba(255,255,255,0.10)` | **Hairline** on every raised surface |
+| `--bg` | `#131518` | Canvas |
+| `--surface` | `#1c1f23` | Cards, sheets, tab bar |
+| `--surface2` | `#262a2f` | Inputs, chips, nested |
+| `--text` | `#e8eaed` | Primary text |
+| `--text-muted` | `#979ca4` | Secondary text |
+| `--border` | `rgba(255,255,255,0.10)` | Hairlines |
 
-### Accents
-| Token | Hex (rgb) | Role | Use |
+### Pillars — hue + form
+Colour says **which** pillar; shape says **what kind of thing** it is.
+
+| Pillar | Token (alias) | Hex | Form |
 |---|---|---|---|
-| `--blue` | `#38bdf8` (`56,189,248`) | **Primary** | Primary actions, active states, links, focus rings, the glow |
-| `--orange` | `#fb923c` (`251,146,60`) | **Secondary / energy** | Hero "build/analyse" moments, streak warmth, one-off emphasis |
+| **Train** — workouts, routines, split | `--blue` (`--train`) | `#9fb8cc` | The one raised, tinted hero per screen (`.next-card`, coach routine cards). Primary buttons. |
+| **Progress** — streaks, charts, trends | `--teal` (`--prog`) | `#8fc2bb` | Open data: numbers on the canvas, hairlines, no box. |
+| **Fuel & body** — calories, bodyweight | `--orange` (`--fuel`) | `#d6b48e` | Soft sand wash, no border. |
+| **Coach** — anything the AI says | `--purple` (`--coach`) | `#b3aad6` | A voice: lavender wash, speech corner (`20px 20px 20px 6px`), no border. |
 
-**Rule:** exactly one *primary* accent (blue). Orange is the warm counterweight —
-used deliberately for energy/effort moments, never as a second default. If two
-blue things compete for "the main action," one is wrong.
+Ink on filled accents: `--on-accent #142029` (blue), `--on-warm #2a1f12`,
+`--on-green #10231a` — never pure black.
 
-### Semantic signals (used only for their meaning — never decoration)
+### Semantic signals (meaning only)
 | Meaning | Token | Hex |
 |---|---|---|
-| Personal best / streak / warm-up | `--amber` | `#fbbf24` |
-| Success / set done / restored | `--green` | `#34d399` |
-| Destructive / error / drop-set warn | `--red` | `#f43f5e` |
-| Superset / AI suggestion / drop-set | `--purple` | `#a78bfa` |
+| PB / streak / warm-up | `--amber` | `#d8b774` |
+| Success / set done | `--green` | `#93c2a4` |
+| Destructive / error | `--red` | `#d88685` |
 
-Every accent now ships an `--x-rgb` triplet token (`--blue-rgb`, `--orange-rgb`,
-`--red-rgb`, …) so `rgba()` literals can reference `rgb(var(--red-rgb) / …)`
-instead of hard-coding digits. Prefer the token in new code.
-
-Category colours (muscle groups) live in `CATEGORY_COLORS` — those are data
-viz, kept distinct from brand colour.
-
-**When re-theming:** accents still appear as raw rgb triplets in some older
-`rgba()` literals (`56,189,248`). Sweep both hex and triplet. Update both
-`manifest.json` `theme_color`/`background_color` and both
-`<meta name="theme-color">` too.
+### Rules
+- **One raised thing per screen.** Only the Train hero gets a gradient + shadow.
+- **Colour marks, never floods** — labels, icons, data lines, hero tint.
+- **Lists are rows with dividers**, not a box per item (`.workout-card`).
+- **The coach is lavender everywhere** — Home cards, chat, workout notes, summary.
+- Every accent has an `--x-rgb` triplet; use `rgba(var(--x-rgb),a)`, never literals.
+- Motion: `--ease` (`cubic-bezier(.2,.8,.2,1)`), ~180–240 ms.
+- `CATEGORY_COLORS` (muscle groups) are softened to match; they're data viz, not brand.
+- Re-theming: update both `:root` blocks, `manifest.json` ×2 and both `theme-color` metas.
 
 ---
 
