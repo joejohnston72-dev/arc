@@ -28,7 +28,7 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v78** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v79** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
@@ -113,3 +113,4 @@ Built across many sessions: workout is a full Hevy replacement (live logging, re
 
 ## Possible next steps (not yet requested)
 1. Exercise tracking **types** (cardio/distance/time/reps-only/weighted), rest-timer editing (incl. Off), history date/time editing, and richer AI-coach context are all already implemented — see `LOGTYPES`, `.ex-rest-value`/`openRestSheet`, `openDateEditor`, and `coach.js` respectively.
+- **Coach chat sizing (v79):** (a) `.coach-input` no longer adds `safe-area-inset-bottom` padding — `#secCoach` already ends above the tab bar, which owns that inset, so it left a ~34px dead band on notched iPhones. (b) `fitCoach()` (app.js, next to `fitActiveWorkout`) tracks the iOS keyboard via `visualViewport`: while it's up, `body.coach-kb` sizes `#secCoach` to the visible strip (`--vv-top`/`--vv-h`), hides the tab bar, memory strip and prompt chips, and scrolls the thread to the latest message. Don't re-add safe-area padding to the composer.

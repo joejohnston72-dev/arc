@@ -702,6 +702,36 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', fitActiveWorkout);
 }
 
+// Coach keyboard fit. #secCoach is a fixed column pinned above the tab bar, but on
+// iOS the keyboard only shrinks the VISUAL viewport — the composer ended up under
+// the keyboard and the page panned, clipping the header. While the keyboard is up
+// we size the column to the visible strip (--vv-top/--vv-h) and hide the tab bar,
+// so the composer sits flush on the keyboard and the thread keeps its last message.
+let lastCoachKb = -1, coachFitRaf = 0;
+function fitCoach() {
+  cancelAnimationFrame(coachFitRaf);
+  coachFitRaf = requestAnimationFrame(() => {
+    const vv = window.visualViewport;
+    const sec = document.getElementById('secCoach');
+    const kb = vv && sec.classList.contains('active')
+      ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+    const open = kb > 80;
+    const root = document.documentElement;
+    if (open) {
+      root.style.setProperty('--vv-top', Math.round(vv.offsetTop) + 'px');
+      root.style.setProperty('--vv-h', Math.round(vv.height) + 'px');
+    }
+    if ((open ? 1 : 0) === lastCoachKb) return;
+    lastCoachKb = open ? 1 : 0;
+    document.body.classList.toggle('coach-kb', open);
+    if (open) { const th = document.getElementById('coachThread'); th.scrollTop = th.scrollHeight; }
+  });
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', fitCoach);
+  window.visualViewport.addEventListener('scroll', fitCoach);
+}
+
 // ── Restore an in-progress workout after a kill/reload ────────────────────────
 async function checkForAbandonedSession() {
   const saved = await db.get(STORE, 'active-session');
