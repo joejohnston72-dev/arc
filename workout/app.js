@@ -713,7 +713,10 @@ function fitCoach() {
   coachFitRaf = requestAnimationFrame(() => {
     const vv = window.visualViewport;
     const sec = document.getElementById('secCoach');
-    const kb = vv && sec.classList.contains('active')
+    // Only while the Coach tab is what's on screen — not under an open workout.
+    const onCoach = sec.classList.contains('active')
+      && !document.getElementById('activeWorkout').classList.contains('visible');
+    const kb = vv && onCoach
       ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
     const open = kb > 80;
     const root = document.documentElement;
@@ -4296,29 +4299,29 @@ function renderHistoryDetailBody() {
   const pbCount = s.pbs?.length || 0;
 
   body.innerHTML = `
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="stat-box" id="hdDateBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;min-width:80px;text-align:center;cursor:pointer">
+    <div class="hd-stats">
+      <div class="stat-box hd-date" id="hdDateBox" style="cursor:pointer">
         <div class="stat-val">${fmtDate(s.date||s.startTime||'')}</div>
         <div class="stat-label">Date ${icon('pencil', { size: 11 })}</div>
       </div>
-      <div class="stat-box" id="hdDurBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center;cursor:pointer">
+      <div class="stat-box" id="hdDurBox" style="cursor:pointer">
         <div class="stat-val">${fmtTime(s.duration||0)}</div>
         <div class="stat-label">Duration ${icon('pencil', { size: 11 })}</div>
       </div>
-      <div class="stat-box" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center">
+      <div class="stat-box">
         <div class="stat-val">${Math.round(vol).toLocaleString()}</div>
         <div class="stat-label">Volume kg</div>
       </div>
       ${pbCount ? `
-      <div class="stat-box" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center">
+      <div class="stat-box">
         <div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 16 })}</span> ${pbCount}</div>
         <div class="stat-label">PBs</div>
       </div>` : ''}
     </div>
     ${pbCount ? `<div class="hd-pb-list">${s.pbs.map(p => `<div><span style="color:var(--amber);display:inline-flex;vertical-align:-0.2em;margin-right:4px">${icon('trophy', { size: 14 })}</span>${esc(p.exercise)} — ${esc(p.label)}</div>`).join('')}</div>` : ''}
     ${(s.exercises||[]).map((ex, ei) => `
-      <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid ${CATEGORY_COLORS[ex.category]||'var(--blue)'}">
-        <div style="font-size:0.95rem;font-weight:700;margin-bottom:10px">${esc(ex.name)}</div>
+      <div class="hd-ex">
+        <div class="hd-ex-name"><span class="ex-cat-dot" style="background:${CATEGORY_COLORS[ex.category]||'var(--blue)'}"></span>${esc(ex.name)}</div>
         ${ex.notes ? `<div style="font-size:0.75rem;color:var(--text-muted);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('notebook-pen', { size: 13 })} <span>${esc(ex.notes)}</span></div>` : ''}
         ${ex.coachNote ? `<div style="font-size:0.75rem;color:var(--purple);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('zap', { size: 13 })} <span>${esc(ex.coachNote)}</span></div>` : ''}
         ${hdEditMode

@@ -1593,6 +1593,31 @@
     .lib-day-card { background:none; border-radius:0; border-top:1px solid var(--border); padding:14px 2px; margin:0; }
     .lib-search-wrap { border-radius:14px; }
 
+
+    /* Remaining surfaces — chooser, history detail, exercise detail, profile */
+    .template-card { background:none; border:0; border-radius:0; border-bottom:1px solid var(--border); padding:12px 2px; margin:0; }
+    .template-card:active { background:none; opacity:.7; }
+    .tc-next-badge { background:rgba(var(--blue-rgb),0.16); color:var(--train); }
+    .tc-del { background:none; border-color:transparent; }
+    .hd-stats { display:flex; flex-wrap:wrap; row-gap:12px; margin:4px 0 18px; }
+    .hd-stats .stat-box { flex:1; background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
+    .hd-stats .stat-box.hd-date { flex:0 0 100%; border-left:0; padding-left:0; }
+    .hd-stats .stat-box.hd-date .stat-val { font-size:1rem; }
+    .hd-stats .stat-box.hd-date + .stat-box { border-left:0; padding-left:0; }
+    .hd-pb-list { background:rgba(var(--amber-rgb),0.08); border:0; border-radius:16px; }
+    .hd-ex { border-top:1px solid var(--border); padding:14px 2px 10px; }
+    .hd-ex-name { display:flex; align-items:center; gap:8px; font-size:0.95rem; font-weight:700; margin-bottom:8px; }
+    .ed-hstats { gap:0; }
+    .ed-hbox { background:none; border:0; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 10px; text-align:left; }
+    .ed-hbox:first-child { border-left:0; padding-left:0; }
+    .ed-card { background:none; border:0; border-top:1px solid var(--border); border-radius:0; padding:18px 0 6px; margin:0; }
+    .ed-card-title { font-size:0.64rem; text-transform:uppercase; letter-spacing:.09em; color:var(--text-muted); }
+    .ed-card-title .sub { text-transform:none; letter-spacing:0; }
+    .ed-note { border:0; border-radius:16px; }
+    .ed-target { border-color:rgba(var(--blue-rgb),0.24); background:rgba(var(--blue-rgb),0.06); }
+    .cp-stepper button { background:var(--surface); }
+    .summary-warn-box { border:0; border-radius:16px; }
+
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
     .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
