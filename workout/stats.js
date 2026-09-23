@@ -140,7 +140,7 @@ export function weeklyVolumeHTML(sessions, weeksBack = 12) {
     for (const [cat, vol] of entries) {
       const h = (vol / max) * (H - 30);
       y -= h;
-      svg += `<rect x="${pad + i * bw + 1}" y="${y}" width="${bw - 2}" height="${h}" rx="1.5" fill="${CATEGORY_COLORS[cat] || '#8e8e9a'}"/>`;
+      svg += `<rect x="${pad + i * bw + 1}" y="${y}" width="${bw - 2}" height="${h}" rx="1.5" fill="${CATEGORY_COLORS[cat] || '#979ca4'}"/>`;
     }
     // week label: show every ~4th
     if (i % 4 === 0 || i === weeksBack - 1) {
@@ -248,7 +248,7 @@ export function muscleBalanceHTML(sessions, weeksBack = 4) {
   const maxScale = Math.max(24, ...rows.map(r => r.perWk));
   const anyIndirect = rows.some(r => r.indirectPerWk > 0.05);
   const rowHTML = rows.map(r => {
-    const color = CATEGORY_COLORS[r.cat] || '#8e8e9a';
+    const color = CATEGORY_COLORS[r.cat] || '#979ca4';
     const directPct = Math.min(100, (r.directPerWk / maxScale) * 100);
     const indirectPct = Math.min(100 - directPct, (r.indirectPerWk / maxScale) * 100);
     // Tooltip spells out the split so the number isn't a black box: e.g. Glutes
@@ -331,7 +331,7 @@ export function progressionHTML(sessions, exName) {
   }
   const d0 = new Date(t0).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
   const d1 = new Date(t1).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
-  const dots = points.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.top).toFixed(1)}" r="2.4" fill="#38bdf8"/>`).join('');
+  const dots = points.map(p => `<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.top).toFixed(1)}" r="2.4" fill="var(--teal)"/>`).join('');
 
   const last = points[points.length - 1], first = points[0];
   const delta = last.top - first.top;
@@ -343,15 +343,15 @@ export function progressionHTML(sessions, exName) {
       </div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
         ${grid}
-        <path d="${path('est')}" fill="none" stroke="#fbbf24" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.8"/>
-        <path d="${path('top')}" fill="none" stroke="#38bdf8" stroke-width="2"/>
+        <path d="${path('est')}" fill="none" stroke="var(--amber)" stroke-width="1.4" stroke-dasharray="3 3" opacity="0.8"/>
+        <path d="${path('top')}" fill="none" stroke="var(--teal)" stroke-width="2"/>
         ${dots}
         <text x="${padL}" y="${H - 6}" font-size="8" fill="var(--text-muted)">${d0}</text>
         <text x="${W - padR}" y="${H - 6}" font-size="8" fill="var(--text-muted)" text-anchor="end">${d1}</text>
       </svg>
       <div class="stats-legend">
-        <span><i style="background:#38bdf8"></i>Top set kg</span>
-        <span><i style="background:#fbbf24"></i>Est. 1RM</span>
+        <span><i style="background:var(--teal)"></i>Top set kg</span>
+        <span><i style="background:var(--amber)"></i>Est. 1RM</span>
       </div>
     </div>`;
 }

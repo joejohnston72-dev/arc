@@ -702,6 +702,39 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', fitActiveWorkout);
 }
 
+// Coach keyboard fit. #secCoach is a fixed column pinned above the tab bar, but on
+// iOS the keyboard only shrinks the VISUAL viewport — the composer ended up under
+// the keyboard and the page panned, clipping the header. While the keyboard is up
+// we size the column to the visible strip (--vv-top/--vv-h) and hide the tab bar,
+// so the composer sits flush on the keyboard and the thread keeps its last message.
+let lastCoachKb = -1, coachFitRaf = 0;
+function fitCoach() {
+  cancelAnimationFrame(coachFitRaf);
+  coachFitRaf = requestAnimationFrame(() => {
+    const vv = window.visualViewport;
+    const sec = document.getElementById('secCoach');
+    // Only while the Coach tab is what's on screen — not under an open workout.
+    const onCoach = sec.classList.contains('active')
+      && !document.getElementById('activeWorkout').classList.contains('visible');
+    const kb = vv && onCoach
+      ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+    const open = kb > 80;
+    const root = document.documentElement;
+    if (open) {
+      root.style.setProperty('--vv-top', Math.round(vv.offsetTop) + 'px');
+      root.style.setProperty('--vv-h', Math.round(vv.height) + 'px');
+    }
+    if ((open ? 1 : 0) === lastCoachKb) return;
+    lastCoachKb = open ? 1 : 0;
+    document.body.classList.toggle('coach-kb', open);
+    if (open) { const th = document.getElementById('coachThread'); th.scrollTop = th.scrollHeight; }
+  });
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', fitCoach);
+  window.visualViewport.addEventListener('scroll', fitCoach);
+}
+
 // ── Restore an in-progress workout after a kill/reload ────────────────────────
 async function checkForAbandonedSession() {
   const saved = await db.get(STORE, 'active-session');
@@ -853,7 +886,7 @@ function buildExerciseBlock(ex, ei) {
   if (inSS) block.classList.add('ss-member');
   if (firstOfGroup) block.classList.add('ss-first');
   if (lastOfGroup)  block.classList.add('ss-last');
-  const color = CATEGORY_COLORS[ex.category] || '#8e8e9a';
+  const color = CATEGORY_COLORS[ex.category] || '#979ca4';
   const lt = resolveLogType(ex);
   const cfg = LOGTYPES[lt];
   const headCols = cfg.head.map(h => `<th>${h}</th>`).join('');
@@ -1677,7 +1710,7 @@ function renderMergeOptions(options) {
   const list = q ? options.filter(o => o.name.toLowerCase().includes(q)) : options;
   const el = document.getElementById('mergeExList');
   el.innerHTML = list.length
-    ? list.slice(0, 60).map(o => `<div class="ep-item" data-name="${esc(o.name)}"><span class="ep-cat-pill" style="background:${CATEGORY_COLORS[o.category] || '#8e8e9a'}">${esc(o.category || '')}</span><span class="ep-ex-name">${esc(o.name)}</span></div>`).join('')
+    ? list.slice(0, 60).map(o => `<div class="ep-item" data-name="${esc(o.name)}"><span class="ep-cat-pill" style="background:${CATEGORY_COLORS[o.category] || '#979ca4'}">${esc(o.category || '')}</span><span class="ep-ex-name">${esc(o.name)}</span></div>`).join('')
     : `<div class="stats-empty" style="padding:18px">No matching exercise.</div>`;
   el.querySelectorAll('.ep-item').forEach(row => row.onclick = async () => {
     await setExerciseAlias(row.dataset.name, mergeTargetCanon);   // picked → canon
@@ -2801,7 +2834,7 @@ const CATEGORY_SWAP_NOTE = {
 function pickerRow(e) {
   return `
     <div class="ep-item" data-name="${esc(e.name)}" data-cat="${esc(e.category)}">
-      <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#8e8e9a'}">${esc(e.category)}</span>
+      <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#979ca4'}">${esc(e.category)}</span>
       <span class="ep-ex-name">${esc(e.name)}</span>
       ${e.custom ? '<span style="font-size:0.65rem;color:var(--text-muted)">Custom</span>' : ''}
     </div>`;
@@ -2815,7 +2848,7 @@ function swapMatchCard(e, st, first) {
   return `
     <div class="ep-match-card ep-item${first ? ' first' : ''}" data-name="${esc(e.name)}" data-cat="${esc(e.category)}">
       <div class="ep-match-top">
-        <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#8e8e9a'}">${esc(e.category)}</span>
+        <span class="ep-cat-pill" style="background:${CATEGORY_COLORS[e.category]||'#979ca4'}">${esc(e.category)}</span>
         <span class="ep-match-name">${esc(e.name)}</span>
         ${st ? '' : '<span class="ep-new-chip">New</span>'}
       </div>
@@ -3885,7 +3918,7 @@ async function renderDashboard() {
   const calRing = nutri && nutri.goal
     ? (() => { const pct = Math.max(0, Math.min(1, nutri.kcal / nutri.goal)); const C = 81.7, off = C * (1 - pct);
         return `<span class="snap-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="4"/><circle cx="15" cy="15" r="13" fill="none" stroke="var(--orange)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 15 15)"/></svg><span class="rc" style="color:var(--orange)">${Math.round(pct * 100)}%</span></span>`; })()
-    : `<span class="snap-ico" style="background:rgba(var(--orange-rgb),0.14);color:var(--orange)">${icon('utensils', { size: 15 })}</span>`;
+    : `<span class="snap-ico" style="background:rgba(var(--orange-rgb),0.16);color:var(--fuel)">${icon('utensils', { size: 15 })}</span>`;
   const calTile = nutri
     ? `<div><div class="snap-val">${nutri.kcal.toLocaleString()}</div><div class="snap-lbl">${nutri.goal ? `of ${nutri.goal.toLocaleString()} kcal` : 'kcal today'}</div></div>
        <div class="snap-sub flat">${nutri.protein != null ? nutri.protein + 'g protein · ' : ''}CalorieAI</div>`
@@ -3893,12 +3926,12 @@ async function renderDashboard() {
   const tilesHTML = `
     <div class="dash-snapshot">
       <div class="snap-tile" id="tileStreak">
-        <span class="snap-ico" style="background:rgba(var(--amber-rgb),0.14);color:var(--amber)">${icon('flame', { size: 16 })}</span>
+        <span class="snap-ico" style="background:rgba(var(--teal-rgb),0.14);color:var(--prog)">${icon('flame', { size: 16 })}</span>
         <div><div class="snap-val">${streakVal}</div><div class="snap-lbl">Streak</div></div>
         <div class="snap-sub flat">${thisWeekCount} / ${target} this week</div>
       </div>
       <div class="snap-tile" id="tileBody">
-        <span class="snap-ico" style="background:rgba(var(--blue-rgb),0.14);color:var(--blue)">${icon('scale', { size: 16 })}</span>
+        <span class="snap-ico" style="background:rgba(var(--orange-rgb),0.16);color:var(--fuel)">${icon('scale', { size: 16 })}</span>
         ${bodyTile}
       </div>
       <div class="snap-tile" id="tileCal">
@@ -4004,9 +4037,9 @@ function bwChartSVG(points) {
   const line = points.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
   const li = points.length - 1;
   return `<svg class="bw-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <path d="${line} L${X(li).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z" fill="rgba(56,189,248,0.12)"/>
-    <path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${X(li).toFixed(1)}" cy="${Y(points[li]).toFixed(1)}" r="3.5" fill="var(--blue)"/>
+    <path d="${line} L${X(li).toFixed(1)},${h} L${X(0).toFixed(1)},${h} Z" fill="rgba(var(--orange-rgb),0.14)"/>
+    <path d="${line}" fill="none" stroke="var(--fuel)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(points[li]).toFixed(1)}" r="3.5" fill="var(--fuel)"/>
   </svg>`;
 }
 
@@ -4083,7 +4116,7 @@ async function renderStats() {
       <div class="stat-box"><div class="stat-val">${totals.workouts}</div><div class="stat-label">Workouts</div></div>
       <div class="stat-box"><div class="stat-val">${totals.hours.toFixed(0)}h</div><div class="stat-label">Trained</div></div>
       <div class="stat-box"><div class="stat-val">${(totals.volume/1000).toFixed(1)}t</div><div class="stat-label">Lifted</div></div>
-      <div class="stat-box"><div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('flame', { size: 17 })}</span> ${streak.weeks}</div><div class="stat-label">Wk streak</div></div>
+      <div class="stat-box"><div class="stat-val"><span style="color:var(--prog);display:inline-flex;vertical-align:-0.15em">${icon('flame', { size: 17 })}</span> ${streak.weeks}</div><div class="stat-label">Wk streak</div></div>
       <div class="stat-box"><div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 17 })}</span> ${trophies}</div><div class="stat-label">Trophies</div></div>
     </div>
 
@@ -4266,29 +4299,29 @@ function renderHistoryDetailBody() {
   const pbCount = s.pbs?.length || 0;
 
   body.innerHTML = `
-    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="stat-box" id="hdDateBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;min-width:80px;text-align:center;cursor:pointer">
+    <div class="hd-stats">
+      <div class="stat-box hd-date" id="hdDateBox" style="cursor:pointer">
         <div class="stat-val">${fmtDate(s.date||s.startTime||'')}</div>
         <div class="stat-label">Date ${icon('pencil', { size: 11 })}</div>
       </div>
-      <div class="stat-box" id="hdDurBox" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center;cursor:pointer">
+      <div class="stat-box" id="hdDurBox" style="cursor:pointer">
         <div class="stat-val">${fmtTime(s.duration||0)}</div>
         <div class="stat-label">Duration ${icon('pencil', { size: 11 })}</div>
       </div>
-      <div class="stat-box" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center">
+      <div class="stat-box">
         <div class="stat-val">${Math.round(vol).toLocaleString()}</div>
         <div class="stat-label">Volume kg</div>
       </div>
       ${pbCount ? `
-      <div class="stat-box" style="background:var(--surface);border-radius:10px;padding:10px 14px;text-align:center">
+      <div class="stat-box">
         <div class="stat-val"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.15em">${icon('trophy', { size: 16 })}</span> ${pbCount}</div>
         <div class="stat-label">PBs</div>
       </div>` : ''}
     </div>
     ${pbCount ? `<div class="hd-pb-list">${s.pbs.map(p => `<div><span style="color:var(--amber);display:inline-flex;vertical-align:-0.2em;margin-right:4px">${icon('trophy', { size: 14 })}</span>${esc(p.exercise)} — ${esc(p.label)}</div>`).join('')}</div>` : ''}
     ${(s.exercises||[]).map((ex, ei) => `
-      <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid ${CATEGORY_COLORS[ex.category]||'#38bdf8'}">
-        <div style="font-size:0.95rem;font-weight:700;margin-bottom:10px">${esc(ex.name)}</div>
+      <div class="hd-ex">
+        <div class="hd-ex-name"><span class="ex-cat-dot" style="background:${CATEGORY_COLORS[ex.category]||'var(--blue)'}"></span>${esc(ex.name)}</div>
         ${ex.notes ? `<div style="font-size:0.75rem;color:var(--text-muted);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('notebook-pen', { size: 13 })} <span>${esc(ex.notes)}</span></div>` : ''}
         ${ex.coachNote ? `<div style="font-size:0.75rem;color:var(--purple);margin:-6px 0 8px;display:flex;gap:5px;align-items:flex-start">${icon('zap', { size: 13 })} <span>${esc(ex.coachNote)}</span></div>` : ''}
         ${hdEditMode
@@ -4299,7 +4332,7 @@ function renderHistoryDetailBody() {
             </div>`).join('')
           : (ex.sets||[]).filter(st => st.done || st.weight || st.reps || st.duration || st.distance).map((st,i) => `
             <div class="hd-set-row">
-              <span class="hd-set-num">${i+1}${st.type === 'dropset' ? '<span style="color:#a78bfa"> D</span>' : st.type === 'warmup' ? '<span style="color:#fbbf24"> W</span>' : ''}</span>
+              <span class="hd-set-num">${i+1}${st.type === 'dropset' ? '<span style="color:var(--purple)"> D</span>' : st.type === 'warmup' ? '<span style="color:var(--amber)"> W</span>' : ''}</span>
               <span class="hd-set-val">${hdSetVal(ex, st)}</span>
               ${st.rpe ? `<span style="color:var(--text-muted);margin-left:auto;font-size:0.75rem">RPE ${st.rpe}</span>` : ''}
             </div>`).join('')}
@@ -4326,7 +4359,7 @@ function renderHistoryDetailBody() {
     const editBtn = document.createElement('button');
     editBtn.className = 'header-btn';
     editBtn.innerHTML = `${icon('pencil', { size: 14 })} Edit sets`;
-    editBtn.style.cssText = 'display:block;width:100%;margin-bottom:8px;padding:12px;border-radius:10px;background:var(--surface);border:1px solid rgba(56,189,248,0.4);color:var(--blue);font-size:0.9rem;font-weight:700;cursor:pointer;';
+    editBtn.style.cssText = 'display:block;width:100%;margin-bottom:8px;padding:12px;border-radius:10px;background:var(--surface);border:1px solid rgba(var(--blue-rgb),0.4);color:var(--blue);font-size:0.9rem;font-weight:700;cursor:pointer;';
     editBtn.onclick = () => { hdEditMode = true; renderHistoryDetailBody(); };
     body.appendChild(editBtn);
 
@@ -4487,8 +4520,8 @@ document.getElementById('buildRoutinesBtn').onclick = async () => {
           <div style="font-size:0.72rem;color:var(--text-muted)">${s.exercises.map(e=>esc(e.name)).join(' · ')}</div>
         </div>
         <button class="routine-save-btn" data-title="${esc(title)}" data-sid="${s.id}"
-          style="background:${saved?'rgba(52,211,153,0.15)':'var(--surface2)'};border:none;border-radius:8px;
-                 color:${saved?'#34d399':'var(--text-muted)'};font-size:0.8rem;padding:6px 12px;cursor:pointer;white-space:nowrap">
+          style="background:${saved?'rgba(var(--green-rgb),0.15)':'var(--surface2)'};border:none;border-radius:8px;
+                 color:${saved?'var(--green)':'var(--text-muted)'};font-size:0.8rem;padding:6px 12px;cursor:pointer;white-space:nowrap">
           ${saved ? '✓ Saved' : 'Save'}
         </button>
       </div>`;
@@ -4501,8 +4534,8 @@ document.getElementById('buildRoutinesBtn').onclick = async () => {
       if (!s) return;
       await saveTemplate(btn.dataset.title, s.exercises);
       btn.textContent = '✓ Saved';
-      btn.style.background = 'rgba(52,211,153,0.15)';
-      btn.style.color = '#34d399';
+      btn.style.background = 'rgba(var(--green-rgb),0.15)';
+      btn.style.color = 'var(--green)';
     };
   });
 
@@ -4677,7 +4710,7 @@ async function renderLibrary() {
     const setsLbl = setsByCat[cat] ? `<span class="lib-group-sets">${Math.round(setsByCat[cat])} sets/wk</span>` : '';
     return `
       <div class="lib-group-head">
-        <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[cat] || '#8e8e9a'}"></span>
+        <span class="ex-cat-dot" style="background:${CATEGORY_COLORS[cat] || '#979ca4'}"></span>
         <span class="lib-group-name">${esc(cat)}</span>${setsLbl}
       </div>
       ${rows.map(e => libraryRow(e, stats.get(e.name))).join('')}`;

@@ -252,10 +252,11 @@ export const EXERCISES = [
 export const CATEGORIES = [...new Set(EXERCISES.map(e => e.category))];
 
 export const CATEGORY_COLORS = {
-  Chest: '#f43f5e', Back: '#38bdf8', Shoulders: '#fbbf24',
-  Biceps: '#34d399', Triceps: '#a78bfa', Quads: '#f97316',
-  Hamstrings: '#f472b6', Glutes: '#e879f9', Calves: '#2dd4bf',
-  Core: '#facc15', Cardio: '#60a5fa',
+  // Softened to sit in the Slate & Mist palette; still distinct per group.
+  Chest: '#d98a8a', Back: '#8fb0d0', Shoulders: '#d8b774',
+  Biceps: '#93c2a4', Triceps: '#aea4d6', Quads: '#d9a077',
+  Hamstrings: '#d49ab8', Glutes: '#c49bd0', Calves: '#84c0b8',
+  Core: '#cfc07e', Cardio: '#9aa9d8',
 };
 
 // ── Multi-muscle attribution for compound lifts ──────────────────────────────

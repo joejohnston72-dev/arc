@@ -4,13 +4,13 @@
    secondary energy accents. Surfaces are neutral (no blue tint) so the accent
    is what carries the colour. */
 :root {
-  --bg:        #0c0c0d;   /* near-black charcoal canvas */
-  --surface:   #1c1c1e;   /* cards, sheets, tab bar — iOS systemGray6 */
-  --surface2:  #2c2c2e;   /* inputs, chips, nested — iOS systemGray5 */
-  --accent:    #38bdf8;   /* primary accent (electric blue, kept) */
-  --accent2:   #fb923c;   /* secondary accent (warm orange) */
-  --text:      #f5f5f7;
-  --text-muted:#98989f;
+  --bg:        #131518;   /* near-black charcoal canvas */
+  --surface:   #1c1f23;   /* cards, sheets, tab bar — iOS systemGray6 */
+  --surface2:  #262a2f;   /* inputs, chips, nested — iOS systemGray5 */
+  --accent:    #9fb8cc;   /* primary accent (mist blue) */
+  --accent2:   #d6b48e;   /* secondary accent (warm orange) */
+  --text:      #e8eaed;
+  --text-muted:#979ca4;
   --radius:    16px;
   --gap:       16px;
   --tile-size: clamp(140px, 44vw, 180px);
@@ -138,7 +138,7 @@ button .lc, a .lc { pointer-events: none; }
 }
 .tile__icon .lc { width: 2.4rem; height: 2.4rem; }
 .tile--calories .tile__icon { color: var(--accent); }
-.tile--workout  .tile__icon { color: #38bdf8; }
+.tile--workout  .tile__icon { color: var(--accent); }
 
 .tile__label {
   font-size: 0.95rem;
@@ -161,4 +161,4 @@ button .lc, a .lc { pointer-events: none; }
 
 /* Per-module accent borders */
 .tile--calories  { border-top: 3px solid var(--accent); }
-.tile--workout   { border-top: 3px solid #38bdf8; }
+.tile--workout   { border-top: 3px solid var(--accent); }
