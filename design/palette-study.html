@@ -1,0 +1,351 @@
+<title>ARC Palette Study</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Google+Sans:400,500,700&display=swap">
+<style>
+  /* Single-dark by design: this page previews a dark app, so the page chrome
+     stays one neutral graphite world and the phones carry the palettes. */
+  :root {
+    color-scheme: dark;
+    --page: #131314; --panel: #1b1b1d; --line: rgba(255,255,255,0.08);
+    --ink: #ecebe8; --ink2: #9a9893; --focus: #d9d6cf;
+    --font: 'Google Sans', 'Product Sans', Roboto, -apple-system, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+  header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; margin-bottom: 22px; }
+  h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.03em; margin: 0; }
+  .lede { color: var(--ink2); font-size: 0.92rem; line-height: 1.5; max-width: 60ch; margin: 6px 0 0; text-wrap: pretty; }
+  .eyebrow { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink2); }
+
+  /* Palette picker */
+  .picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 26px; }
+  .pick {
+    text-align: left; font: inherit; color: inherit; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px; transition: border-color .25s ease, transform .25s cubic-bezier(.2,.8,.2,1), background .25s ease;
+  }
+  .pick:hover { border-color: rgba(255,255,255,0.18); }
+  .pick:active { transform: scale(0.985); }
+  .pick:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .pick[aria-pressed="true"] { border-color: var(--sel, #fff); background: #1f1f22; }
+  .pick-top { display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; }
+  .pick-name { font-weight: 700; font-size: 0.98rem; letter-spacing: -0.01em; }
+  .pick-tag { font-size: 0.62rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; border-radius: 6px; background: rgba(255,255,255,0.07); color: var(--ink2); }
+  .pick-tag.rec { background: var(--sel); color: #121212; }
+  .dots { display: flex; gap: 0; }
+  .dots span { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--panel); margin-left: -6px; }
+  .dots span:first-child { margin-left: 0; }
+  .pick-mood { font-size: 0.78rem; color: var(--ink2); line-height: 1.4; }
+
+  /* Stage */
+  .stage { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 28px; align-items: start; }
+  @media (max-width: 1060px) { .stage { grid-template-columns: auto auto; } .notes { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .stage { grid-template-columns: minmax(0,1fr); justify-items: center; } }
+
+  .phone-col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .phone-lbl { font-size: 0.72rem; color: var(--ink2); letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
+  .phone {
+    width: 320px; max-width: 100%; height: 660px; border-radius: 40px; padding: 10px;
+    background: #050505; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 60px -20px rgba(0,0,0,0.7);
+  }
+  .screen {
+    height: 100%; border-radius: 31px; overflow: hidden; position: relative;
+    background: var(--bg); color: var(--text); font-family: var(--font);
+    display: flex; flex-direction: column;
+    transition: background .5s ease, color .5s ease;
+  }
+  .screen * { transition: background-color .5s ease, border-color .5s ease, color .5s ease, box-shadow .5s ease; }
+  .status { height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: 0.72rem; font-weight: 700; }
+  .status i { width: 16px; height: 8px; border-radius: 2px; border: 1.3px solid var(--text); display: inline-block; opacity: .8; }
+  .scroll { flex: 1; overflow: hidden; padding: 6px 14px 0; }
+
+  /* App mock — mirrors workout/index.html classes & sizes */
+  .datehead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .weekday { font-size: 1.32rem; font-weight: 700; letter-spacing: -0.5px; }
+  .weekmeta { font-size: 0.64rem; color: var(--muted); }
+  .hero { background: var(--hero); border: 1px solid var(--hero-line); border-radius: 18px; padding: 14px; margin-bottom: 10px; }
+  .hero-eb { display: flex; align-items: center; gap: 5px; color: var(--primary); font-size: 0.58rem; font-weight: 700; letter-spacing: .08em; margin-bottom: 6px; }
+  .hero-name { font-size: 1.22rem; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 3px; }
+  .hero-why { font-size: 0.7rem; color: var(--muted); line-height: 1.45; margin-bottom: 10px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+  .tag { font-size: 0.6rem; background: var(--surface2); border-radius: 5px; padding: 3px 7px; color: var(--muted); }
+  .actions { display: flex; gap: 7px; }
+  .start { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 13px; padding: 12px; font: inherit; font-weight: 700; font-size: 0.85rem;
+    background: var(--primary); color: var(--on-primary); box-shadow: 0 8px 20px -10px var(--primary-shadow); cursor: pointer; }
+  .start:active { transform: scale(0.97); }
+  .swap { border: 1px solid var(--line-strong); background: none; color: var(--text); border-radius: 13px; padding: 0 12px; font: inherit; font-weight: 700; font-size: 0.74rem; display: flex; align-items: center; gap: 5px; }
+  .snap { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-bottom: 14px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; }
+  .ico { width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; }
+  .val { font-size: 0.9rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .lbl { font-size: 0.5rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-top: 3px; }
+  .sub { font-size: 0.56rem; color: var(--muted); }
+  .sec-h { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 700; margin-bottom: 8px; }
+  .sec-h .m { margin-left: auto; font-size: 0.58rem; color: var(--muted); font-weight: 400; }
+  .pickcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 11px 12px; margin-bottom: 14px; }
+  .pick-eb { display: flex; align-items: center; gap: 5px; font-size: 0.56rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--ai); margin-bottom: 5px; }
+  .pick-body { font-size: 0.72rem; line-height: 1.5; }
+  .pick-body b { color: var(--text); }
+  .recent-h { display: flex; justify-content: space-between; font-size: 0.6rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+  .recent-h span:last-child { color: var(--primary); letter-spacing: 0; text-transform: none; font-size: 0.7rem; }
+  .row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 10px 11px; margin-bottom: 6px; }
+  .row-t { font-size: 0.76rem; font-weight: 700; }
+  .row-s { font-size: 0.6rem; color: var(--muted); margin-top: 2px; }
+  .pb { margin-left: auto; font-size: 0.56rem; font-weight: 700; color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); padding: 3px 6px; border-radius: 6px; }
+  .tabs { flex: 0 0 auto; height: 62px; display: flex; padding-bottom: 8px; background: var(--tabbar); border-top: 1px solid var(--line); }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 0.54rem; color: var(--muted); }
+  .tab.on { color: var(--primary); }
+  svg.i { width: 1em; height: 1em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Coach mock */
+  .c-head { display: flex; align-items: center; gap: 9px; padding: 4px 14px 8px; }
+  .badge { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--primary); background: color-mix(in srgb, var(--primary) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent); }
+  .c-title { font-size: 0.88rem; font-weight: 700; }
+  .c-sub { font-size: 0.6rem; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .live { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+  .thread { flex: 1; overflow: hidden; padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-end; }
+  .msg { max-width: 84%; padding: 9px 12px; border-radius: 14px; font-size: 0.74rem; line-height: 1.5; }
+  .msg.u { align-self: flex-end; background: var(--bubble); color: var(--on-bubble); border-bottom-right-radius: 4px; }
+  .msg.b { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .routine { align-self: flex-start; max-width: 92%; background: var(--surface); border: 1px solid var(--hero-line); border-radius: 14px; padding: 11px; }
+  .r-name { font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; }
+  .r-ex { display: flex; justify-content: space-between; gap: 8px; font-size: 0.64rem; color: var(--muted); padding: 2px 0; }
+  .r-ex b { color: var(--text); font-weight: 500; }
+  .r-btns { display: flex; gap: 6px; margin-top: 9px; }
+  .r-btns span { flex: 1; text-align: center; padding: 8px; border-radius: 9px; font-size: 0.66rem; font-weight: 700; }
+  .r-btns .p { background: var(--primary); color: var(--on-primary); }
+  .r-btns .g { background: var(--surface2); }
+  .chips { display: flex; gap: 6px; padding: 5px 14px; overflow: hidden; }
+  .chip { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; font-size: 0.62rem; padding: 6px 10px; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+  .composer { display: flex; gap: 7px; align-items: center; padding: 7px 14px 9px; border-top: 1px solid var(--line); }
+  .field { flex: 1; background: var(--surface2); border: 1px solid var(--line); border-radius: 18px; padding: 9px 13px; font-size: 0.74rem; color: var(--muted); }
+  .send { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: var(--on-primary); display: flex; align-items: center; justify-content: center; }
+
+  /* Notes panel */
+  .notes { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .notes h2 { font-size: 1.25rem; margin: 4px 0 6px; letter-spacing: -0.02em; }
+  .notes p { color: var(--ink2); font-size: 0.86rem; line-height: 1.55; margin: 0; text-wrap: pretty; }
+  .tokens { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .tokens td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: middle; }
+  .tokens tr:first-child td { border-top: 0; }
+  .sw { width: 22px; height: 22px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.12); display: block; }
+  .tok { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; color: var(--ink2); }
+  .hex { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; text-align: right; }
+  .role { color: var(--ink); }
+  .contrast { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; margin-top: 12px; }
+  .cr { border-radius: 12px; padding: 10px 12px; font-size: 0.78rem; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .cr b { font-variant-numeric: tabular-nums; }
+  .aa { font-size: 0.6rem; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,0.14); }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .btn { font: inherit; font-size: 0.82rem; font-weight: 700; border-radius: 11px; padding: 10px 14px; cursor: pointer; border: 1px solid var(--line); background: #242427; color: var(--ink); }
+  .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .feel li { color: var(--ink2); font-size: 0.84rem; line-height: 1.55; margin-bottom: 6px; }
+  .feel li b { color: var(--ink); font-weight: 500; }
+  .feel { padding-left: 18px; margin: 8px 0 0; }
+  pre.css { display: none; }
+  @media (prefers-reduced-motion: reduce) { .screen, .screen *, .pick { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">ARC · colour direction</div>
+      <h1>Palette study</h1>
+      <p class="lede">Five grounded directions to replace the neon-blue-on-black. Charcoal bases with a slight warm or cool bias, desaturated highlights, no glow. Tap one to see Home and Coach repaint.</p>
+    </div>
+  </header>
+
+  <div class="picker" id="picker" role="group" aria-label="Palettes"></div>
+
+  <div class="stage">
+    <div class="phone-col">
+      <div class="phone-lbl">Today</div>
+      <div class="phone"><div class="screen" id="home">
+        <div class="status"><span>9:41</span><i></i></div>
+        <div class="scroll">
+          <div class="datehead"><span class="weekday">Wednesday</span><span class="weekmeta">Week 39 · day 3</span></div>
+          <div class="hero">
+            <div class="hero-eb"><svg class="i" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg> NEXT IN YOUR SPLIT</div>
+            <div class="hero-name">Push A</div>
+            <div class="hero-why">6 exercises · ~55 min · last done 4 days ago — it's gone the longest without a session. Chest sits at 9 sets/wk — this brings it to 15.</div>
+            <div class="tags"><span class="tag">Bench Press</span><span class="tag">Incline DB Press</span><span class="tag">Cable Fly</span><span class="tag">+3 more</span></div>
+            <div class="actions">
+              <button class="start" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg> Start Push A</button>
+              <span class="swap"><svg class="i" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg> Swap</span>
+            </div>
+          </div>
+          <div class="snap">
+            <div class="tile"><span class="ico" style="background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber)"><svg class="i" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14 0-5.5 3-7.5.5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></span><div><div class="val">6 wks</div><div class="lbl">Streak</div></div><div class="sub">2 / 4 this week</div></div>
+            <div class="tile"><span class="ico" style="background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)"><svg class="i" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg></span><div><div class="val">81.4 kg</div><div class="lbl">Bodyweight</div></div><div class="sub">↓ 0.6 kg</div></div>
+            <div class="tile"><span class="ico" style="background:color-mix(in srgb,var(--warm) 16%,transparent);color:var(--warm)"><svg class="i" viewBox="0 0 24 24"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg></span><div><div class="val">1,840</div><div class="lbl">of 2,600 kcal</div></div><div class="sub">142g protein</div></div>
+          </div>
+          <div class="sec-h"><span style="color:var(--ai);display:flex"><svg class="i" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg></span> Your coach<span class="m">updated 8:02</span></div>
+          <div class="pickcard">
+            <div class="pick-eb"><svg class="i" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg> Coach's pick</div>
+            <div class="pick-body">Bench stalled at <b>82.5 kg × 6</b> for three sessions. Hold the load, add a fourth set — volume moves the plateau before intensity does.</div>
+          </div>
+          <div class="recent-h"><span>Recent</span><span>All history</span></div>
+          <div class="row"><div><div class="row-t">Pull B</div><div class="row-s">Sun · 52 min · 18 sets</div></div><span class="pb">PB</span></div>
+          <div class="row"><div><div class="row-t">Legs A</div><div class="row-s">Fri · 61 min · 20 sets</div></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab on"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .7-1.5l7-6a2 2 0 0 1 2.6 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Today</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Plan</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>Progress</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>Coach</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>Library</div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="phone-col">
+      <div class="phone-lbl">Coach</div>
+      <div class="phone"><div class="screen" id="coach">
+        <div class="status"><span>9:41</span><i></i></div>
+        <div class="c-head">
+          <div class="badge"><svg class="i" viewBox="0 0 24 24" style="font-size:17px"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg></div>
+          <div><div class="c-title">Coach</div><div class="c-sub"><span class="live"></span> Reads your training data live</div></div>
+        </div>
+        <div class="thread">
+          <div class="msg u">What should I train today?</div>
+          <div class="msg b">Push A is next in your split. Chest is at 9 sets/wk against a 12–16 target, so this session closes most of the gap. Bench held 82.5 kg × 6 — keep the load, add a set.</div>
+          <div class="routine">
+            <div class="r-name">Push A · progressed</div>
+            <div class="r-ex"><b>Bench Press</b><span>4 × 6 · 82.5 kg</span></div>
+            <div class="r-ex"><b>Incline DB Press</b><span>3 × 10 · 30 kg</span></div>
+            <div class="r-ex"><b>Cable Fly</b><span>3 × 12 · 15 kg</span></div>
+            <div class="r-btns"><span class="p">Start now</span><span class="g">Save</span></div>
+          </div>
+        </div>
+        <div class="chips"><span class="chip">Improve my routines</span><span class="chip">Build a split</span><span class="chip">Today's session</span></div>
+        <div class="composer"><div class="field">Ask your coach…</div><div class="send"><svg class="i" viewBox="0 0 24 24" style="font-size:15px"><path d="M14.5 21.7a.5.5 0 0 0 .9 0l6.5-19a.5.5 0 0 0-.6-.6l-19 6.5a.5.5 0 0 0 0 .9l7.9 3.2a2 2 0 0 1 1.1 1.1z"/><path d="m21.9 2.1-10.9 10.9"/></svg></div></div>
+        <div class="tabs">
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .7-1.5l7-6a2 2 0 0 1 2.6 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Today</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Plan</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>Progress</div>
+          <div class="tab on"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>Coach</div>
+          <div class="tab"><svg class="i" viewBox="0 0 24 24" style="font-size:18px"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>Library</div>
+        </div>
+      </div></div>
+    </div>
+
+    <aside class="notes">
+      <div class="card">
+        <div class="eyebrow" id="nEyebrow"></div>
+        <h2 id="nName"></h2>
+        <p id="nWhy"></p>
+        <div class="contrast" id="nContrast"></div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Tokens</div>
+        <table class="tokens"><tbody id="nTokens"></tbody></table>
+        <div class="btnrow"><button class="btn" id="copyBtn" type="button">Copy CSS tokens</button></div>
+        <pre class="css" id="cssOut"></pre>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Feel — applies to any palette</div>
+        <ul class="feel">
+          <li><b>No glow.</b> Drop the blue drop-shadows and aurora gradients; depth comes from one soft, tinted shadow on the hero only.</li>
+          <li><b>Ink on accent.</b> Buttons use a deep tinted ink, not pure black, so filled controls read soft rather than stark.</li>
+          <li><b>Eased motion.</b> 180–240 ms <code>cubic-bezier(.2,.8,.2,1)</code> on press, sheet and tab changes; a 0.97 press-scale on primary buttons.</li>
+          <li><b>Quieter semantics.</b> PB, success and error stay distinct but lose ~30% saturation so they sit in the palette.</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const PALETTES = [
+  { id: 'sage', name: 'Sage & Stone', tag: 'Recommended', mood: 'Warm charcoal, sage primary, clay warmth. Calm, earthy, studio-like.',
+    why: 'Warm-biased charcoal reads like stone rather than screen. Sage is restful but still clearly "go"; clay carries energy moments (calories, split builds) without shouting. The most distinct move away from neon while staying premium.',
+    t: { bg:'#151514', surface:'#1f1e1c', surface2:'#2a2926', text:'#ecebe6', muted:'#9d9a92', primary:'#a3b8a0', onPrimary:'#16211a', warm:'#d19f84', ai:'#b1a8cc', green:'#9cc49a', amber:'#d9b56e', red:'#d9837a' } },
+  { id: 'slate', name: 'Slate & Mist', tag: 'Closest to today', mood: 'Cool graphite with a dusty blue. The current look, exhaled.',
+    why: 'Keeps blue as the identity but pulls saturation from ~95% to ~30% and lifts the base off pure black. The least disruptive change — familiar to you, no longer neon.',
+    t: { bg:'#131518', surface:'#1c1f23', surface2:'#262a2f', text:'#e8eaed', muted:'#979ca4', primary:'#9fb8cc', onPrimary:'#142029', warm:'#d6b48e', ai:'#b3aad6', green:'#93c2a4', amber:'#d8b774', red:'#d88685' } },
+  { id: 'ochre', name: 'Ochre & Ash', tag: 'Warmest', mood: 'Ash charcoal with a soft ochre. Candlelit, focused, grounded.',
+    why: 'A golden primary feels like effort and warmth without the alarm of orange. Pairs with a cool sage for success so the two never collide. Strong, but the most "evening" of the set.',
+    t: { bg:'#151413', surface:'#201e1c', surface2:'#2b2825', text:'#eeeae3', muted:'#a29c92', primary:'#d8b37a', onPrimary:'#261c0e', warm:'#c98f78', ai:'#aeb0d4', green:'#9fc0a0', amber:'#e0c28a', red:'#d6847c' } },
+  { id: 'tide', name: 'Tide & Graphite', tag: 'Fresh', mood: 'Neutral graphite, soft sea-glass teal. Clean and breathable.',
+    why: 'Teal sits between the current blue and the sage direction — still crisp and "technical", but organic. Good if you want the app to feel fresh rather than warm.',
+    t: { bg:'#131514', surface:'#1c1f1e', surface2:'#262a28', text:'#e8ecea', muted:'#959d99', primary:'#8fbfb6', onPrimary:'#10211e', warm:'#d6a88a', ai:'#b4a9d0', green:'#a2c79a', amber:'#dab874', red:'#d7867e' } },
+  { id: 'current', name: 'Current (neon)', tag: 'Baseline', mood: 'Today’s build, for comparison.',
+    why: 'Near-black neutral base with saturated electric blue and a blue-tinted hero glow. Kept here only as the reference point.',
+    t: { bg:'#0c0c0d', surface:'#1c1c1e', surface2:'#2c2c2e', text:'#f5f5f7', muted:'#98989f', primary:'#38bdf8', onPrimary:'#04131c', warm:'#fb923c', ai:'#a78bfa', green:'#34d399', amber:'#fbbf24', red:'#f43f5e' } },
+];
+const ROLES = [
+  ['bg','--bg','Canvas'], ['surface','--surface','Cards, sheets'], ['surface2','--surface2','Inputs, chips'],
+  ['text','--text','Primary text'], ['muted','--text-muted','Secondary text'],
+  ['primary','--blue → --primary','Primary action'], ['onPrimary','--on-primary','Ink on primary'],
+  ['warm','--orange → --warm','Energy accent'], ['ai','--purple → --ai','Coach / AI'],
+  ['green','--green','Success'], ['amber','--amber','PB / streak'], ['red','--red','Destructive'],
+];
+
+const hex2rgb = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
+const lum = h => { const [r,g,b] = hex2rgb(h).map(v => { v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); }); return 0.2126*r+0.7152*g+0.0722*b; };
+const ratio = (a,b) => { const [x,y] = [lum(a),lum(b)].sort((p,q)=>q-p); return (x+0.05)/(y+0.05); };
+const mix = (a,b,p) => { const A=hex2rgb(a),B=hex2rgb(b); return '#'+A.map((v,i)=>Math.round(v*(1-p)+B[i]*p).toString(16).padStart(2,'0')).join(''); };
+
+function vars(t, isCurrent) {
+  return {
+    '--bg': t.bg, '--surface': t.surface, '--surface2': t.surface2, '--text': t.text, '--muted': t.muted,
+    '--primary': t.primary, '--on-primary': t.onPrimary, '--warm': t.warm, '--ai': t.ai,
+    '--green': t.green, '--amber': t.amber, '--red': t.red,
+    '--line': 'rgba(255,255,255,0.08)', '--line-strong': 'rgba(255,255,255,0.14)',
+    '--hero': isCurrent ? 'linear-gradient(150deg,#132a37,#101014)' : `linear-gradient(160deg, ${mix(t.surface, t.primary, 0.10)}, ${t.surface})`,
+    '--hero-line': isCurrent ? 'rgba(56,189,248,0.35)' : mix(t.surface, t.primary, 0.28),
+    '--primary-shadow': isCurrent ? 'rgba(56,189,248,0.6)' : mix(t.bg, t.primary, 0.35),
+    '--bubble': isCurrent ? t.primary : mix(t.surface2, t.primary, 0.32), '--on-bubble': isCurrent ? '#000' : t.text,
+    '--tabbar': t.surface + 'e6',
+  };
+}
+
+const picker = document.getElementById('picker');
+PALETTES.forEach(p => {
+  const b = document.createElement('button');
+  b.className = 'pick'; b.type = 'button'; b.id = 'pick-' + p.id; b.dataset.id = p.id;
+  b.style.setProperty('--sel', p.t.primary);
+  b.innerHTML = `<div class="pick-top"><span class="pick-name">${p.name}</span><span class="pick-tag${p.tag==='Recommended'?' rec':''}">${p.tag}</span></div>
+    <div class="dots">${[p.t.bg,p.t.surface2,p.t.primary,p.t.warm,p.t.ai].map(c=>`<span style="background:${c}"></span>`).join('')}</div>
+    <div class="pick-mood">${p.mood}</div>`;
+  b.onclick = () => apply(p.id);
+  picker.appendChild(b);
+});
+
+function apply(id) {
+  const p = PALETTES.find(x => x.id === id) || PALETTES[0];
+  const v = vars(p.t, p.id === 'current');
+  ['home','coach'].forEach(s => { const el = document.getElementById(s); Object.entries(v).forEach(([k,val]) => el.style.setProperty(k,val)); });
+  picker.querySelectorAll('.pick').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === id));
+  document.getElementById('nEyebrow').textContent = p.tag;
+  document.getElementById('nName').textContent = p.name;
+  document.getElementById('nWhy').textContent = p.why;
+  const pairs = [['Text on canvas', p.t.text, p.t.bg], ['Muted on card', p.t.muted, p.t.surface], ['Ink on primary', p.t.onPrimary, p.t.primary]];
+  document.getElementById('nContrast').innerHTML = pairs.map(([l,fg,bg]) => { const r = ratio(fg,bg);
+    return `<div class="cr" style="background:${bg};color:${fg}"><span>${l}</span><span><b>${r.toFixed(1)}</b>:1 <span class="aa">${r>=7?'AAA':r>=4.5?'AA':'AA-L'}</span></span></div>`; }).join('');
+  document.getElementById('nTokens').innerHTML = ROLES.map(([k,tok,role]) =>
+    `<tr><td style="width:34px"><span class="sw" style="background:${p.t[k]}"></span></td><td><div class="role">${role}</div><div class="tok">${tok}</div></td><td class="hex">${p.t[k]}</td></tr>`).join('');
+  document.getElementById('cssOut').textContent =
+`/* ARC — ${p.name} */
+:root {
+  --bg: ${p.t.bg}; --surface: ${p.t.surface}; --surface2: ${p.t.surface2};
+  --text: ${p.t.text}; --text-muted: ${p.t.muted};
+  --primary: ${p.t.primary}; --on-primary: ${p.t.onPrimary};
+  --warm: ${p.t.warm}; --ai: ${p.t.ai};
+  --green: ${p.t.green}; --amber: ${p.t.amber}; --red: ${p.t.red};
+}`;
+  try { localStorage.setItem('arc-palette', id); } catch (e) {}
+}
+
+document.getElementById('copyBtn').onclick = async (e) => {
+  const txt = document.getElementById('cssOut').textContent, btn = e.currentTarget;
+  try { await navigator.clipboard.writeText(txt); btn.textContent = 'Copied'; }
+  catch { const pre = document.getElementById('cssOut'); pre.style.display = 'block'; getSelection().selectAllChildren(pre); btn.textContent = 'Selected — copy manually'; }
+  setTimeout(() => btn.textContent = 'Copy CSS tokens', 1800);
+};
+
+let start = 'sage';
+try { start = localStorage.getItem('arc-palette') || 'sage'; } catch (e) {}
+apply(start);
+</script>
