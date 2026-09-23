@@ -10,7 +10,12 @@
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#131518">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- NOT black-translucent: on iOS 26 standalone that gives a full-screen frame
+       but a layout viewport short by the top safe area, which iOS places either
+       under the status bar or at the top — a 59pt bare strip at the top (Progress)
+       or under the tab bar (Coach). `black` lays the app out below the status bar,
+       so the viewport fills the screen and nothing flips. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="ARC">
   <link rel="apple-touch-icon" href="icon.png">
   <link rel="stylesheet" href="../styles.css">
@@ -1618,18 +1623,6 @@
     .cp-stepper button { background:var(--surface); }
     .summary-warn-box { border:0; border-radius:16px; }
 
-
-    /* iOS standalone viewport gap (syncViewportGap in app.js): extend every
-       bottom-anchored fixed layer down to the physical screen edge. 0 elsewhere. */
-    :root { --vp-gap: 0px; }
-    .tabs { bottom:calc(-1 * var(--vp-gap)); }
-    #secCoach.active { bottom:calc(56px + env(safe-area-inset-bottom) - var(--vp-gap)); }
-    #miniBar { bottom:calc(env(safe-area-inset-bottom) + 58px - var(--vp-gap)); }
-    .ed-actionbar { bottom:calc(-1 * var(--vp-gap)); }
-    #activeWorkout, .modal-backdrop, .auth-overlay,
-    #exercisePicker, #routineLibrary, #libraryDetail, #historyDetail, #exerciseDetail, #workoutSummary {
-      bottom:calc(-1 * var(--vp-gap));
-    }
 
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
