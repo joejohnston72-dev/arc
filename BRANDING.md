@@ -81,8 +81,8 @@ would.
 - **Explain the why in one clause** — the mechanism, the ratio, the trade-off.
   Precision *is* the encouragement.
 - Numbers over adjectives. "+12 kg since May," not "great progress."
-- At most **one** emoji per surface, and only where it carries meaning
-  (🏆 PB, 🔥 streak). Prefer a Lucide icon to an emoji everywhere else.
+- No emoji. PBs and streaks use the trophy and flame glyphs from
+  `shared/icons.js`, in `--amber`.
 - British English (kg, "programme" is fine, "colour" in copy).
 - Errors are calm and instructive: *"That API key was rejected (401). Tap the
   key to update it."* — never blame, never panic.
@@ -96,14 +96,21 @@ specific, actionable, and justified by what's in your data.
 
 ## 4. Logo & app mark
 
-**Primary mark:** the **mist dumbbell** — a chunky, diagonal dumbbell in a soft
-mist-blue gradient on a graphite tile (see `workout/icon.png`; source
-`design/icon.svg.html`, rendered to 512×512 PNG).
+**Primary mark:** the **week ring** — four rounded arc segments, clockwise from
+12 o'clock in the pillar hues: Train `#9fb8cc`, Progress `#8fc2bb`, Fuel
+`#d6b48e`, Coach `#b3aad6`, on a graphite tile (see `workout/icon.png`;
+source `design/icon.svg.html`, rendered to 512×512 PNG). Study:
+`design/week-ring-study.html`.
+
+**Why this mark:** it is a live part of the app. Today's date header shows the
+same ring counting this week's sessions against the weekly target (segments
+lit in Train blue). A complete week turns it into all four pillar hues, which
+is the app icon. The launch splash draws the ring in, so the first frame of
+the app matches the home-screen icon.
 
 **Construction rules**
-- Glyph sits inside the **maskable safe zone** (~80% centre) so iOS/Android
-  corner-rounding never clips it.
-- Gradient runs bottom-left → top-right: `#8ea8bd → #c3d3e0`.
+- Ring: r 150, stroke 54, round caps, ~14° visual gap between segments
+  (512 grid). Sits inside the **maskable safe zone** (~80% centre).
 - Depth from a soft dark drop shadow only — **no glow**.
 - Background: graphite `linear-gradient(#1e2227 → #121417)` with a faint
   mist wash top-right.
@@ -113,7 +120,13 @@ optionally with the electric-sky as a subtle left-to-right gradient on the
 letters. Lockup = mark left, wordmark right, with the mark's height ≈ cap
 height × 1.4.
 
-**Don't:** recolour the mark arbitrarily, add a flame/heart/generic swoosh, put
+**Rings in the app** (`shared/rings.js`): one construction everywhere — round
+caps, a 10% white track, filling clockwise from 12 o'clock. **Segmented** rings
+count things (`weekRing`: Today header, Plan week); **continuous** rings measure
+amounts (`meterRing`: calories, Plan weekly volume, rest countdown). Only a
+complete week ring uses all four pillar hues.
+
+**Don't:** recolour the mark arbitrarily, reorder the segment hues, add a flame/heart/generic swoosh, put
 it on a pure-white or busy background, or stretch/skew it.
 
 ---
@@ -187,11 +200,17 @@ Ink on filled accents: `--on-accent #142029` (blue), `--on-warm #2a1f12`,
 
 ## 7. Iconography
 
-- **Lucide**, line style, `stroke-width: 2`, `currentColor` (inherits text/accent
-  colour). Vendored subset in `shared/icons.js` — add new ones there, don't pull
-  a CDN.
-- Line icons everywhere for chrome and actions. **Emoji only** for the two
-  reward signifiers (🏆 PB, 🔥 streak) and nowhere else.
+- **Duotone line**: `stroke-width: 1.5`, round caps/joins, `currentColor`, plus
+  a faint fill layer (`ICON_FILLS`, painted in `currentColor` at
+  `--icon-fill`, default `.16`). Core glyphs (tabs, train, fuel, PB, streak,
+  common actions) are custom-drawn on the 24px grid with small arc touches
+  (arched door, speech corner, bowl, dial); utility glyphs (arrows, chevrons,
+  grips) stay Lucide. All live in `shared/icons.js` under Lucide names; add
+  new ones there and don't pull a CDN. Study: `design/iconography-study.html`
+  (direction B).
+- **Tab bar state:** every tab has the faint fill (`--icon-fill: .10`); the
+  active tab takes its pillar hue with full fill (`.30`). No pill.
+- **No emoji.** 🏆/🔥 are replaced by the `trophy` / `flame` glyphs in amber.
 - Consistent sizes: 20–24px in nav/buttons, 15–17px inline with text, 12–14px as
   tiny adornments. Vertical-align tuned so icons sit on the text baseline.
 
@@ -242,8 +261,8 @@ When shipping anything new, it's on-brand if:
       action, everything else neutral.
 - [ ] Google Sans, weights 400/500/700 only; numbers bold, tabular where they
       change.
-- [ ] Lucide line icons (from `shared/icons.js`); at most one meaningful emoji.
-- [ ] Copy is direct, second-person, numbers over adjectives, ≤1 emoji.
+- [ ] Duotone icons from `shared/icons.js`; no emoji.
+- [ ] Copy is direct, second-person, numbers over adjectives, no emoji.
 - [ ] Motion 150–300ms ease-out; press-scale on the primary action.
 - [ ] Works keyboard-open and offline; nothing can leak the background behind an
       overlay; data changes are reflected in the cloud.

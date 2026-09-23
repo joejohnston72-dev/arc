@@ -79,5 +79,5 @@ async function workoutSuggestions(add) {
 
   // Consistency win
   const last7 = sessions.filter(s => daysSince(s.date || s.startTime) <= 7).length;
-  if (last7 >= 4) add('good', 'Workout', '🔥', `${last7} workouts in the last 7 days — great consistency!`, 'workout/');
+  if (last7 >= 4) add('good', 'Workout', 'flame', `${last7} workouts in the last 7 days — great consistency!`, 'workout/');
 }

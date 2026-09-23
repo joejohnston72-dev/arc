@@ -43,10 +43,22 @@ body {
   touch-action: manipulation;
 }
 
-/* ── Inline Lucide icons ─────────────────────────────────────────────────── */
+/* ── Inline icons (shared/icons.js) ──────────────────────────────────────── */
 .lc { display: inline-block; vertical-align: -0.15em; flex-shrink: 0; }
+/* Duotone layer: faint currentColor fill under the 1.5px line work */
+.lc .fl { fill: currentColor; fill-opacity: var(--icon-fill, .16); stroke: none; }
 i[data-lucide] { display: inline-flex; align-items: center; justify-content: center; line-height: 0; vertical-align: -0.18em; }
 button .lc, a .lc { pointer-events: none; }
+
+/* ── Rings (shared/rings.js) ─────────────────────────────────────────────── */
+.ring { position: relative; display: inline-flex; flex: none; }
+.ring svg { display: block; }
+.ring-lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.2px; }
+.ring-val { transition: stroke-dashoffset .25s linear; }
+.ring-draw { stroke-dasharray: 1 1.5; animation: ring-draw .7s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes ring-draw { 0% { stroke-dashoffset: 1; opacity: 0; } 8% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ring-draw { animation: none; } }
 
 /* ── Tooltips (hover / focus; native `title` covers touch long-press) ─────── */
 [data-tip] { position: relative; }

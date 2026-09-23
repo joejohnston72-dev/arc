@@ -64,7 +64,7 @@ export function absorbSet(exName, set, records) {
 // ── Weekly streak ─────────────────────────────────────────────────────────────
 export async function getStreakSettings() {
   const s = (await db.get(STORE, 'streak-settings')) || {};
-  return { seed: s.seed || 0, seedDate: s.seedDate || null, target: s.target || 3 };
+  return { seed: s.seed || 0, seedDate: s.seedDate || null, target: s.target || 4 };
 }
 export async function saveStreakSettings(settings) {
   await db.set(STORE, 'streak-settings', settings);
@@ -85,7 +85,7 @@ function weekBefore(mondayIso) {
 // Consecutive weeks (ending now) with >= target workouts. The in-progress week
 // counts if already met, and never breaks the chain while pending. If the
 // unbroken chain reaches back to the week the seed was set, the seed is added.
-export function computeStreak(sessions, { seed = 0, seedDate = null, target = 3 } = {}) {
+export function computeStreak(sessions, { seed = 0, seedDate = null, target = 4 } = {}) {
   const counts = {};
   for (const s of sessions) {
     const d = s.date || (s.startTime || '').slice(0, 10);
@@ -124,8 +124,8 @@ export function computeMilestones(sessions, streakWeeks) {
         .reduce((v, st) => v + (st.weight || 0) * (st.reps || 1), 0), 0);
 
   const earned = [];
-  for (const m of WORKOUT_MARKS) if (workouts >= m) earned.push({ icon: '🏋️', label: `${m} workouts` });
-  for (const m of STREAK_MARKS)  if (streakWeeks >= m) earned.push({ icon: '🔥', label: `${m}-week streak` });
-  for (const m of VOLUME_MARKS)  if (volume >= m) earned.push({ icon: '⚡', label: `${(m/1000).toLocaleString()}t lifted` });
+  for (const m of WORKOUT_MARKS) if (workouts >= m) earned.push({ icon: 'dumbbell', label: `${m} workouts` });
+  for (const m of STREAK_MARKS)  if (streakWeeks >= m) earned.push({ icon: 'flame', label: `${m}-week streak` });
+  for (const m of VOLUME_MARKS)  if (volume >= m) earned.push({ icon: 'zap', label: `${(m/1000).toLocaleString()}t lifted` });
   return { earned, workouts, volume };
 }

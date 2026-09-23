@@ -133,7 +133,15 @@
     }
     .start-btn:active { transform: scale(0.985); }
     /* ── Dashboard: next-session hero ── */
-    .dash-datehead { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+    .dash-datehead { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .dash-weekring { background:none; border:0; padding:0; color:var(--text); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .week-done-banner { display:flex; align-items:center; gap:9px; background:rgba(var(--amber-rgb),0.10); border-radius:14px;
+      padding:11px 13px; margin-bottom:12px; font-size:0.84rem; line-height:1.4; }
+    .week-done-banner .lc { color:var(--amber); }
+    .week-done-banner b { font-weight:700; }
+    .week-done-banner.fresh { animation: bannerIn .5s cubic-bezier(.2,.8,.2,1) .6s both; }
+    @keyframes bannerIn { from { opacity:0; transform:translateY(-6px); } }
+    @media (prefers-reduced-motion: reduce) { .week-done-banner.fresh { animation:none; } }
     .dash-weekday { font-size:1.5rem; font-weight:700; letter-spacing:-0.6px; }
     .dash-weekmeta { font-size:0.72rem; color:var(--text-muted); }
     .next-card {
@@ -491,7 +499,8 @@
     .set-row.removing { transition: transform .22s ease, opacity .22s ease; opacity:0; }
     .set-row.swipe-del  td { background:rgba(var(--red-rgb),0.28) !important; }
     .set-row.swipe-drop td { background:rgba(var(--purple-rgb),0.28) !important; }
-    .set-row.pb .set-num::before { content:'🏆 '; font-size:0.6rem; }
+    .set-row.pb .set-num::before { content:''; display:inline-block; width:.75em; height:.75em; margin-right:2px; vertical-align:-0.05em;
+      background:var(--amber); -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 4h10v5a5 5 0 0 1-10 0z' fill='%23000' fill-opacity='.3'/%3E%3Cpath d='M7 6H4.5v1A3 3 0 0 0 7.4 10M17 6h2.5v1a3 3 0 0 1-2.9 3M12 14v4M8 20h8'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 4h10v5a5 5 0 0 1-10 0z' fill='%23000' fill-opacity='.3'/%3E%3Cpath d='M7 6H4.5v1A3 3 0 0 0 7.4 10M17 6h2.5v1a3 3 0 0 1-2.9 3M12 14v4M8 20h8'/%3E%3C/svg%3E") center/contain no-repeat; }
     .set-row.warn .set-input[data-field="weight"] { border-color:var(--amber); }
     .set-warn-row td {
       font-size:0.7rem; color:var(--amber); padding:2px 2px 6px; text-align:left;
@@ -600,11 +609,7 @@
       border-radius:14px; padding:14px 12px; margin-bottom:10px;
     }
     #restBar.visible { display:flex; }
-    #restBarFill {
-      position:absolute; inset:0 auto 0 0; width:100%;
-      background:rgba(var(--blue-rgb),0.14); pointer-events:none;
-      transition:width .25s linear;
-    }
+    #restRing { display:flex; flex:none; }
     /* Timer-done: bold, hard-to-miss pulse that keeps going until dismissed */
     #restBar.done-state {
       background:rgba(var(--green-rgb),0.18); border-color:var(--green);
@@ -1255,8 +1260,7 @@
     .snap-lbl { font-size:0.58rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); margin-top:3px; }
     .snap-sub { font-size:0.64rem; color:var(--text-muted); display:flex; align-items:center; gap:3px; margin-top:2px; }
     .snap-sub.up { color:var(--green); } .snap-sub.down { color:var(--green); } .snap-sub.flat { color:var(--text-muted); }
-    .snap-ring { position:relative; width:30px; height:30px; }
-    .snap-ring .rc { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.5rem; font-weight:700; }
+    .snap-ring .ring-lbl { font-size:0.5rem; letter-spacing:0; }
 
     /* Coach insight inline actions on Today */
     .dash-flag-actions { display:flex; gap:8px; margin-top:10px; }
@@ -1308,10 +1312,12 @@
     .plan-note-body { font-size:0.83rem; line-height:1.5; }
     .plan-note-body b { font-weight:700; }
     .plan-vcard { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px; }
-    .plan-vtop { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:4px; }
+    .plan-vtop { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+    .plan-vtop .ring-lbl { color:var(--text) !important; font-size:0.62rem; }
     .plan-vtitle { font-size:0.85rem; font-weight:700; } .plan-vsub { font-size:0.72rem; color:var(--text-muted); }
-    .plan-vbar { height:8px; border-radius:4px; background:rgba(255,255,255,0.07); overflow:hidden; margin:10px 0 16px; }
-    .plan-vfill { height:100%; border-radius:4px; background:var(--blue); }
+    .plan-weekhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .plan-weekhead .section-heading { margin:0; }
+    .plan-wkcount { display:inline-flex; align-items:center; gap:8px; font-size:0.74rem; color:var(--text-muted); font-variant-numeric:tabular-nums; }
     .plan-mrow { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
     .plan-mcat { font-size:0.74rem; width:74px; flex:0 0 auto; }
     .plan-mtrack { flex:1; height:8px; background:rgba(255,255,255,0.06); border-radius:4px; position:relative; overflow:hidden; }
@@ -1549,7 +1555,6 @@
       background:var(--surface); border:1px solid rgba(var(--blue-rgb),0.22); border-radius:18px;
       box-shadow:0 14px 28px -22px rgba(var(--blue-rgb),0.6);
     }
-    #restBarFill { background:rgba(var(--blue-rgb),0.12); }
     .rest-bar-step { background:none; border-color:var(--border); border-radius:10px; }
     .rest-bar-skip { border-radius:10px; }
     #restBar.done-state { background:rgba(var(--green-rgb),0.14); border-color:rgba(var(--green-rgb),0.7); animation:restPulse 1.2s var(--ease) infinite; }
@@ -1592,7 +1597,6 @@
     .plan-note { background:color-mix(in srgb, var(--coach) 9%, var(--bg)); border:0; border-radius:20px 20px 20px 6px; }
     .plan-vcard { background:none; border:0; border-top:1px solid var(--border); border-radius:0; padding:18px 0 4px; }
     .plan-vtitle { font-size:0.64rem; text-transform:uppercase; letter-spacing:.09em; color:var(--prog); }
-    .plan-vfill { background:var(--prog); }
     .plan-vlink { color:var(--prog); }
 
     /* Library — lists are rows */
@@ -1645,9 +1649,9 @@
     .si-body { font-size:0.8rem; line-height:1.5; color:var(--text); }
     .si-body b { font-weight:700; }
 
-    /* Tab bar — active tab takes its pillar hue on a soft pill */
-    .tab.active .ti { position:relative; isolation:isolate; }
-    .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
+    /* Tab bar — duotone state: faint fill on every tab, full fill + pillar hue when active */
+    .tab .lc { --icon-fill:.10; }
+    .tab.active .lc { --icon-fill:.30; }
     .tab[data-tab="Stats"].active { color:var(--prog); }
     .tab[data-tab="Coach"].active { color:var(--coach); }
   </style>
@@ -1658,6 +1662,14 @@
       align-items:center; justify-content:center; padding:var(--gap); }
     .auth-overlay.visible { display:flex; }
     .auth-card { width:100%; max-width:360px; text-align:center; }
+    /* Launch splash (see #splash) */
+    #splash { position:fixed; inset:0; z-index:500; background:var(--bg); display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:18px; transition:opacity .35s ease; }
+    #splash.hide { opacity:0; pointer-events:none; }
+    .splash-wm { font-size:1.6rem; font-weight:700; letter-spacing:-0.02em; animation:splashWm .5s ease .5s both; }
+    @keyframes splashWm { from { opacity:0; transform:translateY(4px); } }
+    .arc-mark.draw path { stroke-dasharray:1 1.5; animation:ring-draw .8s cubic-bezier(.2,.8,.2,1) both; }
+    @media (prefers-reduced-motion: reduce) { .arc-mark.draw path, .splash-wm { animation:none; } }
     .auth-icon { color:var(--blue); margin-bottom:16px; display:flex; justify-content:center; }
     .auth-title { font-size:1.6rem; font-weight:700; margin-bottom:8px; }
     .auth-sub { color:var(--text-muted); font-size:0.9rem; margin-bottom:32px; line-height:1.5; }
@@ -1671,10 +1683,18 @@
   </style>
 </head>
 <body>
+  <!-- Launch splash: the app icon's week ring draws itself in while the modules
+       load. app.js hideSplash() fades it out (≥1.1 s after start); the timeout
+       below is a failsafe so a script error can never leave it covering the app. -->
+  <div id="splash" aria-hidden="true">
+    <svg class="arc-mark draw" viewBox="0 0 512 512" width="104" height="104" fill="none" stroke-width="54" stroke-linecap="round" aria-hidden="true"><path d="M300.64 112.8A150 150 0 0 1 399.2 211.36" stroke="var(--train)" pathLength="1" style="animation-delay:0.00s"/><path d="M399.2 300.64A150 150 0 0 1 300.64 399.2" stroke="var(--prog)" pathLength="1" style="animation-delay:0.14s"/><path d="M211.36 399.2A150 150 0 0 1 112.8 300.64" stroke="var(--fuel)" pathLength="1" style="animation-delay:0.28s"/><path d="M112.8 211.36A150 150 0 0 1 211.36 112.8" stroke="var(--coach)" pathLength="1" style="animation-delay:0.42s"/></svg>
+    <div class="splash-wm">ARC</div>
+  </div>
+  <script>setTimeout(function () { var s = document.getElementById('splash'); if (s) s.remove(); }, 8000);</script>
   <!-- Auth overlay (self-contained login; no more redirect to the retired hub) -->
   <div class="auth-overlay" id="authOverlay">
     <div class="auth-card">
-      <div class="auth-icon"><i data-lucide="dumbbell" data-size="44"></i></div>
+      <div class="auth-icon"><svg class="arc-mark" viewBox="0 0 512 512" width="56" height="56" fill="none" stroke-width="54" stroke-linecap="round" aria-hidden="true"><path d="M300.64 112.8A150 150 0 0 1 399.2 211.36" stroke="var(--train)" pathLength="1" style="animation-delay:0.00s"/><path d="M399.2 300.64A150 150 0 0 1 300.64 399.2" stroke="var(--prog)" pathLength="1" style="animation-delay:0.14s"/><path d="M211.36 399.2A150 150 0 0 1 112.8 300.64" stroke="var(--fuel)" pathLength="1" style="animation-delay:0.28s"/><path d="M112.8 211.36A150 150 0 0 1 211.36 112.8" stroke="var(--coach)" pathLength="1" style="animation-delay:0.42s"/></svg></div>
       <h2 class="auth-title">Arc</h2>
       <p class="auth-sub">Sign in with your email to keep your training synced across all your devices.</p>
       <div id="authForm">
@@ -1846,7 +1866,7 @@
   <div class="aw-footer">
     <!-- Inline, non-blocking rest bar -->
     <div id="restBar">
-      <div id="restBarFill"></div>
+      <span id="restRing"></span>
       <span class="rest-bar-name" id="restBarName">Rest</span>
       <button class="rest-bar-step" onclick="bumpRest(-15)" data-tip="−15 seconds" title="−15 seconds">−15</button>
       <span class="rest-bar-count" id="restBarCount">1:00</span>

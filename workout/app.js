@@ -11,6 +11,7 @@ import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
+import { weekRing, meterRing } from '../shared/rings.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
 
 // Paint any static/dynamic `<i data-lucide>` placeholders. Cheap + idempotent,
@@ -36,6 +37,7 @@ const restore = hadSessionAtImport ? initialSync : db.sync();
 
 // In-app email-OTP login. Resolves with the session once the user signs in.
 function showAuthGate() {
+  hideSplash();
   return new Promise(resolve => {
     const overlay       = document.getElementById('authOverlay');
     const authForm      = document.getElementById('authForm');
@@ -271,8 +273,6 @@ function maskTime(raw) {
   return { text: min.padStart(2, '0') + ':' + sec, secs: (parseInt(min, 10) || 0) * 60 + (parseInt(sec, 10) || 0) };
 }
 const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-// Milestone emoji (from achievements.js) → Lucide icon names.
-const MILESTONE_ICONS = { '🏋️': 'dumbbell', '🔥': 'flame', '⚡': 'zap' };
 
 function parseToDate(str) {
   if (!str) return null;
@@ -1536,7 +1536,7 @@ function checkWeightSanity(ex, set, rowEl) {
   const tr = document.createElement('tr');
   tr.className = 'set-warn-row';
   tr.dataset.for = set.id;
-  tr.innerHTML = `<td colspan="5">⚠️ Unusual weight — best previous is ${fmtKg(best)} kg. Typo?</td>`;
+  tr.innerHTML = `<td colspan="5">${icon('triangle-alert', { size: 13 })} Unusual weight — best previous is ${fmtKg(best)} kg. Typo?</td>`;
   rowEl.after(tr);
 }
 
@@ -2692,9 +2692,10 @@ function updateRestDisplay(remaining) {
   const r = Math.max(0, remaining);
   el.textContent = fmtTime(r);
   el.className = 'rest-bar-count' + (r <= 0 ? ' done' : r <= 10 ? ' low' : '');
-  const fill = document.getElementById('restBarFill');
-  if (fill && restTotalSecs > 0) {
-    fill.style.width = `${Math.max(0, Math.min(100, (r / restTotalSecs) * 100))}%`;
+  const ring = document.getElementById('restRing');
+  if (ring && restTotalSecs > 0) {
+    ring.innerHTML = meterRing(r / restTotalSecs, {
+      size: 30, stroke: 3.5, color: r <= 0 ? 'var(--green)' : r <= 10 ? 'var(--amber)' : 'var(--train)' });
   }
 }
 
@@ -3313,6 +3314,15 @@ async function fixIncompletePushDayOnce() {
 
 // One-time swap: dumbbell incline curl → cable (Bayesian) incline curl in the
 // Pull Hypertrophy routine. Preserves the routine's set/rep targets.
+// One-time: weekly target 3 → 4 sessions (the week ring's four segments).
+// Flagged so a later manual change in Streak settings is never overwritten.
+async function setWeeklyTargetFourOnce() {
+  if (await db.get(STORE, 'weekly-target-4-set')) return;
+  const s = await getStreakSettings();
+  await saveStreakSettings({ ...s, target: 4 });
+  await db.set(STORE, 'weekly-target-4-set', true);
+}
+
 async function swapPullDayInclineCurlOnce() {
   const done = await db.get(STORE, 'pull-incline-curl-swapped');
   if (done) return;
@@ -3514,7 +3524,7 @@ async function renderStreakChip(sessions) {
 document.getElementById('streakChip').onclick = async () => {
   const s = await getStreakSettings();
   document.getElementById('streakSeedInput').value   = s.seed || '';
-  document.getElementById('streakTargetInput').value = s.target || 3;
+  document.getElementById('streakTargetInput').value = s.target || 4;
   document.getElementById('streakModal').classList.add('open');
 };
 document.getElementById('streakCancel').onclick = () => document.getElementById('streakModal').classList.remove('open');
@@ -3523,7 +3533,7 @@ document.getElementById('streakModal').addEventListener('click', e => {
 });
 document.getElementById('streakSave').onclick = async () => {
   const seed   = parseInt(document.getElementById('streakSeedInput').value) || 0;
-  const target = Math.max(1, parseInt(document.getElementById('streakTargetInput').value) || 3);
+  const target = Math.max(1, parseInt(document.getElementById('streakTargetInput').value) || 4);
   const prev = await getStreakSettings();
   await saveStreakSettings({
     seed, target,
@@ -3826,6 +3836,7 @@ async function renderPlan() {
   }).join('');
 
   const { thisWeekCount, target } = computeStreak(sessions, streakSettings);
+  const weekSessions = days.reduce((a, dy) => a + dy.done.length, 0);   // the week being viewed
   const imbalance = generateCoachFindings(sessions).find(f => f.severity === 'warn');
   const streakLine = thisWeekCount >= target
     ? `You've hit your <b>${target}/week</b> target — nice.`
@@ -3851,8 +3862,8 @@ async function renderPlan() {
       <span class="plan-mval${behind ? ' behind' : ''}">${cu}/${p}</span></div>`;
   }).join('');
   const volHTML = `<div class="plan-vcard">
-    <div class="plan-vtop"><span class="plan-vtitle">Weekly training volume</span><span class="plan-vsub">${curTotal} / ${planTotal} sets</span></div>
-    <div class="plan-vbar"><div class="plan-vfill" style="width:${Math.min(100, (curTotal / planTotal) * 100).toFixed(0)}%"></div></div>
+    <div class="plan-vtop">${meterRing(curTotal / planTotal, { size: 44, color: 'var(--prog)', label: `${Math.min(100, Math.round(curTotal / planTotal * 100))}%` })}
+      <div><div class="plan-vtitle">Weekly training volume</div><div class="plan-vsub">${curTotal} / ${planTotal} sets</div></div></div>
     ${mrows || '<div class="stats-empty">Add routines to see planned volume.</div>'}
     <button class="plan-vlink" id="planToBalance">See full muscle balance ${icon('arrow-right', { size: 14 })}</button>
   </div>`;
@@ -3862,7 +3873,8 @@ async function renderPlan() {
       <span class="plan-wknav"><button id="planPrev">${icon('chevron-left', { size: 16 })}</button><span>${rangeLbl}</span><button id="planNext">${icon('chevron-right', { size: 16 })}</button></span>
     </div>
     <div class="week-strip">${strip}</div>
-    <div class="section-heading" style="margin-bottom:10px">${planWeekOffset === 0 ? 'This week' : 'Week'}</div>
+    <div class="plan-weekhead"><div class="section-heading">${planWeekOffset === 0 ? 'This week' : 'Week'}</div>
+      <span class="plan-wkcount">${weekSessions}/${target} sessions ${weekRing(weekSessions, target, { size: 26, stroke: 5, complete: weekSessions >= target })}</span></div>
     <div class="day-list">${dayCards}</div>
     ${noteHTML}
     ${volHTML}`;
@@ -3929,8 +3941,8 @@ async function renderDashboard() {
        <div class="snap-sub flat">${body.delta ? icon(body.delta < 0 ? 'trending-down' : 'trending-up', { size: 12 }) : ''}${body.delta ? Math.abs(body.delta) + ' kg' : 'steady'}</div>`
     : `<div><div class="snap-val">Log</div><div class="snap-lbl">Bodyweight</div></div><div class="snap-sub flat">Tap to add</div>`;
   const calRing = nutri && nutri.goal
-    ? (() => { const pct = Math.max(0, Math.min(1, nutri.kcal / nutri.goal)); const C = 81.7, off = C * (1 - pct);
-        return `<span class="snap-ring"><svg width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="4"/><circle cx="15" cy="15" r="13" fill="none" stroke="var(--orange)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 15 15)"/></svg><span class="rc" style="color:var(--orange)">${Math.round(pct * 100)}%</span></span>`; })()
+    ? (() => { const pct = Math.max(0, Math.min(1, nutri.kcal / nutri.goal));
+        return meterRing(pct, { color: 'var(--fuel)', label: `${Math.round(pct * 100)}%`, cls: 'snap-ring' }); })()
     : `<span class="snap-ico" style="background:rgba(var(--orange-rgb),0.16);color:var(--fuel)">${icon('utensils', { size: 15 })}</span>`;
   const calTile = nutri
     ? `<div><div class="snap-val">${nutri.kcal.toLocaleString()}</div><div class="snap-lbl">${nutri.goal ? `of ${nutri.goal.toLocaleString()} kcal` : 'kcal today'}</div></div>
@@ -3953,11 +3965,31 @@ async function renderDashboard() {
       </div>
     </div>`;
 
+  // Week ring: sessions this week against the streak target. A complete week
+  // turns the ring into the app icon (pillar hues); the first render after it
+  // completes draws it in and shows the trophy banner for the rest of that day.
+  const weekDone = thisWeekCount >= target;
+  const weekKey = `${now.getFullYear()}-W${weekNo}`, todayKey = now.toLocaleDateString('en-CA');
+  let celebrated = null;
+  try { celebrated = JSON.parse(localStorage.getItem('arc-week-complete') || 'null'); } catch (_) {}
+  const firstTime = weekDone && celebrated?.week !== weekKey;
+  if (firstTime) { try { localStorage.setItem('arc-week-complete', JSON.stringify({ week: weekKey, day: todayKey })); } catch (_) {} }
+  const showBanner = weekDone && (firstTime || celebrated?.day === todayKey);
+  const ringHTML = weekRing(thisWeekCount, target, {
+    size: 50, complete: weekDone, animate: firstTime,
+    label: weekDone ? '' : `${thisWeekCount}/${target}`,
+  });
+  const bannerHTML = showBanner ? `
+    <div class="week-done-banner${firstTime ? ' fresh' : ''}">${icon('trophy', { size: 18 })}
+      <div><b>Week complete.</b> ${weeks > 1 ? `${weeks} weeks in a row.` : `${thisWeekCount} of ${target} sessions logged.`}</div></div>` : '';
+
   dashTop.innerHTML = `
     <div class="dash-datehead">
-      <span class="dash-weekday">${weekday}</span>
-      <span class="dash-weekmeta">Week ${weekNo} · day ${dayNo}</span>
+      <div><div class="dash-weekday">${weekday}</div>
+      <div class="dash-weekmeta">Week ${weekNo} · day ${dayNo}</div></div>
+      <button class="dash-weekring" id="dashWeekRing" aria-label="${thisWeekCount} of ${target} sessions this week">${ringHTML}</button>
     </div>
+    ${bannerHTML}
     ${heroHTML}
     ${tilesHTML}`;
 
@@ -3968,6 +4000,7 @@ async function renderDashboard() {
   dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
   dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
+  dashTop.querySelector('#dashWeekRing')?.addEventListener('click', () => document.getElementById('streakChip').click());
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
 
@@ -4138,7 +4171,7 @@ async function renderStats() {
     ${miles.earned.length ? `
       <div class="stats-card">
         <div class="stats-card-title">Milestones</div>
-        <div class="milestone-wrap">${miles.earned.map(m => `<span class="milestone-chip"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.18em">${icon(MILESTONE_ICONS[m.icon] || 'award', { size: 14 })}</span> ${esc(m.label)}</span>`).join('')}</div>
+        <div class="milestone-wrap">${miles.earned.map(m => `<span class="milestone-chip"><span style="color:var(--amber);display:inline-flex;vertical-align:-0.18em">${icon(m.icon || 'award', { size: 14 })}</span> ${esc(m.label)}</span>`).join('')}</div>
       </div>` : ''}
 
     ${weeklyVolumeHTML(chrono)}
@@ -6111,6 +6144,16 @@ document.getElementById('cpInjInput').addEventListener('keydown', e => {
 });
 document.getElementById('cpSave').onclick = saveCoachProfileSheet;
 
+// Fade out the launch splash (workout/index.html #splash) once the ring has had
+// time to draw in. Called when the first real content is on screen, and by the
+// auth gate so sign-in is never hidden behind it.
+function hideSplash() {
+  const el = document.getElementById('splash');
+  if (!el || el.classList.contains('hide')) return;
+  setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 400); },
+    Math.max(0, 1100 - performance.now()));
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 // Wait for the cloud restore BEFORE the first render / seeding, so a reinstalled
 // app (empty IndexedDB) shows its real history instead of looking wiped — and so
@@ -6121,6 +6164,7 @@ if (document.getElementById('recentList')) {
   document.getElementById('recentList').innerHTML =
     `<div style="display:flex;align-items:center;gap:6px;justify-content:center;color:var(--text-muted);font-size:0.8rem;padding:6px 0 12px">${icon('refresh-cw', { size: 13 })} Restoring your data…</div>` + skeletonCards(3);
 }
+hideSplash();
 try { await Promise.race([restore, new Promise(r => setTimeout(r, 12000))]); } catch (_) {}
 
 await loadExOverrides();   // library edits (exercise types/categories) before any render
@@ -6129,6 +6173,7 @@ loadBarWeight();           // remembered barbell weight for the plate calculator
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
+await setWeeklyTargetFourOnce();
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
 
