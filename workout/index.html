@@ -43,7 +43,14 @@
     body { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); overscroll-behavior: none; }
     /* No horizontal movement anywhere — a stray-wide child must never let the page pan
        sideways (that hijacks set-row swipes into a page-scroll and reads as a "zoom"). */
-    html, body { overflow-x: hidden; max-width: 100%; }
+    /* html's overflow is handed to the VIEWPORT (no sideways pan), so html itself
+       isn't a scroll container. body must use `clip`, not `hidden`: overflow-x:hidden
+       forces overflow-y to compute to auto, making <body> an accidental scroll
+       container — and on iOS, fixed layers inside a scroll container drift with
+       momentum scrolling (the tab bar lifting mid-scroll). clip crops the same
+       without creating one. */
+    html { overflow-x: hidden; max-width: 100%; }
+    body { overflow-x: clip; max-width: 100%; }
     /* Kill double-tap zoom + 300ms tap delay app-wide */
     html, body, button, input, select { touch-action: manipulation; }
     /* Inputs must be >=16px or iOS auto-zooms on focus */

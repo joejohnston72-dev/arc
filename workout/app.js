@@ -702,6 +702,19 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', fitActiveWorkout);
 }
 
+// iOS 26 keyboard bug (WebKit 297779): after the keyboard closes, the visual
+// viewport can keep a stale offset, so fixed layers (tab bar, headers) sit shifted
+// until something forces a re-layout. A 1px scroll round-trip makes WebKit
+// recompute it. Runs only once focus has really left all text fields.
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+    window.scrollBy(0, 1);
+    window.scrollBy(0, -1);
+  }, 300);
+});
+
 // Coach keyboard fit. #secCoach is a fixed column pinned above the tab bar, but on
 // iOS the keyboard only shrinks the VISUAL viewport — the composer ended up under
 // the keyboard and the page panned, clipping the header. While the keyboard is up
