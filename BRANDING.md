@@ -96,18 +96,17 @@ specific, actionable, and justified by what's in your data.
 
 ## 4. Logo & app mark
 
-**Primary mark:** the neon **dumbbell** — a chunky, diagonal dumbbell in the
-electric-sky gradient with a soft outer glow, on the near-black tile (see
-`workout/icon.png`). It's the whole identity in one glyph: strength + the
-electric charge.
+**Primary mark:** the **mist dumbbell** — a chunky, diagonal dumbbell in a soft
+mist-blue gradient on a graphite tile (see `workout/icon.png`; source
+`design/icon.svg.html`, rendered to 512×512 PNG).
 
 **Construction rules**
 - Glyph sits inside the **maskable safe zone** (~80% centre) so iOS/Android
   corner-rounding never clips it.
-- Gradient runs bottom-left → top-right: `#2f9fe8 → #8ee3ff`.
-- Glow: `drop-shadow` in `#38bdf8` at ~50% — subtle, not a bloom.
-- Background: the app's aurora-dark tile (`linear-gradient(160deg,#12121c,#08080c)`
-  with faint sky/violet corner auroras). No flat black — it should have depth.
+- Gradient runs bottom-left → top-right: `#8ea8bd → #c3d3e0`.
+- Depth from a soft dark drop shadow only — **no glow**.
+- Background: graphite `linear-gradient(#1e2227 → #121417)` with a faint
+  mist wash top-right.
 
 **Wordmark:** `ARC` set in Google Sans **Bold**, tight tracking (`-0.02em`),
 optionally with the electric-sky as a subtle left-to-right gradient on the

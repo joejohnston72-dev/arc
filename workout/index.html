@@ -1551,6 +1551,48 @@
     .summary-compare-fig { background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
     .summary-compare-fig:first-child { border-left:0; padding-left:0; }
 
+
+    /* Plan — Train. Today's session is the raised hero; other days are rows */
+    .wcol { background:none; border-color:transparent; }
+    .wcol.today { background:rgba(var(--blue-rgb),0.10); border-color:rgba(var(--blue-rgb),0.28); }
+    .plan-wknav button { background:none; border:1px solid var(--border); border-radius:10px; color:var(--text-muted); }
+    .day-list { gap:0; }
+    .dcard { background:none; border:0; border-radius:0; border-bottom:1px solid var(--border); padding:13px 2px; }
+    .dcard:last-child { border-bottom:0; }
+    .dcard.rest { background:none; border-style:solid; }
+    .dcard.rest .dname { font-weight:500; }
+    .dcard.done { border-left:0; }
+    .dcard.today {
+      border:1px solid rgba(var(--blue-rgb),0.24); border-radius:22px; padding:16px 14px; margin:6px 0;
+      background:linear-gradient(165deg, color-mix(in srgb, var(--train) 15%, var(--surface)), var(--surface) 72%);
+      box-shadow:0 18px 34px -24px rgba(var(--blue-rgb),0.55);
+    }
+    .dcard.today .dday { color:var(--train); }
+    .dstart { border-radius:12px; padding:10px 16px; }
+    .plan-note { background:color-mix(in srgb, var(--coach) 9%, var(--bg)); border:0; border-radius:20px 20px 20px 6px; }
+    .plan-vcard { background:none; border:0; border-top:1px solid var(--border); border-radius:0; padding:18px 0 4px; }
+    .plan-vtitle { font-size:0.64rem; text-transform:uppercase; letter-spacing:.09em; color:var(--prog); }
+    .plan-vfill { background:var(--prog); }
+    .plan-vlink { color:var(--prog); }
+
+    /* Library — lists are rows */
+    .lib-routine-card {
+      background:none; border:0; border-radius:0; border-bottom:1px solid var(--border);
+      padding:12px 2px; margin:0;
+    }
+    .lib-routine-card:last-of-type { border-bottom:0; }
+    .lib-routine-card:active { transform:none; background:none; opacity:.7; }
+    .lib-routines-head .dash-link, .lib-routines-head button { color:var(--train); }
+    .lib-row {
+      background:none; border:0; border-radius:0; border-bottom:1px solid var(--border);
+      padding:12px 2px; margin:0;
+    }
+    .lib-row:active { transform:none; opacity:.7; }
+    .lib-chip { background:none; border-color:var(--border); }
+    .lib-group-head { margin-top:22px; }
+    .lib-day-card { background:none; border-radius:0; border-top:1px solid var(--border); padding:14px 2px; margin:0; }
+    .lib-search-wrap { border-radius:14px; }
+
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
     .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
