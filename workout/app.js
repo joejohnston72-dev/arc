@@ -702,6 +702,41 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', fitActiveWorkout);
 }
 
+// iOS standalone viewport gap. With `black-translucent` (needed so the page runs
+// edge-to-edge under the Dynamic Island) iOS hands the web view a full-screen
+// frame but a layout viewport that is SHORT by the top safe area (59pt on a Pro
+// Max). Every `position:fixed; bottom:0` layer — tab bar, coach column, sheets,
+// overlays — then stops that far above the real screen edge, leaving a bare band
+// under the tab bar. We measure what `fixed` actually resolves to (a probe pinned
+// top:0/bottom:0) against the physical screen and publish the shortfall as
+// --vp-gap; the CSS extends each bottom-anchored layer down by it. On devices
+// without the bug the gap measures 0 and nothing moves.
+const vpProbe = document.createElement('div');
+vpProbe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none';
+document.body.appendChild(vpProbe);
+let lastVpGap = -1;
+function syncViewportGap() {
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  let gap = 0;
+  if (standalone && screen.width && screen.height) {
+    const portrait = innerHeight >= innerWidth;
+    const lo = Math.min(screen.width, screen.height), hi = Math.max(screen.width, screen.height);
+    const sw = portrait ? lo : hi, sh = portrait ? hi : lo;
+    const g = Math.round(sh - vpProbe.getBoundingClientRect().height);
+    // Full-width window only (not iPad split view), and a plausible inset-sized gap —
+    // an open keyboard or a windowed app gives a much larger number and is ignored.
+    if (Math.abs(innerWidth - sw) <= 1 && g > 0 && g <= 100) gap = g;
+  }
+  if (gap === lastVpGap) return;
+  lastVpGap = gap;
+  document.documentElement.style.setProperty('--vp-gap', gap + 'px');
+}
+syncViewportGap();
+['resize', 'orientationchange', 'pageshow'].forEach(ev => addEventListener(ev, syncViewportGap));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncViewportGap(); });
+if (window.visualViewport) visualViewport.addEventListener('resize', syncViewportGap);
+setTimeout(syncViewportGap, 400);   // iOS settles the standalone frame shortly after launch
+
 // Coach keyboard fit. #secCoach is a fixed column pinned above the tab bar, but on
 // iOS the keyboard only shrinks the VISUAL viewport — the composer ended up under
 // the keyboard and the page panned, clipping the header. While the keyboard is up

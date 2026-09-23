@@ -1618,6 +1618,19 @@
     .cp-stepper button { background:var(--surface); }
     .summary-warn-box { border:0; border-radius:16px; }
 
+
+    /* iOS standalone viewport gap (syncViewportGap in app.js): extend every
+       bottom-anchored fixed layer down to the physical screen edge. 0 elsewhere. */
+    :root { --vp-gap: 0px; }
+    .tabs { bottom:calc(-1 * var(--vp-gap)); }
+    #secCoach.active { bottom:calc(56px + env(safe-area-inset-bottom) - var(--vp-gap)); }
+    #miniBar { bottom:calc(env(safe-area-inset-bottom) + 58px - var(--vp-gap)); }
+    .ed-actionbar { bottom:calc(-1 * var(--vp-gap)); }
+    #activeWorkout, .modal-backdrop, .auth-overlay,
+    #exercisePicker, #routineLibrary, #libraryDetail, #historyDetail, #exerciseDetail, #workoutSummary {
+      bottom:calc(-1 * var(--vp-gap));
+    }
+
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
     .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
