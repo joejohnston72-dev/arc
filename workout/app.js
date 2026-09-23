@@ -6129,6 +6129,32 @@ refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
   });
 }
 
+// Stale home-screen install. The 59pt strip under the tab bar comes from the old
+// `black-translucent` status-bar style; index.html now uses `black`, but iOS keeps
+// the style it saved when the app was ADDED, so an existing install keeps the bug
+// until it's re-added from Safari. Under the stale style the top safe-area inset
+// is the status-bar height (>0); under `black` the web view starts below the
+// status bar and the inset is 0 — so a non-zero inset in standalone = stale install.
+function checkStaleInstall() {
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  if (!standalone) return;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;left:0;width:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
+  document.body.appendChild(probe);
+  const inset = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  if (inset < 20 || document.getElementById('staleInstall')) return;
+  const note = document.createElement('div');
+  note.id = 'staleInstall';
+  note.className = 'stale-install';
+  note.innerHTML = `
+    <div class="si-head">${icon('refresh-cw', { size: 14 })} Re-add Arc to finish an update</div>
+    <div class="si-body">iOS is still using this install's old screen setting, which leaves a gap under the tab bar.
+      Remove Arc from your Home Screen, then in Safari tap Share → <b>Add to Home Screen</b>. Your data restores from the cloud when you sign in.</div>`;
+  document.getElementById('secDashboard').prepend(note);
+}
+checkStaleInstall();
+
 renderDashboard();
 renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one

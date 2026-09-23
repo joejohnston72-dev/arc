@@ -1624,6 +1624,12 @@
     .summary-warn-box { border:0; border-radius:16px; }
 
 
+    /* Stale home-screen install prompt (checkStaleInstall in app.js) */
+    .stale-install { background:rgba(var(--amber-rgb),0.10); border-radius:16px; padding:12px 14px; margin-bottom:14px; }
+    .si-head { display:flex; align-items:center; gap:7px; font-size:0.82rem; font-weight:700; color:var(--amber); margin-bottom:5px; }
+    .si-body { font-size:0.8rem; line-height:1.5; color:var(--text); }
+    .si-body b { font-weight:700; }
+
     /* Tab bar — active tab takes its pillar hue on a soft pill */
     .tab.active .ti { position:relative; isolation:isolate; }
     .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
