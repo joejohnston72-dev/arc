@@ -1,0 +1,408 @@
+<title>ARC Iconography Study</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Google+Sans:400,500,700&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#131518; --surface:#1c1f23; --surface2:#262a2f;
+    --text:#e8eaed; --muted:#979ca4; --faint:#6b7078; --border:rgba(255,255,255,0.10);
+    --blue:#9fb8cc; --teal:#8fc2bb; --orange:#d6b48e; --purple:#b3aad6;
+    --amber:#d8b774; --green:#93c2a4; --red:#d88685;
+    --sw:1.75;
+    --ease:cubic-bezier(.2,.8,.2,1);
+    --font:'Google Sans','Product Sans',Roboto,-apple-system,system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:15px/1.5 var(--font); margin:0; }
+  .wrap { max-width:980px; margin:0 auto; padding-inline:20px; padding-block:32px 80px; }
+  h1 { font-size:2rem; font-weight:700; letter-spacing:-0.5px; margin:0; text-wrap:balance; }
+  h2 { font-size:1.15rem; font-weight:700; letter-spacing:-0.3px; margin:0 0 4px; }
+  .eyebrow { font-size:.7rem; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .lede { color:var(--muted); max-width:62ch; margin:8px 0 0; }
+  section { margin-top:44px; display:grid; gap:14px; }
+  .sub { color:var(--muted); font-size:.88rem; margin:0; max-width:65ch; }
+
+  /* Controls */
+  .controls { position:sticky; top:env(safe-area-inset-top,0px); z-index:5; margin-top:24px;
+    display:flex; flex-wrap:wrap; gap:10px 20px; align-items:center; padding:10px 14px;
+    background:rgba(28,31,35,.82); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
+    border:1px solid var(--border); border-radius:14px; }
+  .ctl { display:flex; align-items:center; gap:8px; font-size:.8rem; color:var(--muted); }
+  .seg { display:inline-flex; background:var(--surface2); border-radius:10px; padding:3px; gap:2px; }
+  .seg button { font:500 .8rem var(--font); color:var(--muted); background:none; border:0; border-radius:8px;
+    padding:6px 10px; cursor:pointer; transition:background .18s var(--ease), color .18s var(--ease); }
+  .seg button[aria-pressed="true"] { background:var(--bg); color:var(--text); }
+  .seg button:focus-visible, .tab:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+
+  /* Direction legend */
+  .dirs { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1px; background:var(--border);
+    border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+  .dir { background:var(--surface); padding:14px 16px; display:grid; gap:4px; align-content:start; }
+  .dir b { font-size:.95rem; }
+  .dir .tag { font:700 .72rem var(--font); color:var(--bg); background:var(--muted); border-radius:6px; padding:1px 7px; justify-self:start; }
+  .dir p { margin:0; font-size:.84rem; color:var(--muted); }
+
+  /* Icons */
+  .ic { display:block; flex:none; overflow:visible; }
+  .ic .ln { fill:none; stroke:currentColor; stroke-width:var(--sw); stroke-linecap:round; stroke-linejoin:round; }
+  .ic .ln .dot { fill:currentColor; stroke:none; r:calc(var(--sw) * .72px); }
+  .ic.lu .ln { stroke-width:2; }
+  .ic .fl { fill:var(--tint,currentColor); fill-opacity:var(--fo,.26); stroke:none; }
+
+  /* Matrix */
+  .matrix-scroll { overflow-x:auto; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+  table { border-collapse:collapse; width:100%; min-width:560px; }
+  th, td { padding:10px 12px; text-align:center; border-bottom:1px solid var(--border); }
+  tr:last-child td { border-bottom:0; }
+  thead th { font-size:.7rem; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); position:sticky; top:0; background:var(--surface); }
+  td.name { text-align:left; font-size:.84rem; color:var(--muted); white-space:nowrap; }
+  td.name span { display:block; font-size:.7rem; color:var(--faint); }
+  td .ic { margin:auto; color:var(--text); }
+  td.cur .ic { color:var(--muted); }
+  th.cur, td.cur { border-right:1px solid var(--border); }
+
+  /* Tab bars */
+  .bars { display:grid; gap:10px; }
+  .bar-row { display:grid; grid-template-columns:150px 1fr; gap:14px; align-items:center; }
+  .bar-label { font-size:.84rem; }
+  .bar-label small { display:block; color:var(--muted); font-size:.74rem; }
+  .tabbar { display:flex; background:rgba(28,31,35,.92); border:1px solid var(--border); border-radius:14px; padding:8px 4px 10px; }
+  .tab { flex:1; min-width:0; background:none; border:0; color:var(--muted); font:500 .68rem var(--font); cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:4px; padding:2px 0; transition:color .18s var(--ease); }
+  .tab .ti { position:relative; isolation:isolate; height:24px; display:flex; align-items:center; }
+  .tab.active { color:var(--pc); }
+  .tabbar.pill .tab.active .ti::before { content:''; position:absolute; inset:-4px -11px; z-index:-1; border-radius:10px; background:currentColor; opacity:.14; }
+  @media (max-width:560px){ .bar-row { grid-template-columns:1fr; gap:6px; } }
+
+  /* In context */
+  .ctx { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+  .card { background:var(--surface); border-radius:16px; padding:6px 16px; }
+  .row { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); font-size:.9rem; }
+  .row:last-child { border-bottom:0; }
+  .row .ic { color:var(--c,var(--text)); }
+  .row .meta { color:var(--muted); font-size:.8rem; }
+  .row .num { font-weight:700; font-variant-numeric:tabular-nums; }
+  .row .grow { flex:1; min-width:0; }
+  .coach-bubble { align-self:start; background:rgba(179,170,214,.10); border-radius:20px 20px 20px 6px; padding:14px 16px; display:flex; gap:10px; font-size:.88rem; line-height:1.5; }
+  .coach-bubble .ic { color:var(--purple); margin-top:1px; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; padding:12px 0; }
+  .btn { display:inline-flex; align-items:center; gap:6px; font:500 .84rem var(--font); color:var(--text); background:var(--surface2);
+    border:0; border-radius:10px; padding:8px 12px; }
+  .btn.primary { background:linear-gradient(180deg,#b3c8d8,#9fb8cc); color:#142029; }
+  .btn.danger { color:var(--red); }
+  .inline-demo { font-size:.9rem; color:var(--muted); padding:12px 0; display:flex; flex-wrap:wrap; gap:6px 18px; }
+  .inline-demo span { display:inline-flex; align-items:center; gap:5px; color:var(--text); }
+
+  /* Marks */
+  .marks { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+  .mark { background:var(--surface); border-radius:16px; padding:16px; display:grid; gap:10px; align-content:start; }
+  .mark .big { width:100%; max-width:140px; aspect-ratio:1; border-radius:22.5%; overflow:hidden; }
+  .mark .big svg, .mark .sm svg { display:block; width:100%; height:100%; }
+  .mark .sizes { display:flex; align-items:end; gap:10px; }
+  .mark .sm { overflow:hidden; border-radius:22.5%; }
+  .mark b { font-size:.92rem; }
+  .mark p { margin:0; font-size:.8rem; color:var(--muted); }
+  .mark.ref { opacity:.8; }
+  .mark .tag { font:700 .7rem var(--font); color:var(--muted); }
+
+  .decide { background:var(--surface); border-radius:16px; padding:6px 18px; }
+  .decide li { padding:10px 0; border-bottom:1px solid var(--border); font-size:.9rem; }
+  .decide li:last-child { border-bottom:0; }
+  .decide ol { margin:0; padding-left:18px; }
+  .decide span { color:var(--muted); }
+  @media (prefers-reduced-motion:reduce){ * { transition:none!important; } }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">ARC · Design study · Draft 1 · 23 Sep 2026</div>
+  <h1>Iconography study</h1>
+  <p class="lede">Three directions to replace the stock Lucide set, plus five app-mark options. Same 24px grid, round caps and joins, <code>currentColor</code> throughout, so any of them drops into <code>shared/icons.js</code> without touching call sites.</p>
+
+  <div class="controls" role="group" aria-label="Preview controls">
+    <div class="ctl">Stroke
+      <div class="seg" id="sw">
+        <button type="button" data-v="1.5">1.5</button>
+        <button type="button" data-v="1.75" aria-pressed="true">1.75</button>
+        <button type="button" data-v="2">2</button>
+      </div>
+    </div>
+    <div class="ctl">Context
+      <div class="seg" id="ctxset">
+        <button type="button" data-v="lucide">Now</button>
+        <button type="button" data-v="A" aria-pressed="true">A</button>
+        <button type="button" data-v="B">B</button>
+        <button type="button" data-v="C">C</button>
+        <button type="button" data-v="D">C+</button>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <div class="dirs">
+      <div class="dir"><span class="tag">NOW</span><b>Lucide, 2px</b><p>Generic open-source set. Heavy against Google Sans at small sizes; shared with thousands of apps.</p></div>
+      <div class="dir"><span class="tag" style="background:var(--blue)">A</span><b>Refined line</b><p>Custom geometric line set. Subtle arc DNA: arched door, speech corner, bowl, dial. Reads as standard icons.</p></div>
+      <div class="dir"><span class="tag" style="background:var(--teal)">B</span><b>Duotone</b><p>Set A plus a soft fill layer in the pillar hue. Depth without glow; fill can carry the active state.</p></div>
+      <div class="dir"><span class="tag" style="background:var(--purple)">C</span><b>ARC signature</b><p>Pronounced motif: enclosed forms are open arcs with a gap at top-right and a spark dot in the gap. C+ adds the duotone fill.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div><h2>Glyph matrix</h2><p class="sub">Same 18 concepts in every direction. Pillar hue drives the duotone fill. "Now" stays at 2px for reference; the stroke control changes A, B and C.</p></div>
+    <div class="matrix-scroll"><table id="matrix"></table></div>
+  </section>
+
+  <section>
+    <div><h2>Tab bar</h2><p class="sub">Tap a tab to move the active state. Two state models for the duotone directions: fill only when active, or a faint fill always with full tint when active.</p></div>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section>
+    <div><h2>In context</h2><p class="sub">Real app surfaces at real sizes (16–20px). Switch direction with <b>Context</b> above. The trophy and flame glyphs are candidates to retire the 🏆 / 🔥 emoji.</p></div>
+    <div class="ctx" id="ctx"></div>
+  </section>
+
+  <section>
+    <div><h2>App mark</h2><p class="sub">Mist gradient on the graphite tile, per BRANDING.md §4. Shown at 140, 60 and 29px (home screen, Spotlight). Current dumbbell kept for reference.</p></div>
+    <div class="marks" id="marks"></div>
+  </section>
+
+  <section>
+    <div><h2>To decide</h2></div>
+    <div class="decide"><ol>
+      <li>Direction: A, B, C or C+ <span>(or a mix, e.g. C glyphs for nav and brand moments, A for utility actions)</span></li>
+      <li>Stroke: 1.5, 1.75 or 2</li>
+      <li>Active state: colour only, fill on active, or faint-always</li>
+      <li>Replace 🏆 / 🔥 emoji with glyphs: yes / no</li>
+      <li>App mark: pick one or two to refine</li>
+    </ol></div>
+  </section>
+</div>
+
+<script>
+const LUCIDE = {"house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","calendar":"<path d=\"M8 2v4\"/><path d=\"M16 2v4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\"/><path d=\"M3 10h18\"/>","chart-line":"<path d=\"M3 3v16a2 2 0 0 0 2 2h16\"/><path d=\"m19 9-5 5-4-4-3 3\"/>","bot":"<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>","book-open":"<path d=\"M12 7v14\"/><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\"/>","dumbbell":"<path d=\"M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z\"/><path d=\"m2.5 21.5 1.4-1.4\"/><path d=\"m20.1 3.9 1.4-1.4\"/><path d=\"M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z\"/><path d=\"m9.6 14.4 4.8-4.8\"/>","play":"<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\"/>","timer":"<line x1=\"10\" x2=\"14\" y1=\"2\" y2=\"2\"/><line x1=\"12\" x2=\"15\" y1=\"14\" y2=\"11\"/><circle cx=\"12\" cy=\"14\" r=\"8\"/>","circle-check":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/>","trophy":"<path d=\"M10 14.66v1.626a2 2 0 0 1-.976 1.696A5 5 0 0 0 7 21.978\"/><path d=\"M14 14.66v1.626a2 2 0 0 0 .976 1.696A5 5 0 0 1 17 21.978\"/><path d=\"M18 9h1.5a1 1 0 0 0 0-5H18\"/><path d=\"M4 22h16\"/><path d=\"M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z\"/><path d=\"M6 9H4.5a1 1 0 0 1 0-5H6\"/>","flame":"<path d=\"M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4\"/>","utensils":"<path d=\"M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2\"/><path d=\"M7 2v20\"/><path d=\"M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3z\"/><path d=\"M18 15v7\"/>","scale":"<path d=\"M12 3v18\"/><path d=\"m19 8 3 8a5 5 0 0 1-6 0zV7\"/><path d=\"M3 7h1a17 17 0 0 0 8-2 17 17 0 0 0 8 2h1\"/><path d=\"m5 8 3 8a5 5 0 0 1-6 0zV7\"/><path d=\"M7 21h10\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","trash-2":"<path d=\"M10 11v6\"/><path d=\"M14 11v6\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/>"};
+
+const P = d => `<path d="${d}"/>`;
+const C = (cx,cy,r) => `<circle cx="${cx}" cy="${cy}" r="${r}"/>`;
+const R = (x,y,w,h,rx) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}"/>`;
+const dot = (x,y) => `<circle class="dot" cx="${x}" cy="${y}" r="1.26"/>`;
+const pt = (cx,cy,r,a) => [+(cx+r*Math.cos(a*Math.PI/180)).toFixed(2), +(cy+r*Math.sin(a*Math.PI/180)).toFixed(2)];
+// clockwise arc from a0 to a1 (degrees, 0 = 3 o'clock, 90 = 6 o'clock)
+function arc(cx,cy,r,a0,a1){ const [x0,y0]=pt(cx,cy,r,a0),[x1,y1]=pt(cx,cy,r,a1);
+  return `M${x0} ${y0}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1} ${y1}`; }
+// ARC signature: open ring, gap centred at top-right, spark dot in the gap
+function ring(cx,cy,r,gap=48,at=-45,spark=true){
+  const s = spark ? dot(...pt(cx,cy,r,at)) : '';
+  return P(arc(cx,cy,r,at+gap/2,at+360-gap/2)) + s; }
+
+const ICONS = [
+  { k:'home',     n:'Today',     note:'tab',        c:'blue',   lu:'house' },
+  { k:'calendar', n:'Plan',      note:'tab',        c:'blue',   lu:'calendar' },
+  { k:'progress', n:'Progress',  note:'tab',        c:'teal',   lu:'chart-line' },
+  { k:'coach',    n:'Coach',     note:'tab',        c:'purple', lu:'bot' },
+  { k:'library',  n:'Library',   note:'tab',        c:'blue',   lu:'book-open' },
+  { k:'train',    n:'Workout',   note:'train',      c:'blue',   lu:'dumbbell' },
+  { k:'play',     n:'Start',     note:'action',     c:'blue',   lu:'play' },
+  { k:'timer',    n:'Rest timer',note:'train',      c:'blue',   lu:'timer' },
+  { k:'check',    n:'Set done',  note:'signal',     c:'green',  lu:'circle-check' },
+  { k:'trophy',   n:'PB',        note:'replaces 🏆', c:'amber',  lu:'trophy' },
+  { k:'flame',    n:'Streak',    note:'replaces 🔥', c:'amber',  lu:'flame' },
+  { k:'fuel',     n:'Fuel',      note:'fuel',       c:'orange', lu:'utensils' },
+  { k:'weight',   n:'Bodyweight',note:'fuel',       c:'orange', lu:'scale' },
+  { k:'plus',     n:'Add',       note:'action',     c:'blue',   lu:'plus' },
+  { k:'search',   n:'Search',    note:'action',     c:'blue',   lu:'search' },
+  { k:'edit',     n:'Edit',      note:'action',     c:'blue',   lu:'pencil' },
+  { k:'sync',     n:'Sync',      note:'action',     c:'teal',   lu:'refresh-cw' },
+  { k:'trash',    n:'Delete',    note:'action',     c:'red',    lu:'trash-2' },
+];
+
+// ── Direction A: refined line, subtle arc DNA ──────────────────────────────
+const A = {
+  home:     { l:P('M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1h-4v-5a3 3 0 0 0-6 0v5H5a1 1 0 0 1-1-1z'),
+              f:P('M4 10.2 12 4l8 6.2V19a1 1 0 0 1-1 1h-4v-5a3 3 0 0 0-6 0v5H5a1 1 0 0 1-1-1z') },
+  calendar: { l:R(3.5,5,17,15,3)+P('M8 3v4M16 3v4M3.5 10h17'),
+              f:P('M6.5 5h11a3 3 0 0 1 3 3v2h-17V8a3 3 0 0 1 3-3z') },
+  progress: { l:P('M4 4v14a2 2 0 0 0 2 2h14')+P('M8 16c3.5 0 6-2.5 7.5-5.5S18.5 7 20 7'),
+              f:P('M8 16c3.5 0 6-2.5 7.5-5.5S18.5 7 20 7v10H8z') },
+  coach:    { l:P('M11 4h2a7 7 0 0 1 0 14H4v-7a7 7 0 0 1 7-7z')+P('M12 8.2c.25 1.45 1.1 2.3 2.6 2.6-1.5.3-2.35 1.15-2.6 2.6-.25-1.45-1.1-2.3-2.6-2.6 1.5-.3 2.35-1.15 2.6-2.6z'),
+              f:P('M11 4h2a7 7 0 0 1 0 14H4v-7a7 7 0 0 1 7-7z') },
+  library:  { l:P('M12 7v13')+P('M12 7C10 5.5 7 5 4 5.5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-13c-3-.5-6 0-8 1.5z'),
+              f:P('M12 7C10 5.5 7 5 4 5.5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-13c-3-.5-6 0-8 1.5z') },
+  train:    { l:R(5,6.5,3,11,1.5)+R(16,6.5,3,11,1.5)+P('M8 12h8M2.8 9.5v5M21.2 9.5v5'),
+              f:R(5,6.5,3,11,1.5)+R(16,6.5,3,11,1.5) },
+  play:     { l:P('M8 5.8v12.4a1 1 0 0 0 1.52.85l10-6.2a1 1 0 0 0 0-1.7l-10-6.2A1 1 0 0 0 8 5.8z'),
+              f:P('M8 5.8v12.4a1 1 0 0 0 1.52.85l10-6.2a1 1 0 0 0 0-1.7l-10-6.2A1 1 0 0 0 8 5.8z') },
+  timer:    { l:C(12,13,8)+P('M10 2.5h4M12 13V9'), f:P('M12 13V5a8 8 0 0 1 8 8z') },
+  check:    { l:C(12,12,9)+P('m8 12.3 2.7 2.7L16.2 9.5'), f:C(12,12,9) },
+  trophy:   { l:P('M7 4h10v5a5 5 0 0 1-10 0z')+P('M7 6H4.5v1A3 3 0 0 0 7.4 10M17 6h2.5v1a3 3 0 0 1-2.9 3M12 14v4M8 20h8'),
+              f:P('M7 4h10v5a5 5 0 0 1-10 0z') },
+  flame:    { l:P('M12 21a6 6 0 0 1-6-6c0-3 1.5-5 3-6.5 0 2 1 3 2 3.5 0-3 1-5.5 3.5-8 .5 3 4.5 6 4.5 11a6 6 0 0 1-6 6z'),
+              f:P('M12 21a6 6 0 0 1-6-6c0-3 1.5-5 3-6.5 0 2 1 3 2 3.5 0-3 1-5.5 3.5-8 .5 3 4.5 6 4.5 11a6 6 0 0 1-6 6z') },
+  fuel:     { l:P('M3.5 11h17a8.5 8.5 0 0 1-17 0z')+P('M9.5 7.5c-.8-.9-.2-1.7.4-2.5s.8-1.6 0-2.5M14.5 7.5c-.8-.9-.2-1.7.4-2.5s.8-1.6 0-2.5'),
+              f:P('M3.5 11h17a8.5 8.5 0 0 1-17 0z') },
+  weight:   { l:R(3.5,3.5,17,17,5)+P('M8 11a4 4 0 0 1 8 0M12 11l1.6-2.4'), f:R(3.5,3.5,17,17,5) },
+  plus:     { l:P('M12 5v14M5 12h14'), f:'' },
+  search:   { l:C(11,11,6.5)+P('m16 16 4.5 4.5'), f:C(11,11,6.5) },
+  edit:     { l:P('M15 4.5 19.5 9 9 19.5H4.5V15z')+P('m12.5 7 4.5 4.5'), f:P('M15 4.5 19.5 9 9 19.5H4.5V15z') },
+  sync:     { l:P('M19.5 12a7.5 7.5 0 0 1-13.3 4.8M4.5 12a7.5 7.5 0 0 1 13.3-4.8')+P('M18.5 3.5v3.8h-3.8M5.5 20.5v-3.8h3.8'), f:'' },
+  trash:    { l:P('M4 7h16M9.5 7V4.5h5V7M6 7l.9 12.1A1.5 1.5 0 0 0 8.4 20.5h7.2a1.5 1.5 0 0 0 1.5-1.4L18 7'),
+              f:P('M6 7h12l-.9 12.1a1.5 1.5 0 0 1-1.5 1.4H8.4a1.5 1.5 0 0 1-1.5-1.4z') },
+};
+
+// ── Direction C: ARC signature (open arc + spark) ──────────────────────────
+const hp = pt(12,12,7,-65), hq = pt(12,12,7,-25);
+const C_ = {
+  home:     { l:P(`M5 20V12A7 7 0 0 1 ${hp[0]} ${hp[1]}`)+P(`M${hq[0]} ${hq[1]}A7 7 0 0 1 19 12v8`)+dot(...pt(12,12,7,-45))+P('M3 20h18M10 20v-2.5a2 2 0 0 1 4 0V20'),
+              f:P('M5 20v-8a7 7 0 0 1 14 0v8z') },
+  calendar: { l:R(3.5,5,17,15,4)+P('M8 3v4M16 3v4M3.5 10h17')+ring(12,15,2.6,70), f:R(3.5,5,17,15,4) },
+  progress: { l:P(arc(4,4,16,14,90))+dot(20,4)+P('M4 8v12'), f:P('M4 20a16 16 0 0 0 16-16V20z') },
+  coach:    { l:P(arc(12,11.5,8,-22,120))+P(arc(12,11.5,8,150,292))+dot(...pt(12,11.5,8,-45))
+              +P(`M${pt(12,11.5,8,150).join(' ')}L3.8 20.5L${pt(12,11.5,8,120).join(' ')}`),
+              f:C(12,11.5,8) },
+  library:  { l:P('M12 7.5a9 9 0 0 0-8-2v13a9 9 0 0 1 8 2 9 9 0 0 1 8-2v-13a9 9 0 0 0-8 2zM12 7.5v13'),
+              f:P('M12 7.5a9 9 0 0 0-8-2v13a9 9 0 0 1 8 2 9 9 0 0 1 8-2v-13a9 9 0 0 0-8 2z') },
+  train:    { l:R(5,11.5,3,8,1.5)+R(16,11.5,3,8,1.5)+P('M8 15.5h8M3 13.5v4M21 13.5v4')+P(arc(12,13,8.5,196,318))+dot(...pt(12,13,8.5,340)),
+              f:R(5,11.5,3,8,1.5)+R(16,11.5,3,8,1.5) },
+  play:     { l:ring(12,12,9,44)+P('M10 8.8v6.4a.6.6 0 0 0 .9.5l5.2-3.2a.6.6 0 0 0 0-1l-5.2-3.2a.6.6 0 0 0-.9.5z'), f:C(12,12,9) },
+  timer:    { l:ring(12,13,8)+P('M10 2.5h4M12 13V9.5'), f:P('M12 13V5a8 8 0 0 1 8 8z') },
+  check:    { l:ring(12,12,8.5,50,-45,false)+P('m7.8 12.2 3.2 3.2L20.5 5'), f:C(12,12,8.5) },
+  trophy:   { l:P('M5 4h14M7 4v3.5a5 5 0 0 0 10 0V4M7 6.5H5.2a2 2 0 0 0 1.9 3.5M17 6.5h1.8a2 2 0 0 1-1.9 3.5M12 12.5V17M8 20.5a4 3.5 0 0 1 8 0'),
+              f:P('M7 4h10v3.5a5 5 0 0 1-10 0z') },
+  flame:    { l:P('M12 21a6 6 0 0 1-6-6c0-3.5 3-5.5 4-9 3 1.5 8 5 8 9a6 6 0 0 1-6 6z')+P('M12 21a2.5 2.5 0 0 1-2.5-2.5c0-1.5 1.5-2.5 2.5-4 1 1.5 2.5 2.5 2.5 4A2.5 2.5 0 0 1 12 21z')+dot(17.5,3.5),
+              f:P('M12 21a6 6 0 0 1-6-6c0-3.5 3-5.5 4-9 3 1.5 8 5 8 9a6 6 0 0 1-6 6z') },
+  fuel:     { l:P('M3.5 12h17a8.5 8.5 0 0 1-17 0z')+P('M9.5 9a2.2 2.2 0 0 1 0-4M14.5 9a2.2 2.2 0 0 0 0-4')+dot(9.5,2.6)+dot(14.5,2.6),
+              f:P('M3.5 12h17a8.5 8.5 0 0 1-17 0z') },
+  weight:   { l:P(arc(12,13,8,150,390))+P('M12 13l3.5-3.5M6 21h12')+dot(12,13), f:C(12,13,8) },
+  plus:     { l:P('M12 5v14M5 12h14')+dot(18.5,5.5), f:'' },
+  search:   { l:ring(11,11,6.5,54)+P('m16 16 4.5 4.5'), f:C(11,11,6.5) },
+  edit:     { l:P('M15 4.5 19.5 9 10 18.5l-5.5 1 1-5.5z')+P('m12.5 7 4.5 4.5')+P('M14 20.5c2-1 4.5-1 6.5 0'),
+              f:P('M15 4.5 19.5 9 10 18.5l-5.5 1 1-5.5z') },
+  sync:     { l:P(arc(12,12,8,196,322))+P(arc(12,12,8,16,142))+dot(...pt(12,12,8,340))+dot(...pt(12,12,8,160)), f:'' },
+  trash:    { l:P('M4 7h16M9 7a3 3 0 0 1 6 0M6 7l.9 10.6a3 3 0 0 0 3 2.9h4.2a3 3 0 0 0 3-2.9L18 7'),
+              f:P('M6 7h12l-.9 10.6a3 3 0 0 1-3 2.9H9.9a3 3 0 0 1-3-2.9z') },
+};
+
+const SETS = {
+  lucide: Object.fromEntries(ICONS.map(i => [i.k, { l:LUCIDE[i.lu] || '', f:'' }])),
+  A, B:A, C:C_, D:C_,
+};
+const FILLED = { B:true, D:true };
+const tint = c => `var(--${c})`;
+
+function svg(set, key, { size=28, fill=FILLED[set], c, fo } = {}) {
+  const g = SETS[set][key];
+  const f = fill && g.f ? `<g class="fl">${g.f}</g>` : '';
+  const style = [c ? `--tint:${tint(c)}` : '', fo != null ? `--fo:${fo}` : ''].filter(Boolean).join(';');
+  return `<svg class="ic${set==='lucide'?' lu':''}" viewBox="0 0 24 24" width="${size}" height="${size}"${style?` style="${style}"`:''} aria-hidden="true" focusable="false">${f}<g class="ln">${g.l}</g></svg>`;
+}
+
+// Matrix
+const COLS = [['lucide','Now','cur'],['A','A · Line',''],['B','B · Duotone',''],['C','C · ARC',''],['D','C+ · Duotone','']];
+document.getElementById('matrix').innerHTML =
+  `<thead><tr><th style="text-align:left">Concept</th>${COLS.map(([,h,cl])=>`<th class="${cl}">${h}</th>`).join('')}</tr></thead><tbody>` +
+  ICONS.map(i => `<tr><td class="name">${i.n}<span>${i.note}</span></td>${COLS.map(([s,,cl]) =>
+    `<td class="${cl}">${svg(s, i.k, { size:28, c:i.c })}</td>`).join('')}</tr>`).join('') + `</tbody>`;
+
+// Tab bars
+const TABS = ICONS.slice(0,5);
+const BARS = [
+  { set:'lucide', t:'Now',  s:'Lucide 2px, tinted pill', mode:'pill' },
+  { set:'A', t:'A · Line',  s:'Colour only',            mode:'none' },
+  { set:'A', t:'B · Duotone', s:'Fill on active only',  mode:'active' },
+  { set:'A', t:'B · Duotone', s:'Faint always, full when active', mode:'always' },
+  { set:'C', t:'C · ARC',   s:'Colour only',            mode:'none' },
+  { set:'C', t:'C+ · Duotone', s:'Fill on active only', mode:'active' },
+];
+let activeTab = 0;
+function renderBars() {
+  document.getElementById('bars').innerHTML = BARS.map((b,bi) => `
+    <div class="bar-row"><div class="bar-label">${b.t}<small>${b.s}</small></div>
+    <div class="tabbar${b.mode==='pill'?' pill':''}">${TABS.map((t,ti) => {
+      const on = ti === activeTab;
+      const opt = b.mode==='active' ? { fill:on, c:t.c, fo:.3 }
+               : b.mode==='always' ? { fill:true, c:on ? t.c : null, fo:on ? .3 : .1 }
+               : { fill:false };
+      return `<button type="button" class="tab${on?' active':''}" data-i="${ti}" style="--pc:${tint(t.c)}" aria-pressed="${on}">
+        <span class="ti">${svg(b.set, t.k, { size:22, ...opt })}</span>${t.n}</button>`;
+    }).join('')}</div></div>`).join('');
+}
+document.getElementById('bars').addEventListener('click', e => {
+  const b = e.target.closest('.tab'); if (!b) return;
+  activeTab = +b.dataset.i; renderBars();
+});
+
+// In context
+let ctxSet = 'A';
+function renderCtx() {
+  const s = ctxSet, I = (k,size,c) => svg(s, k, { size, c });
+  document.getElementById('ctx').innerHTML = `
+    <div class="card">
+      <div class="row" style="--c:var(--blue)">${I('train',20,'blue')}<div class="grow"><div>Push A</div><div class="meta">6 exercises · ~55 min</div></div>${I('play',20,'blue')}</div>
+      <div class="row" style="--c:var(--amber)">${I('trophy',20,'amber')}<div class="grow"><div>New best: <span class="num">100 kg × 8</span></div><div class="meta">est. 1RM ~127 kg, up 6% since May</div></div></div>
+      <div class="row" style="--c:var(--amber)">${I('flame',20,'amber')}<div class="grow"><span class="num">6</span>-day streak</div><span class="meta">Mon–Sat</span></div>
+      <div class="row" style="--c:var(--green)">${I('check',20,'green')}<div class="grow">Set 3 · <span class="num">80 kg × 10</span></div><span class="meta">RIR 2</span></div>
+    </div>
+    <div class="card">
+      <div class="row" style="--c:var(--orange)">${I('fuel',20,'orange')}<div class="grow"><span class="num">1,840</span> / 2,600 kcal</div><span class="meta">71%</span></div>
+      <div class="row" style="--c:var(--orange)">${I('weight',20,'orange')}<div class="grow"><span class="num">82.4 kg</span></div><span class="meta">−0.6 this week</span></div>
+      <div class="inline-demo"><span>${I('timer',16,'blue')}Rest 1:30</span><span>${I('calendar',16,'blue')}Thu 25 Sep</span><span>${I('progress',16,'teal')}+4.2%</span></div>
+      <div class="btns">
+        <button class="btn primary" type="button">${I('plus',17)}Add exercise</button>
+        <button class="btn" type="button">${I('sync',17)}Sync</button>
+        <button class="btn" type="button">${I('edit',17)}Edit</button>
+        <button class="btn danger" type="button">${I('trash',17,'red')}Delete</button>
+      </div>
+    </div>
+    <div class="coach-bubble">${svg(s,'coach',{size:20,c:'purple'})}<div>Triceps lag chest 3:1 by set volume. Add overhead extensions: the long head only loads at full stretch.</div></div>`;
+}
+
+// App marks
+let uid = 0;
+function tile(inner) {
+  const u = ++uid;
+  return `<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="bg${u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e2227"/><stop offset="1" stop-color="#121417"/></linearGradient>
+      <radialGradient id="wa${u}" cx=".72" cy=".22" r=".7"><stop offset="0" stop-color="#9fb8cc" stop-opacity=".16"/><stop offset="1" stop-color="#9fb8cc" stop-opacity="0"/></radialGradient>
+      <linearGradient id="mi${u}" gradientUnits="userSpaceOnUse" x1="96" y1="416" x2="416" y2="96"><stop offset="0" stop-color="#8ea8bd"/><stop offset="1" stop-color="#c3d3e0"/></linearGradient>
+      <filter id="sh${u}" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#05070a" flood-opacity=".55"/></filter>
+    </defs>
+    <rect width="512" height="512" fill="url(#bg${u})"/><rect width="512" height="512" fill="url(#wa${u})"/>
+    <g filter="url(#sh${u})" fill="none" stroke="url(#mi${u})" stroke-linecap="round" stroke-linejoin="round">${inner.replaceAll('MIST',`url(#mi${u})`)}</g></svg>`;
+}
+const sDot = (x,y,r=30) => `<circle cx="${x}" cy="${y}" r="${r}" fill="MIST" stroke="none"/>`;
+const bigArc = (cx,cy,r,a0,a1) => `<path d="${arc(cx,cy,r,a0,a1)}"/>`;
+const MARKS = [
+  { t:'Current', p:'Mist dumbbell. Literal, reads as "gym app".', ref:true,
+    svg:`<g transform="translate(256 256) rotate(-38)" fill="MIST" stroke="none">
+      <rect x="-118" y="-11" width="236" height="22" rx="11"/><rect x="-150" y="-50" width="30" height="100" rx="15"/>
+      <rect x="-116" y="-72" width="40" height="144" rx="20"/><rect x="76" y="-72" width="40" height="144" rx="20"/>
+      <rect x="120" y="-50" width="30" height="100" rx="15"/></g>` },
+  { t:'Open ring', p:'The C-direction signature at full scale: an arc with a spark in the gap. Pairs 1:1 with the icon set.',
+    svg:`<g stroke-width="46">${bigArc(256,256,124,-19,289)}</g>${sDot(...pt(256,256,124,-45),31)}` },
+  { t:'Arc A', p:'Pointed arch forms the A; the spark is the crossbar. Monogram that still says "arc".',
+    svg:`<g stroke-width="44"><path d="M150 396A300 300 0 0 1 256 116A300 300 0 0 1 362 396"/></g>${sDot(256,306,30)}` },
+  { t:'Rising arc', p:'Progress curve bottom-left to top-right, matching the gradient direction. Abstract, calm.',
+    svg:`<g stroke-width="46">${bigArc(132,132,248,16,90)}</g>${sDot(...pt(132,132,248,0),31)}` },
+  { t:'Double arc', p:'Two concentric open arcs: the rep path inside the arc of progress. Most distinctive at small sizes.',
+    svg:`<g stroke-width="40">${bigArc(256,256,136,-8,260)}</g><g stroke-width="40" stroke-opacity=".65">${bigArc(256,256,72,20,225)}</g>${sDot(...pt(256,256,136,-45),28)}` },
+];
+document.getElementById('marks').innerHTML = MARKS.map(m => `
+  <div class="mark${m.ref?' ref':''}">
+    <div class="big">${tile(m.svg)}</div>
+    <div class="sizes"><div class="sm" style="width:60px;height:60px">${tile(m.svg)}</div><div class="sm" style="width:29px;height:29px">${tile(m.svg)}</div></div>
+    ${m.ref?'<span class="tag">REFERENCE</span>':''}<b>${m.t}</b><p>${m.p}</p>
+  </div>`).join('');
+
+// Controls
+function seg(id, fn) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    fn(b.dataset.v);
+  });
+}
+seg('sw', v => document.documentElement.style.setProperty('--sw', v));
+seg('ctxset', v => { ctxSet = v; renderCtx(); });
+renderBars(); renderCtx();
+</script>
