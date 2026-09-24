@@ -44,6 +44,7 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 
 ## Verifying in preview (how I test)
 `preview_start` name `life-dashboard` (port 3457, in `~/.claude/launch.json`). Then `preview_eval` to set a fake Supabase token in localStorage and navigate to `/workout/`. Drive the UI via dispatched events; assert via IndexedDB reads. Screenshot for visual checks.
+Unit tests: `npm test` (Node ≥22, no deps) runs `tests/*.test.js` over the pure modules (`achievements.js`, `stats.js`, `repRanges.js`). `tests/stub-db.mjs` swaps `shared/db.js` for an in-memory stub, since its CDN Supabase import and IndexedDB don't exist in Node.
 
 ## Modules
 - **Architecture:** **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and **Arc** (`workout/`) are independent home-screen PWAs on a shared Supabase project. Arc reads today's nutrition from the shared `calories` store and links out to CalorieAI (`CALORIE_APP_URL`, `getNutritionToday()`), but is otherwise standalone.
