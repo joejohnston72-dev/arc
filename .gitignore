@@ -4,3 +4,6 @@ node_modules/
 # Seeded design-canvas output (regenerate with the design skill)
 arc-coach-redesign.html
 design/**/*.built.html
+
+# Test artefacts
+test/e2e/shots/

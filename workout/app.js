@@ -124,6 +124,23 @@ const LOGTYPES = {
   duration:   { cols: ['time'],               head: ['Time'],        label: 'Time / hold' },
   cardio:     { cols: ['distance', 'time'],   head: ['km', 'Time'],  label: 'Distance & time (cardio)' },
 };
+// Superset rail colours, assigned by the group's INDEX within the session, so a
+// second pair never wears the same colour as the first. Blue is the primary UI
+// accent and red is destructive, so neither is in the rotation.
+const SUPERSET_COLORS = ['var(--purple)', 'var(--orange)', 'var(--green)', 'var(--amber)'];
+const SUPERSET_LETTERS = 'ABCDEFGH';
+// Group ids in the order they first appear — the index into SUPERSET_COLORS.
+function supersetOrder(exercises) {
+  const order = [];
+  for (const e of exercises || []) {
+    if (e.supersetId && !order.includes(e.supersetId)) order.push(e.supersetId);
+  }
+  return order;
+}
+function supersetStyle(exercises, gid) {
+  const i = supersetOrder(exercises).indexOf(gid);
+  return { color: SUPERSET_COLORS[i % SUPERSET_COLORS.length], letter: SUPERSET_LETTERS[i] || String(i + 1) };
+}
 // User edits to the core library (via the "…" → Edit exercise sheet). Keyed by
 // the built-in exercise's canonical name → { category?, logType? }. Loaded once
 // at init (loadExOverrides) and kept in sync on every edit. Custom exercises are
@@ -899,6 +916,11 @@ function buildExerciseBlock(ex, ei) {
   if (inSS) block.classList.add('ss-member');
   if (firstOfGroup) block.classList.add('ss-first');
   if (lastOfGroup)  block.classList.add('ss-last');
+  // Every group used to wear the same purple rail labelled just "Superset", so
+  // two pairs in one session read as one long block. Colour and letter come
+  // from the group's index within the session.
+  const ss = inSS ? supersetStyle(activeSession.exercises, ex.supersetId) : null;
+  if (ss) block.style.setProperty('--ss-color', ss.color);
   const color = CATEGORY_COLORS[ex.category] || '#979ca4';
   const lt = resolveLogType(ex);
   const cfg = LOGTYPES[lt];
@@ -907,7 +929,7 @@ function buildExerciseBlock(ex, ei) {
   const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
 
   block.innerHTML = `
-    ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
+    ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset ${ss.letter}</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
       <span class="ex-grip" aria-hidden="true">${icon('grip-vertical', { size: 17 })}</span>
       <div class="ex-cat-dot" style="background:${color}"></div>
@@ -1865,7 +1887,10 @@ function openExMenuSheet(ei) {
   const ssBtn = document.getElementById('exMenuSuperset');
   if (activeSession.exercises.length > 1) {
     ssBtn.style.display = '';
-    ssBtn.innerHTML = `${icon('repeat', { size: 17 })} ${ex.supersetId ? 'Edit superset…' : 'Superset…'}`;
+    // Name the group in the menu too, so "Edit superset…" says WHICH one when
+    // the session has more than one.
+    const ssInfo = ex.supersetId ? supersetStyle(activeSession.exercises, ex.supersetId) : null;
+    ssBtn.innerHTML = `${icon('repeat', { size: 17 })} ${ssInfo ? `Edit superset ${ssInfo.letter}…` : 'Superset…'}`;
   } else {
     ssBtn.style.display = 'none';
   }
@@ -3500,23 +3525,15 @@ document.getElementById('libraryAddBtn').onclick = async () => {
 };
 
 // ── Streak (weekly, with an editable seed) ────────────────────────
-async function renderStreakChip(sessions) {
-  const settings = await getStreakSettings();
-  const { weeks, thisWeekCount, target } = computeStreak(sessions, settings);
-  const el = document.getElementById('streakChip');
-  if (!el) return;
-  const flame = `<span style="color:var(--amber);display:inline-flex;vertical-align:-0.2em">${icon('flame', { size: 16 })}</span>`;
-  el.innerHTML = weeks > 0
-    ? `${flame} <strong>${weeks}-week streak</strong> · ${thisWeekCount}/${target} this week`
-    : `${flame} ${thisWeekCount}/${target} workouts this week`;
-}
-
-document.getElementById('streakChip').onclick = async () => {
+// Opened from Today's streak tile. It used to be owned by #streakChip, a button
+// with an inline display:none that was never shown — the tile reached the modal
+// by dispatching a click at that invisible element.
+async function openStreakSettings() {
   const s = await getStreakSettings();
   document.getElementById('streakSeedInput').value   = s.seed || '';
   document.getElementById('streakTargetInput').value = s.target || 3;
   document.getElementById('streakModal').classList.add('open');
-};
+}
 document.getElementById('streakCancel').onclick = () => document.getElementById('streakModal').classList.remove('open');
 document.getElementById('streakModal').addEventListener('click', e => {
   if (e.target === document.getElementById('streakModal')) document.getElementById('streakModal').classList.remove('open');
@@ -3530,7 +3547,7 @@ document.getElementById('streakSave').onclick = async () => {
     seedDate: seed !== prev.seed ? new Date().toISOString().slice(0,10) : (prev.seedDate || new Date().toISOString().slice(0,10)),
   });
   document.getElementById('streakModal').classList.remove('open');
-  renderStreakChip(await loadSessions());
+  renderDashboard();   // the streak tile shows the new target
 };
 
 // ── Skeleton loaders (shown while IndexedDB/stats resolve) ────────────────────
@@ -3682,14 +3699,6 @@ function emptyHeroCard() {
         <button class="next-more hero-empty-lib" aria-label="Browse library">${icon('book-open', { size: 20 })}</button>
       </div>
     </div>`;
-}
-
-// The Coach tab no longer carries an attention sticker — proactive coach content
-// lives on Home now (renderDashCoach), so there's nothing to badge here. Kept as a
-// guaranteed clear so any previously-stuck badge is removed on the next render.
-function updateCoachBadge() {
-  const tab = document.querySelector('.tab[data-tab="Coach"]');
-  tab?.querySelector('.tab-badge')?.remove();
 }
 
 // Routines list lives in the Swap sheet. It used to double as an order editor —
@@ -3906,7 +3915,6 @@ async function renderDashboard() {
   const body = bodyStats(bodyLog);
   const next = computeNextTemplate(templates, sessions);
   renderRoutinesChooser(templates, next);
-  renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
   const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' });
@@ -3967,7 +3975,7 @@ async function renderDashboard() {
   dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
   dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
   dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
-  dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
+  dashTop.querySelector('#tileStreak')?.addEventListener('click', openStreakSettings);
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
 
@@ -3975,7 +3983,6 @@ async function renderDashboard() {
   // base of operations, rendered into #dashCoach below the snapshot. The Coach tab
   // is reserved for direct questions, so it carries no attention sticker.
   renderDashCoach(sessions);
-  updateCoachBadge();
 
   const recentEl = document.getElementById('recentList');
   if (!sessions.length) {
@@ -4315,11 +4322,11 @@ function renderHistoryDetailBody() {
     <div class="hd-stats">
       <div class="stat-box hd-date" id="hdDateBox" style="cursor:pointer">
         <div class="stat-val">${fmtDate(s.date||s.startTime||'')}</div>
-        <div class="stat-label">Date ${icon('pencil', { size: 11 })}</div>
+        <div class="stat-label">${icon('pencil', { size: 11 })} Edit date</div>
       </div>
       <div class="stat-box" id="hdDurBox" style="cursor:pointer">
         <div class="stat-val">${fmtTime(s.duration||0)}</div>
-        <div class="stat-label">Duration ${icon('pencil', { size: 11 })}</div>
+        <div class="stat-label">${icon('pencil', { size: 11 })} Edit duration</div>
       </div>
       <div class="stat-box">
         <div class="stat-val">${Math.round(vol).toLocaleString()}</div>
@@ -5800,7 +5807,7 @@ function renderSplitCard(split) {
 }
 
 const COACH_ERRORS = {
-  nokey:       'The coach isn\'t set up yet — add your Anthropic API key (tap 🔑 below) or deploy the coach service.',
+  nokey:       'The coach isn\'t set up yet — add your Anthropic API key (tap 🔑 at the top) or deploy the coach service.',
   unavailable: 'The coach service is unavailable right now. Add your own API key (🔑) as a fallback, or try again shortly.',
   auth:        'That API key was rejected (401). Tap 🔑 to update it.',
   ratelimit:   'Rate limited — wait a moment and try again.',
@@ -5846,6 +5853,7 @@ async function sendCoach(text, forceTool = false) {
   thread.appendChild(renderCoachMessage(userMsg));
   persistCoachThread();
   document.getElementById('coachInput').value = '';
+  autoGrowCoachInput();   // a sent multi-line question must not leave a tall box
   scrollCoachDown();
 
   if (!available) {
@@ -6051,9 +6059,21 @@ async function resendCoach(text, forceTool = false) {
 }
 
 // ── Coach wiring ──────────────────────────────────────────────────────────────
-document.getElementById('coachSend').onclick = () => sendCoach(document.getElementById('coachInput').value);
-document.getElementById('coachInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); sendCoach(e.target.value); }
+// The composer is a textarea that grows to ~5 lines then scrolls, so a real
+// question can be written and read before it is sent.
+const coachInputEl = document.getElementById('coachInput');
+function autoGrowCoachInput() {
+  coachInputEl.style.height = 'auto';
+  coachInputEl.style.height = coachInputEl.scrollHeight + 'px';
+}
+coachInputEl.addEventListener('input', autoGrowCoachInput);
+document.getElementById('coachSend').onclick = () => sendCoach(coachInputEl.value);
+coachInputEl.addEventListener('keydown', e => {
+  // Return used to send unconditionally (no IME guard either), so finishing a
+  // paragraph fired off the half-written question. It adds a line now; sending
+  // is the button, or the usual Cmd/Ctrl+Return chord.
+  if (e.key !== 'Enter' || e.isComposing) return;
+  if (e.metaKey || e.ctrlKey) { e.preventDefault(); sendCoach(coachInputEl.value); }
 });
 document.querySelectorAll('.coach-chip[data-prompt]').forEach(chip => {
   // data-force may be "1" (force draft_routine) or a specific tool name.

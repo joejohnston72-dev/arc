@@ -28,7 +28,7 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 - **Deploy:** `git push` to `main` → GitHub Pages. `gh` at `~/bin/gh`. `.nojekyll` present.
   Pages builds are sometimes **stuck in "building"** for hours — retrigger with
   `gh api -X POST repos/joejohnston72-dev/life-dashboard/pages/builds` and poll
-  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v88** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
+  `curl -s .../sw.js | head -1` until the CACHE version matches. **Bump `sw.js` CACHE every change.** Currently **arc-v89** (was `life-dashboard-v63`; prefix changed with the rename). NB: after the repo rename, the `gh api …/repos/joejohnston72-dev/<name>/pages/builds` retrigger path uses the new repo name.
 - **Stack:** vanilla JS ES modules, **no build step**. IndexedDB local-first (`shared/db.js`) + Supabase sync + auth.
 - **Data restore & sync (v39–v40, important):** iOS **wipes a PWA's IndexedDB when its home-screen icon is removed** — a reinstall starts empty; the Supabase `entries` table is the backstop. Three bugs made this look like permanent loss and are now fixed:
   1. **Un-paginated pull** — `syncFromSupabase` `select()` hit PostgREST's **1000-row cap**, and `entries` holds every store (workout+calories), so past 1000 total rows the pull silently dropped sessions while the few routine rows survived. Now **paginated** (`.range()` loop, ordered by store+key).
@@ -44,6 +44,8 @@ lives in **Progress → Data & backup → Account** (`#signOutBtn`/`#acctEmail`)
 
 ## Verifying in preview (how I test)
 `preview_start` name `life-dashboard` (port 3457, in `~/.claude/launch.json`). Then `preview_eval` to set a fake Supabase token in localStorage and navigate to `/workout/`. Drive the UI via dispatched events; assert via IndexedDB reads. Screenshot for visual checks.
+
+Automated: `npm i --no-save playwright && npm run test:e2e` drives the real app in headless Chromium (see `test/README.md`). Suites: superset colours/letters, coach composer, affordances. The harness serves a Supabase stub and 404s `sw.js` from its own HTTP server.
 
 ## Modules
 - **Architecture:** **CalorieAI** (separate repo `joejohnston72-dev/calorieAI`) and **Arc** (`workout/`) are independent home-screen PWAs on a shared Supabase project. Arc reads today's nutrition from the shared `calories` store and links out to CalorieAI (`CALORIE_APP_URL`, `getNutritionToday()`), but is otherwise standalone.
