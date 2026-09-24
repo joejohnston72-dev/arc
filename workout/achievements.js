@@ -70,16 +70,21 @@ export async function saveStreakSettings(settings) {
   await db.set(STORE, 'streak-settings', settings);
 }
 
+// Local YYYY-MM-DD. Not toISOString(): that's UTC, which at UTC+13/+14 turns local
+// noon into the previous day and shifts every week key off Monday.
+export const ymd = x =>
+  `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+
 function mondayOf(d) {
   const x = new Date(d); x.setHours(12, 0, 0, 0);
   const day = (x.getDay() + 6) % 7; // Mon=0
   x.setDate(x.getDate() - day);
-  return x.toISOString().slice(0, 10);
+  return ymd(x);
 }
 function weekBefore(mondayIso) {
   const x = new Date(mondayIso + 'T12:00:00');
   x.setDate(x.getDate() - 7);
-  return x.toISOString().slice(0, 10);
+  return ymd(x);
 }
 
 // Consecutive weeks (ending now) with >= target workouts. The in-progress week
