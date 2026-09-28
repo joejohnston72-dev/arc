@@ -1,4 +1,4 @@
-const CACHE = 'arc-v88';
+const CACHE = 'arc-v89';
 // Paths are RELATIVE to this service worker's URL (its own directory is the SW
 // scope), so they resolve correctly whatever the repo/deploy slug is —
 // /life-dashboard/ today, /arc/ once the GitHub repo is renamed — with no code
@@ -36,7 +36,9 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // Only prune ARC's own caches: the github.io origin is shared with ARC Fuel
+      // (calorieai-*), whose offline cache must survive an ARC update.
+      .then(keys => Promise.all(keys.filter(k => (k.startsWith('arc-') || k.startsWith('life-dashboard-')) && k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
