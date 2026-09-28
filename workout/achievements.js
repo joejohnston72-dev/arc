@@ -1,6 +1,10 @@
 // Personal bests, milestones and the weekly streak.
 // Pure functions over session records + a small settings blob in db.
 import db from '../shared/db.js';
+// Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
+// between midnight and 1am BST (or evenings in the Americas) under the wrong day.
+const localYMD = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+
 
 const STORE = 'workout';
 
@@ -74,12 +78,12 @@ function mondayOf(d) {
   const x = new Date(d); x.setHours(12, 0, 0, 0);
   const day = (x.getDay() + 6) % 7; // Mon=0
   x.setDate(x.getDate() - day);
-  return x.toISOString().slice(0, 10);
+  return localYMD(x);
 }
 function weekBefore(mondayIso) {
   const x = new Date(mondayIso + 'T12:00:00');
   x.setDate(x.getDate() - 7);
-  return x.toISOString().slice(0, 10);
+  return localYMD(x);
 }
 
 // Consecutive weeks (ending now) with >= target workouts. The in-progress week

@@ -1,9 +1,13 @@
 // Cross-module insight engine. Reads data from every module and returns a
 // prioritised list of warnings + improvement tips for the home dashboard.
 import db from './db.js';
+// Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
+// between midnight and 1am BST (or evenings in the Americas) under the wrong day.
+const localYMD = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+
 
 const DAY = 86400000;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYMD();
 const daysSince = iso => {
   if (!iso) return Infinity;
   const d = new Date((iso.length === 10 ? iso + 'T12:00:00' : iso));

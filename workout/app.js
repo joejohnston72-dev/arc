@@ -12,6 +12,10 @@ import { assembleContext, callCoach, validateRoutine, normName } from './coach.j
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
+// Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
+// between midnight and 1am BST (or evenings in the Americas) under the wrong day.
+const localYMD = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+
 
 // Paint any static/dynamic `<i data-lucide>` placeholders. Cheap + idempotent,
 // so it's safe to call after every render that may inject new icon markup.
@@ -293,7 +297,7 @@ function parseToDate(str) {
 }
 function extractDateStr(str) {
   const d = parseToDate(str);
-  return d ? d.toISOString().slice(0, 10) : '';
+  return d ? localYMD(d) : '';
 }
 const fmtDate = iso => {
   const d = parseToDate(iso);
@@ -332,7 +336,7 @@ async function getBodyLog() {
 }
 async function logBodyweight(kg, date) {
   const log = (await db.get(STORE, 'bodyweight-log')) || [];
-  const d = date || new Date().toISOString().slice(0, 10);
+  const d = date || localYMD();
   const i = log.findIndex(e => e.date === d);
   if (i >= 0) log[i] = { date: d, kg }; else log.push({ date: d, kg });
   await db.set(STORE, 'bodyweight-log', log);
@@ -350,12 +354,12 @@ function bodyStats(log) {
 }
 
 // Nutrition snapshot — best-effort read of the shared 'calories' store that the
-// separate CalorieAI app writes to the same Supabase project (both apps sync
+// separate ARC Fuel app (repo calorieAI) writes to the same Supabase project (both apps sync
 // every store). Its schema is owned by that app, so we probe defensively and
 // fall back to a link-out when nothing is found. Returns {kcal,goal,protein}|null.
 async function getNutritionToday() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localYMD();
     const rows = await db.getAll('calories');
     for (const { key, value } of rows) {
       if (!String(key).includes(today)) continue;
@@ -393,7 +397,7 @@ function mondayOf(d) {
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
   return x;
 }
-const ymd = d => new Date(d).toISOString().slice(0, 10);
+const ymd = d => localYMD(new Date(d));
 async function getWeekPlanMap() { return (await db.get(STORE, 'week-plan')) || {}; }
 async function setPlanDay(date, tid) {
   const map = await getWeekPlanMap();
@@ -405,7 +409,7 @@ async function setPlanDay(date, tid) {
 // ── Bodyweight log modal ───────────────────────────────────────────────────────
 function openBodyweightModal(date) {
   const iEl = document.getElementById('bwInput');
-  document.getElementById('bwDate').value = date || new Date().toISOString().slice(0, 10);
+  document.getElementById('bwDate').value = date || localYMD();
   iEl.value = '';
   getBodyLog().then(log => { const last = log[log.length - 1]; iEl.placeholder = last ? `Last: ${last.kg} kg` : 'e.g. 82.4'; });
   document.getElementById('bodyweightModal').classList.add('open');
@@ -422,7 +426,7 @@ document.getElementById('bodyweightModal').addEventListener('click', e => {
 });
 document.getElementById('bwSave').onclick = async () => {
   const kg = parseFloat(document.getElementById('bwInput').value);
-  const date = document.getElementById('bwDate').value || new Date().toISOString().slice(0, 10);
+  const date = document.getElementById('bwDate').value || localYMD();
   if (!kg || kg <= 0) { closeBodyweightModal(); return; }
   await logBodyweight(+kg.toFixed(1), date);
   closeBodyweightModal();
@@ -2493,7 +2497,7 @@ async function saveWorkout() {
   // Backfill: a workout logged for a past day via the calendar saves to that
   // date with a neutral noon timestamp and 0 duration (both editable after).
   const isBackfill = !!backfillDate;
-  const dateStr = isBackfill ? backfillDate : new Date().toISOString().slice(0,10);
+  const dateStr = isBackfill ? backfillDate : localYMD();
   const session = {
     ...activeSession,
     title:     document.getElementById('awTitle').value.trim() || 'Workout',
@@ -3527,7 +3531,7 @@ document.getElementById('streakSave').onclick = async () => {
   const prev = await getStreakSettings();
   await saveStreakSettings({
     seed, target,
-    seedDate: seed !== prev.seed ? new Date().toISOString().slice(0,10) : (prev.seedDate || new Date().toISOString().slice(0,10)),
+    seedDate: seed !== prev.seed ? localYMD() : (prev.seedDate || localYMD()),
   });
   document.getElementById('streakModal').classList.remove('open');
   renderStreakChip(await loadSessions());
@@ -3914,7 +3918,7 @@ async function renderDashboard() {
   const dayNo = ((now.getDay() + 6) % 7) + 1;
   const { weeks, thisWeekCount, target } = computeStreak(sessions, streakSettings);
 
-  const ym = now.toISOString().slice(0, 7);
+  const ym = localYMD(now).slice(0, 7);
   const monthVol = sessions
     .filter(s => (s.date || s.startTime || '').slice(0, 7) === ym)
     .flatMap(s => (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)))
@@ -3934,8 +3938,8 @@ async function renderDashboard() {
     : `<span class="snap-ico" style="background:rgba(var(--orange-rgb),0.16);color:var(--fuel)">${icon('utensils', { size: 15 })}</span>`;
   const calTile = nutri
     ? `<div><div class="snap-val">${nutri.kcal.toLocaleString()}</div><div class="snap-lbl">${nutri.goal ? `of ${nutri.goal.toLocaleString()} kcal` : 'kcal today'}</div></div>
-       <div class="snap-sub flat">${nutri.protein != null ? nutri.protein + 'g protein · ' : ''}CalorieAI</div>`
-    : `<div><div class="snap-val">Calories</div><div class="snap-lbl">via CalorieAI</div></div><div class="snap-sub flat">Open ${icon('arrow-right', { size: 11 })}</div>`;
+       <div class="snap-sub flat">${nutri.protein != null ? nutri.protein + 'g protein · ' : ''}ARC Fuel</div>`
+    : `<div><div class="snap-val">Calories</div><div class="snap-lbl">via ARC Fuel</div></div><div class="snap-sub flat">Open ${icon('arrow-right', { size: 11 })}</div>`;
   const tilesHTML = `
     <div class="dash-snapshot">
       <div class="snap-tile" id="tileStreak">
@@ -4823,7 +4827,7 @@ document.getElementById('exportBtn').onclick = async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `gym-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `gym-backup-${localYMD()}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     showProgress(`✅ Exported ${entries.length} items. Save the file somewhere safe.`, 6000);
@@ -4898,7 +4902,7 @@ function parseWorkoutCSV(text) {
       workouts[wKey] = {
         id:        stableId(wKey),
         title:     row.title || 'Workout',
-        date:      extractDateStr(start) || new Date().toISOString().slice(0,10),
+        date:      extractDateStr(start) || localYMD(),
         startTime: start,
         endTime:   end,
         duration,
@@ -5389,7 +5393,7 @@ async function generateDailySuggestion(today) {
 // Today's cached daily pick (null if none / dismissed / not today).
 async function getCachedDaily() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localYMD();
     const d = await db.get(STORE, 'coach-daily');
     if (d && d.date === today && d.dismissedDate !== today &&
         (d.text || d.routine || d.split || d.suggestion)) return d;
@@ -5405,7 +5409,7 @@ async function ensureDailySuggestion(onReady) {
   if (cached) return cached;
   if (_dailyBusy) return null;
   if (!(await coachGetKey())) return null;                // no proactive AI without a key
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYMD();
   const existing = await db.get(STORE, 'coach-daily');
   if (existing?.dismissedDate === today) return null;     // dismissed for today
   if (existing?.date === today) return null;              // already generated (and empty)
@@ -5438,7 +5442,7 @@ function renderDailyCard(daily) {
   if (daily.suggestion) card.appendChild(renderSuggestionCard(daily.suggestion));
   card.querySelector('.coach-daily-x').onclick = async () => {
     const d = (await db.get(STORE, 'coach-daily')) || { date: daily.date };
-    d.dismissedDate = new Date().toISOString().slice(0, 10);
+    d.dismissedDate = localYMD();
     await db.set(STORE, 'coach-daily', d);
     renderDashboard();   // re-render Home so the section reflows
   };
@@ -5712,7 +5716,7 @@ async function coachLogWorkouts(input) {
   const wos = Array.isArray(input?.workouts) ? input.workouts : [];
   const saved = [];
   for (const w of wos) {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(w?.date || '') ? w.date : new Date().toISOString().slice(0, 10);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(w?.date || '') ? w.date : localYMD();
     const dur  = Math.max(0, Math.round((parseFloat(w?.durationMin) || 0) * 60));
     const exercises = (Array.isArray(w?.exercises) ? w.exercises : []).map(e => {
       const name = String(e?.name || '').trim() || 'Exercise';
