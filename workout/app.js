@@ -4,6 +4,7 @@ import { EXERCISES, CATEGORIES, CATEGORY_COLORS } from './exercises.js';
 import { resolveCues } from './cues.js';
 import { ROUTINE_LIBRARY } from './routineLibrary.js';
 import { MY_ROUTINES } from './myRoutines.js';
+import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan } from './splits.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
@@ -405,6 +406,16 @@ async function setPlanDay(date, tid) {
   await db.set(STORE, 'week-plan', map);
   db.backup();
 }
+// Forget plan days assigned to workouts that were just deleted. Call it from
+// every path that DESTROYS a workout — not from "Move to another split", which
+// keeps the id precisely so the plan day follows the workout.
+async function forgetPlannedWorkouts(ids) {
+  if (!ids?.length) return;
+  const { map, changed } = pruneWeekPlan(await getWeekPlanMap(), ids);
+  if (!changed) return;
+  await db.set(STORE, 'week-plan', map);
+  db.backup();
+}
 
 // ── Bodyweight log modal ───────────────────────────────────────────────────────
 function openBodyweightModal(date) {
@@ -447,7 +458,8 @@ let sessionStartMs  = 0;      // duration derives from this — no on-screen cou
                               // not displayed: a running total invites "how long left" anxiety
                               // instead of focus on the workout itself). Still recorded for stats.
 let sessionRecords  = {};     // per-exercise all-time bests, for PB detection + typo guard
-let routineMode     = false;
+let routineMode     = false;  // true = the editor is building/editing a WORKOUT, not logging a session
+let workoutEditTarget = null; // routineMode only: { splitId, workoutId|null } — null workoutId = new workout
 
 const sessionSecsNow = () => Math.max(0, Math.floor((Date.now() - sessionStartMs) / 1000));
 let backfillDate = null;   // when set, the in-progress workout saves to this past date (calendar backfill)
@@ -479,6 +491,7 @@ function saveActiveSession() {
   db.set(STORE, 'active-session', {
     session: activeSession,
     routineMode,
+    workoutEditTarget,
     title: document.getElementById('awTitle').value,
     savedAt: Date.now(),
   });
@@ -509,7 +522,15 @@ document.querySelectorAll('.tab').forEach(btn => {
 
 // ── Workout start / open ──────────────────────────────────────────────────────
 document.getElementById('startEmptyBtn').onclick = () => { closeRoutineChooser(); startEmptyWorkout(); };
-document.getElementById('newRoutineBtn').onclick = () => { closeRoutineChooser(); startNewRoutine(); };
+document.getElementById('chooserEditSplit').onclick = async () => {
+  closeRoutineChooser();
+  const id = await getActiveSplitId();
+  if (id) openSplitEditor(id);
+};
+document.getElementById('chooserAllSplits').onclick = () => {
+  closeRoutineChooser();
+  document.querySelector('.tab[data-tab="Library"]').click();
+};
 document.getElementById('dashAllHistory').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
 
 // Ghost targets: what the inputs *suggest* (placeholder), never pre-filled values.
@@ -534,6 +555,7 @@ function freshSet(tpl, prevSets, si) {
 
 async function startEmptyWorkout(prefill = null, backfill = null) {
   routineMode = false;
+  workoutEditTarget = null;
   backfillDate = backfill;
   autoNotedEx.clear();   // fresh coach-note tracking per workout
   document.getElementById('awFinishBtn').textContent = backfill ? 'Save' : 'Finish';
@@ -569,6 +591,9 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
     startTime: new Date().toISOString(),
     exercises,
     pbs: [],
+    // Started from a split workout → the saved session records it, which is what
+    // moves "next workout" along the split.
+    ...(prefill?.workoutId && prefill?.splitId ? { splitId: prefill.splitId, workoutId: prefill.workoutId } : {}),
   };
   sessionStartMs = Date.now();
   ensureExercisesInRepo(exercises);   // catalogue anything a started routine references
@@ -578,9 +603,12 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
   saveSoon();
 }
 
-// Build a routine from scratch — reuses the workout editor, but Finish saves a template.
-function startNewRoutine(prefill = null) {
+// Build or edit a WORKOUT — reuses the session editor, but Save stores the
+// workout into a split instead of logging a session. target = { splitId,
+// workoutId } edits that workout in place; workoutId null adds a new one.
+function startNewRoutine(prefill = null, target = null) {
   routineMode = true;
+  workoutEditTarget = target;
   activeSession = {
     id: uid(),
     title: prefill?.name || '',
@@ -593,7 +621,7 @@ function startNewRoutine(prefill = null) {
   };
   document.getElementById('awFinishBtn').textContent = 'Save';
   openActiveWorkout();
-  document.getElementById('awTitle').placeholder = 'Routine name…';
+  document.getElementById('awTitle').placeholder = 'Workout name…';
   renderActiveSession();
 }
 
@@ -657,7 +685,7 @@ function unlockBodyScroll() {
 }
 const OVERLAY_OPEN_SELECTOR =
   '#activeWorkout.visible, #exercisePicker.visible, #routineLibrary.visible, ' +
-  '#libraryDetail.visible, #historyDetail.visible, #exerciseDetail.visible, #workoutSummary.visible, .modal-backdrop.open';
+  '#libraryDetail.visible, #splitEditor.visible, #historyDetail.visible, #exerciseDetail.visible, #workoutSummary.visible, .modal-backdrop.open';
 function syncScrollLock() {
   if (document.querySelector(OVERLAY_OPEN_SELECTOR)) lockBodyScroll();
   else unlockBodyScroll();
@@ -765,6 +793,7 @@ async function checkForAbandonedSession() {
     return;
   }
   routineMode = !!saved.routineMode;
+  workoutEditTarget = routineMode ? (saved.workoutEditTarget || null) : null;
   activeSession = saved.session;
   activeSession.pbs ||= [];
   sessionStartMs = Date.parse(activeSession.startTime) || (Date.now() - 60000);
@@ -1633,7 +1662,7 @@ async function openExerciseDetail(name) {
   if (st && st.series.length >= 4) {
     const recent = st.series.slice(-4), max = Math.max(...recent), min = Math.min(...recent);
     if (max > 0 && (max - min) / max < 0.03) {
-      note = `<div class="ed-note"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Stalling — 4 sessions flat.</b> Your top set has held around ${fmtKg(max)} kg. A short deload or an extra work set usually breaks this.</div>${askLink(`My ${name} has stalled for 4 sessions. Suggest one concrete change to progress it.`, 'suggest_routine_edit')}</div></div>`;
+      note = `<div class="ed-note"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Stalling — 4 sessions flat.</b> Your top set has held around ${fmtKg(max)} kg. A short deload or an extra work set usually breaks this.</div>${askLink(`My ${name} has stalled for 4 sessions. Suggest one concrete change to progress it.`, 'suggest_workout_edit')}</div></div>`;
     } else if (st.series[st.series.length - 1] > st.series[0]) {
       note = `<div class="ed-note good"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Progressing.</b> Top set is up from ${fmtKg(st.series[0])} to ${fmtKg(st.series[st.series.length - 1])} kg. Whatever you're doing, keep it.</div>${askLink(`How do I keep progressing my ${name}?`)}</div></div>`;
     }
@@ -2535,7 +2564,9 @@ async function saveWorkout() {
 function cancelWorkout() {
   releaseWakeLock();
   skipRest();
+  const reopen = routineMode ? workoutEditTarget?.splitId : null;
   routineMode = false;
+  workoutEditTarget = null;
   backfillDate = null;
   activeSession = null;
   clearActiveSessionStore();
@@ -2544,6 +2575,7 @@ function cancelWorkout() {
   document.getElementById('activeWorkout').classList.remove('visible');
   unfitActiveWorkout();
   document.getElementById('miniBar').classList.remove('visible');
+  if (reopen) openSplitEditor(reopen);   // back to the split the workout editor came from
 }
 
 // ── Rest-end chime (Web Audio — mixes with your music) ───────────────────────
@@ -3285,13 +3317,85 @@ async function backfillCustomRepRanges() {
   if (changed) await db.set(STORE, 'exercises-custom', custom);
 }
 
-// ── Templates ─────────────────────────────────────────────────────────────────
-async function getTemplates() { return (await db.get(STORE, 'templates')) || []; }
+// ── Splits & workouts (model + naming: see splits.js) ─────────────────────────
+// `splits` = [{ id, name, source, workouts:[{ id, name, exercises }] }] — array
+// order is split order. `active-split` = the one split being run. The legacy flat
+// `templates` key is only read by the one-time migration (ensureSplits) and the
+// old seed/fix-up helpers below; it's left intact so a rollback still works.
+async function getSplits() { return (await db.get(STORE, 'splits')) || []; }
+async function getActiveSplitId() { return (await db.get(STORE, 'active-split')) || null; }
+async function saveSplits(splits) { await db.set(STORE, 'splits', splits); }   // db.set mirrors the key to the cloud
+async function setActiveSplit(id) { await db.set(STORE, 'active-split', id); }
+async function getSplitState() {
+  const [splits, activeId] = await Promise.all([getSplits(), getActiveSplitId()]);
+  return { splits, activeId, active: splits.find(s => s.id === activeId) || null };
+}
+// A split workout in the shape startEmptyWorkout takes, stamped so the logged
+// session records which split + workout it ran (that's what advances "next").
+const startable = (split, w) => ({ ...w, splitId: split.id, workoutId: w.id });
+function findWorkout(splits, workoutId) {
+  for (const sp of splits) { const w = sp.workouts.find(x => x.id === workoutId); if (w) return { split: sp, workout: w }; }
+  return null;
+}
+async function getActiveWorkouts() {
+  const { active } = await getSplitState();
+  return active ? active.workouts.map(w => startable(active, w)) : [];
+}
+// What the coach sees: the active split, its order, and the computed next
+// workout (the coach never re-derives rotation itself).
+async function getSplitContext() {
+  const [{ active }, sessions] = await Promise.all([getSplitState(), loadSessions()]);
+  if (!active) return null;
+  const nx = nextWorkout(active, sessions);
+  return { name: active.name, workouts: active.workouts, nextId: nx?.workout.id || null,
+           lastTs: nx ? Object.fromEntries(nx.lastTsById) : {} };
+}
+// Normalise a workout's exercises to the stored template contract.
+function workoutExercises(exercises, { keepAll = true } = {}) {
+  return (exercises || []).map(e => ({
+    name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
+    ...(e.supersetId ? { supersetId: e.supersetId } : {}),
+    sets: (e.sets || [])
+      .filter(s => keepAll || s.done || s.weight || s.reps || s.duration || s.distance)
+      .map(s => ({ weight: s.weight || s.tW || 0, reps: s.reps || s.tR || 0, distance: s.distance || 0, duration: s.duration || 0, type: s.type || 'normal' })),
+  }));
+}
+// Add a workout to a split (default: the active one; creates "My split" if the
+// user has none yet). Returns { split, workout }.
+async function addWorkoutToSplit(name, exercises, splitId = null) {
+  const { splits, active } = await getSplitState();
+  let sp = splits.find(s => s.id === splitId) || (splitId ? null : active);
+  if (!sp) {
+    sp = { id: uid(), name: 'My split', source: 'custom', workouts: [] };
+    splits.push(sp);
+    if (!active) await setActiveSplit(sp.id);
+  }
+  const workout = { id: uid(), name, exercises };
+  sp.workouts.push(workout);
+  await saveSplits(splits);
+  return { split: sp, workout };
+}
+// One-time move from the flat `templates` list to splits. Waits for the cloud
+// restore at init (so another device's splits win), and re-runs after a late
+// restore: an empty `splits` with templates present and no migration flag means
+// it ran before the user's data landed.
+async function ensureSplits() {
+  const cur = await db.get(STORE, 'splits');
+  const templates = (await db.get(STORE, 'templates')) || [];
+  if (cur && (cur.length || !templates.length || await db.get(STORE, 'splits-migrated'))) return false;
+  const { splits, activeId } = buildSplitsFromTemplates(templates, {
+    myRoutines: MY_ROUTINES, library: ROUTINE_LIBRARY, sessions: await loadSessions(), uid });
+  await db.set(STORE, 'splits', splits);
+  if (activeId) await setActiveSplit(activeId);
+  if (templates.length) await db.set(STORE, 'splits-migrated', true);
+  return true;
+}
+async function getLegacyTemplates() { return (await db.get(STORE, 'templates')) || []; }   // pre-splits list — migration + old seed helpers only
 
 async function seedMyRoutinesOnce() {
   const done = await db.get(STORE, 'my-routines-seeded');
   if (done) return;
-  const templates = await getTemplates();
+  const templates = await getLegacyTemplates();
   const existingNames = new Set(templates.map(t => t.name));
   for (const day of MY_ROUTINES) {
     if (existingNames.has(day.name)) continue;
@@ -3305,7 +3409,7 @@ async function fixIncompletePushDayOnce() {
   const done = await db.get(STORE, 'push-day-fixed');
   if (done) return;
   const OLD_NAME = 'Push Hypertrophy (Delts) [INCOMPLETE — add missing exercises]';
-  const templates = await getTemplates();
+  const templates = await getLegacyTemplates();
   const idx = templates.findIndex(t => t.name === OLD_NAME);
   const complete = MY_ROUTINES.find(d => d.name === 'Push Hypertrophy (Delts)');
   if (idx !== -1 && complete) {
@@ -3322,7 +3426,7 @@ async function swapPullDayInclineCurlOnce() {
   if (done) return;
   const OLD = 'Seated Incline Curl (Dumbbell)';
   const NEW = 'Bayesian Curl (Cable)';
-  const templates = await getTemplates();
+  const templates = await getLegacyTemplates();
   let changed = false;
   for (const t of templates) {
     for (const ex of t.exercises || []) {
@@ -3342,43 +3446,47 @@ function openSaveTemplateModal() {
   document.getElementById('templateNameModal').classList.add('open');
 }
 
+// Save the workout editor's contents as a workout: in place when editing one,
+// otherwise appended to the target split (or the active split).
 document.getElementById('templateNameSave').onclick = async () => {
   const name = document.getElementById('templateNameInput').value.trim();
   if (!name) return;
-  const templates = await getTemplates();
-  templates.push({
-    id: uid(), name,
-    exercises: activeSession.exercises.map(e => ({
-      name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
-      ...(e.supersetId ? { supersetId: e.supersetId } : {}),
-      sets: e.sets.map(s => ({ weight: s.weight || s.tW || 0, reps: s.reps || s.tR || 0, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
-    })),
-  });
-  await db.set(STORE, 'templates', templates);
+  const exercises = workoutExercises(activeSession.exercises);
+  const target = routineMode ? workoutEditTarget : null;
+  let savedTo = null;
+  if (target?.workoutId) {
+    const splits = await getSplits();
+    const hit = findWorkout(splits, target.workoutId);
+    if (hit) { hit.workout.name = name; hit.workout.exercises = exercises; await saveSplits(splits); savedTo = hit.split; }
+  }
+  if (!savedTo) savedTo = (await addWorkoutToSplit(name, exercises, target?.splitId || null)).split;
   document.getElementById('templateNameModal').classList.remove('open');
 
   if (routineMode) {
     routineMode = false;
+    workoutEditTarget = null;
     activeSession = null;
     clearActiveSessionStore();
     document.getElementById('activeWorkout').classList.remove('visible');
     unfitActiveWorkout();
     renderDashboard();
+    if (activeTab === 'Library') renderLibrary();
+    if (target) openSplitEditor(savedTo.id);
   } else {
-    alert('Saved as routine!');
+    alert(`Saved "${name}" to ${savedTo.name}.`);
   }
 };
 
-// ── Routine library (pre-built, science-backed splits) ────────────────────────
+// ── Split library (ready-made, science-backed splits) ─────────────────────────
 const libraryEl       = document.getElementById('routineLibrary');
 const libraryDetailEl = document.getElementById('libraryDetail');
 let openSplitId = null;
 
-document.getElementById('libraryBtn').onclick = () => {
+function openSplitLibrary() {
   closeRoutineChooser();
   renderLibraryList();
   libraryEl.classList.add('visible');
-};
+}
 document.getElementById('libraryClose').onclick = () => libraryEl.classList.remove('visible');
 document.getElementById('libraryDetailBack').onclick = () => libraryDetailEl.classList.remove('visible');
 
@@ -3477,30 +3585,31 @@ function openSplitDetail(splitId) {
   libraryDetailEl.classList.add('visible');
 }
 
+// Add a ready-made split as a split of your own (a copy — editing it never
+// touches the library), then offer to make it the active split.
 document.getElementById('libraryAddBtn').onclick = async () => {
-  const split = ROUTINE_LIBRARY.find(s => s.id === openSplitId);
-  if (!split) return;
-  const templates = await getTemplates();
-  const existingNames = new Set(templates.map(t => t.name));
-  let added = 0;
-  for (const day of split.days) {
-    if (existingNames.has(day.name)) continue;
-    templates.push({
-      id: uid(), name: day.name,
-      exercises: day.exercises.map(e => ({
-        name: e.name, category: e.category, restTime: e.restTime,
-        sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, type: s.type })),
-      })),
-    });
-    added++;
+  const lib = ROUTINE_LIBRARY.find(s => s.id === openSplitId);
+  if (!lib) return;
+  const { splits, active } = await getSplitState();
+  const existing = splits.find(s => s.source === `library:${lib.id}`);
+  if (existing && !confirm(`You already have "${existing.name}". Add another copy?`)) {
+    libraryDetailEl.classList.remove('visible');
+    libraryEl.classList.remove('visible');
+    openSplitEditor(existing.id);
+    return;
   }
-  await db.set(STORE, 'templates', templates);
+  const split = {
+    id: uid(), name: lib.name, source: `library:${lib.id}`,
+    workouts: lib.days.map(d => ({ id: uid(), name: d.name, exercises: copyExercises(d.exercises) })),
+  };
+  splits.push(split);
+  await saveSplits(splits);
+  if (!active || confirm(`Make "${split.name}" your active split?`)) await setActiveSplit(split.id);
   libraryDetailEl.classList.remove('visible');
   libraryEl.classList.remove('visible');
   renderDashboard();
-  alert(added > 0
-    ? `Added ${added} routine${added > 1 ? 's' : ''} from "${split.name}" — find them on your dashboard.`
-    : `"${split.name}" is already in your routines.`);
+  if (activeTab === 'Library') renderLibrary();
+  openSplitEditor(split.id);
 };
 
 // ── Streak (weekly, with an editable seed) ────────────────────────
@@ -3563,96 +3672,24 @@ function isoWeek(d) {
   return 1 + Math.round((date - firstThu) / (7 * 86400000));
 }
 
-// "Next in your split" is a recommendation, not a queue position.
-//
-// It used to be `indexOf(last done) + 1` against the manual routine order, which
-// only holds if you run the split in strict rotation. Switch the order once —
-// legs before pull, an extra push day, a week off — and the pointer is wrong from
-// then on, because it reads one session and ignores everything else.
-//
-// Instead every routine is scored on how overdue it is and the most overdue wins:
-//
-//   • days since THAT routine was last trained (never done = maximally overdue)
-//   • minus a recovery penalty when the muscles it leans on were trained in the
-//     last ~48h, weighted by each muscle's share of the routine's sets — so a
-//     token set of curls doesn't make a leg day read as an arm day, and two leg
-//     sessions don't stack just because legs happen to be "due"
-//   • manual list order breaks ties only (a fresh start, or two routines last
-//     trained the same day), so the order you arrange them in still expresses
-//     intent without dictating the sequence
-//
-// Push → Legs → Push therefore offers Pull next, not whatever sits after Push in
-// the list. Off-plan workouts still don't advance anything by name, but the sets
-// they contain do count toward the recovery penalty.
+// Next workout = the one after the last logged session of the active split, in
+// split order (see nextWorkout in splits.js). Order is the only rule.
 const DAY_MS = 86400000;
-function computeNextTemplate(templates, sessions) {
-  if (!templates.length) return null;
-  const now = Date.now();
+const agoTxt = ts => {
+  const d = ts ? Math.floor((Date.now() - ts) / DAY_MS) : null;
+  return d == null ? 'never' : d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`;
+};
 
-  // One pass over history: last time each routine name ran, and each muscle.
-  const lastByName = new Map(), lastByMuscle = new Map();
-  for (const s of sessions) {                        // newest-first
-    const ts = parseToDate(s.date || s.startTime || '')?.getTime() || 0;
-    if (!ts) continue;
-    const title = s.title || '';
-    if (title && !lastByName.has(title)) lastByName.set(title, ts);
-    for (const ex of s.exercises || []) {
-      const cat = ex.category;
-      if (!cat || cat === 'Cardio') continue;
-      if (!(ex.sets || []).some(st => st.done)) continue;
-      if (!(lastByMuscle.get(cat) >= ts)) lastByMuscle.set(cat, ts);
-    }
-  }
-
-  const ranked = templates.map((t, i) => {
-    const lastTs = lastByName.get(t.name) || 0;
-    const daysSince = lastTs ? Math.min((now - lastTs) / DAY_MS, 30) : 30;
-
-    const catSets = {};
-    let total = 0;
-    for (const e of t.exercises || []) {
-      if (!e.category || e.category === 'Cardio') continue;
-      const n = e.sets?.length || 0;
-      catSets[e.category] = (catSets[e.category] || 0) + n;
-      total += n;
-    }
-    // 0 = fully recovered, 1 = everything this routine trains was hit today.
-    let fatigue = 0;
-    for (const [cat, n] of Object.entries(catSets)) {
-      const mLast = lastByMuscle.get(cat);
-      if (!mLast) continue;
-      const rest = (now - mLast) / DAY_MS;
-      if (rest < 2) fatigue += (n / (total || 1)) * (2 - rest) / 2;
-    }
-    // ×6 so a fully-unrecovered routine drops ~6 "days" of priority — enough to
-    // lose to a rested alternative, not enough to bury a routine you've skipped
-    // for a fortnight.
-    return { t, i, lastTs, daysSince, fatigue, score: daysSince - fatigue * 6 };
-  }).sort((a, b) => b.score - a.score || a.i - b.i);
-
-  const pick = ranked[0];
-  return { template: pick.t, lastTs: pick.lastTs, ranked };
-}
-
-function nextSessionCard(next, sessions) {
-  const t = next.template;
+function nextSessionCard(next, split, sessions) {
+  const t = next.workout;
   const exNames = (t.exercises || []).map(e => e.name);
   const tags = exNames.slice(0, 3).map(n => `<span class="next-tag">${esc(n)}</span>`).join('')
     + (exNames.length > 3 ? `<span class="next-tag">+${exNames.length - 3} more</span>` : '');
   const totalSets = t.exercises.reduce((a, e) => a + (e.sets?.length || 0), 0);
   const mins = Math.max(20, Math.round(totalSets * 3.5 / 5) * 5);
-  const daysAgo = next.lastTs ? Math.floor((Date.now() - next.lastTs) / DAY_MS) : null;
-  const lastTxt = daysAgo == null ? 'never done'
-    : daysAgo === 0 ? 'done today'
-    : `last done ${daysAgo} day${daysAgo > 1 ? 's' : ''} ago`;
-  // The pick is scored, not positional, so say what won it — otherwise "next" looks
-  // arbitrary the moment it stops matching the list order.
-  const runnerUp = next.ranked?.[1];
-  const why = daysAgo == null ? "you haven't run this one yet"
-    : runnerUp && runnerUp.fatigue > 0.25 && runnerUp.fatigue > (next.ranked[0].fatigue + 0.15)
-      ? `it's your most rested option`
-      : `it's gone the longest without a session`;
-  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt} — ${why}.`;
+  const lastTs = next.lastTsById.get(t.id);
+  const lastTxt = lastTs ? `last done ${agoTxt(lastTs)}` : 'not done yet';
+  let rationale = `${t.exercises.length} exercises · ~${mins} min · ${lastTxt}.`;
   const byCat = {}; weeklySetsByCategory(sessions).rows.forEach(r => { byCat[r.cat] = r.perWk; });
   const catSets = {};
   t.exercises.forEach(e => { if (e.category && e.category !== 'Cardio') catSets[e.category] = (catSets[e.category] || 0) + (e.sets?.length || 0); });
@@ -3664,26 +3701,31 @@ function nextSessionCard(next, sessions) {
   }
   return `
     <div class="next-card">
-      <div class="next-eyebrow">${icon('zap', { size: 13 })} NEXT IN YOUR SPLIT</div>
+      <div class="next-eyebrow">${icon('zap', { size: 13 })} NEXT · ${esc(split.name)} · ${next.index + 1} of ${split.workouts.length}</div>
       <div class="next-name">${esc(t.name)}</div>
       <div class="next-rationale">${esc(rationale)}</div>
       <div class="next-tags">${tags}</div>
       <div class="next-actions">
         <button class="next-start" data-tid="${t.id}">${icon('play', { size: 19 })} Start ${esc(t.name)}</button>
-        <button class="next-more" aria-label="Choose a different routine">${icon('repeat', { size: 16 })} Swap</button>
+        <button class="next-more" aria-label="Choose another workout from this split">${icon('repeat', { size: 16 })} Swap</button>
       </div>
     </div>`;
 }
 
-function emptyHeroCard() {
+// No active split, or an active split with no workouts yet.
+function emptyHeroCard(split = null) {
+  const title = split ? `${split.name} is empty` : 'No split yet';
+  const body = split
+    ? 'Add workouts to this split, or start an empty workout and save it as one.'
+    : 'Pick a ready-made split from the Split Library, or build your own in Library → Your splits.';
   return `
     <div class="next-card">
       <div class="next-eyebrow">${icon('zap', { size: 13 })} GET STARTED</div>
-      <div class="next-name">No routine yet</div>
-      <div class="next-rationale">Add a ready-made split from the Library, or start an empty workout and build as you go.</div>
+      <div class="next-name">${esc(title)}</div>
+      <div class="next-rationale">${esc(body)}</div>
       <div class="next-actions">
         <button class="next-start hero-empty-start">${icon('play', { size: 19 })} Start empty workout</button>
-        <button class="next-more hero-empty-lib" aria-label="Browse library">${icon('book-open', { size: 20 })}</button>
+        <button class="next-more hero-empty-lib" aria-label="${split ? 'Edit split' : 'Browse splits'}"${split ? ` data-split="${esc(split.id)}"` : ''}>${icon(split ? 'pencil' : 'book-open', { size: 20 })}</button>
       </div>
     </div>`;
 }
@@ -3696,53 +3738,33 @@ function updateCoachBadge() {
   tab?.querySelector('.tab-badge')?.remove();
 }
 
-// Routines list lives in the Swap sheet. It used to double as an order editor —
-// a separate "Edit order" mode with ↑/↓ buttons on every row — because the manual
-// order *was* the split sequence. It no longer is (see computeNextTemplate), so
-// the mode is gone: the sheet now lists routines in recommended order, newest-due
-// first, which is the same thing the hero is telling you. Delete is a visible
-// button rather than a hidden long-press.
-async function deleteRoutine(id) {
-  const ts = await getTemplates();
-  const t = ts.find(x => x.id === id);
-  if (!confirm(`Delete routine "${t?.name || ''}"? This can't be undone.`)) return;
-  await db.set(STORE, 'templates', ts.filter(x => x.id !== id));
-  db.backup();
-  renderDashboard();
-}
-
-function renderRoutinesChooser(templates, next = null) {
+// Swap sheet: ONLY the active split's workouts, in split order, next marked.
+// Editing (reorder, add, remove, move) lives in the split editor.
+function renderRoutinesChooser(split, next = null) {
   const tmplEl = document.getElementById('templatesList');
   if (!tmplEl) return;
-  document.getElementById('routinesEmpty').style.display = templates.length ? 'none' : '';
-  document.getElementById('routinesHint').style.display = templates.length ? '' : 'none';
+  const ws = split?.workouts || [];
+  document.getElementById('chooserTitle').textContent = split ? split.name : 'No active split';
+  document.getElementById('routinesEmpty').style.display = ws.length ? 'none' : '';
+  document.getElementById('routinesHint').style.display = ws.length ? '' : 'none';
+  document.getElementById('chooserEditSplit').style.display = split ? '' : 'none';
 
-  // Same ranking the hero uses, so the sheet reads as "what to train next" top to
-  // bottom instead of a static queue you have to keep tidy by hand.
-  const nextId = next?.template?.id || null;
-  const list = next?.ranked?.length ? next.ranked : templates.map((t, i) => ({ t, i, lastTs: 0 }));
-
-  tmplEl.innerHTML = list.map(({ t, lastTs }) => {
-    const d = lastTs ? Math.floor((Date.now() - lastTs) / DAY_MS) : null;
-    const when = d == null ? 'never' : d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d}d ago`;
-    return `
+  tmplEl.innerHTML = ws.map((t, i) => `
       <div class="template-card" data-tid="${t.id}">
+        <span class="tc-num">${i + 1}</span>
         <div class="tc-main">
-          <div class="tc-name">${esc(t.name)}${t.id === nextId ? '<span class="tc-next-badge">Next</span>' : ''}</div>
+          <div class="tc-name">${esc(t.name)}${next && t.id === next.workout.id ? '<span class="tc-next-badge">Next</span>' : ''}</div>
           <div class="tc-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
         </div>
-        <span class="tc-when">${when}</span>
-        <button class="tc-del" data-tid="${esc(t.id)}" aria-label="Delete ${esc(t.name)}">${icon('trash-2', { size: 16 })}</button>
-      </div>`;
-  }).join('');
+        <span class="tc-when">${agoTxt(next?.lastTsById.get(t.id))}</span>
+      </div>`).join('');
 
-  tmplEl.querySelectorAll('.tc-del').forEach(b => b.onclick = e => { e.stopPropagation(); deleteRoutine(b.dataset.tid); });
   tmplEl.querySelectorAll('.template-card').forEach(card => {
     card.addEventListener('click', () => {
-      const t = templates.find(x => x.id === card.dataset.tid);
+      const t = ws.find(x => x.id === card.dataset.tid);
       if (!t) return;
       closeRoutineChooser();
-      startEmptyWorkout(t);
+      startEmptyWorkout(startable(split, t));
     });
   });
   refreshIcons();
@@ -3764,8 +3786,9 @@ document.getElementById('routineChooser').addEventListener('click', e => {
 let planWeekOffset = 0;
 async function renderPlan() {
   const el = document.getElementById('planBody');
-  const [templates, sessions, streakSettings, planMap] = await Promise.all([
-    getTemplates(), loadSessions(), getStreakSettings(), getWeekPlanMap()]);
+  const [{ splits, active }, sessions, streakSettings, planMap] = await Promise.all([
+    getSplitState(), loadSessions(), getStreakSettings(), getWeekPlanMap()]);
+  const templates = active ? active.workouts.map(w => startable(active, w)) : [];
   const base = new Date(); base.setDate(base.getDate() + planWeekOffset * 7);
   const start = mondayOf(base);
   const end = new Date(start); end.setDate(start.getDate() + 7);
@@ -3774,8 +3797,9 @@ async function renderPlan() {
 
   const byDate = {};
   sessions.forEach(s => { const d = s.date || (s.startTime || '').slice(0, 10); (byDate[d] = byDate[d] || []).push(s); });
-  const next = computeNextTemplate(templates, sessions);
-  const tById = id => templates.find(t => t.id === id);
+  const next = nextWorkout(active, sessions);
+  // Assignments can point at a workout in any split (planned before a switch).
+  const tById = id => { const hit = findWorkout(splits, id); return hit ? startable(hit.split, hit.workout) : null; };
 
   const days = [];
   for (let i = 0; i < 7; i++) {
@@ -3806,10 +3830,10 @@ async function renderPlan() {
         <div class="dmeta">${fmtTime(s.duration || 0)} · ${meta}</div></div></div>`;
     }
     if (dy.isToday) {
-      const t = dy.assigned || next?.template;
+      const t = dy.assigned || (next ? startable(active, next.workout) : null);
       const body = t
         ? `<div class="dname">${esc(t.name)}</div><div class="dmeta">${t.exercises.length} exercises</div>`
-        : `<div class="dname">Open workout</div><div class="dmeta">Tap to choose a routine</div>`;
+        : `<div class="dname">Open workout</div><div class="dmeta">Tap to choose a workout</div>`;
       return `<div class="dcard today" data-assign="${dy.ds}">
         <span class="dstate today">${icon('dumbbell', { size: 15 })}</span>
         <div class="dbody"><div class="dday" style="color:var(--blue)">${lbl}</div>${body}</div>
@@ -3826,7 +3850,7 @@ async function renderPlan() {
         <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Rest day</div></div></div>`;
     }
     return `<div class="dcard" data-assign="${dy.ds}"><span class="dstate up">${icon('plus', { size: 15 })}</span>
-      <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Open</div><div class="dmeta">Tap to plan a routine</div></div></div>`;
+      <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Open</div><div class="dmeta">Tap to plan a workout</div></div></div>`;
   }).join('');
 
   const { thisWeekCount, target } = computeStreak(sessions, streakSettings);
@@ -3837,7 +3861,7 @@ async function renderPlan() {
   const noteBody = imbalance ? `${streakLine} Coach flagged an ${esc(imbalance.eyebrow.toLowerCase())}: ${esc(imbalance.body)}` : streakLine;
   const noteHTML = `<div class="plan-note"><span class="ci">${icon('bot', { size: 19 })}</span><div class="plan-note-body">${noteBody}</div></div>`;
 
-  // Weekly volume — this week's completed sets vs one full rotation of your routines.
+  // Weekly volume — this week's completed sets vs one full rotation of the active split.
   const catAlias = c => (['Quads', 'Hamstrings', 'Glutes', 'Calves'].includes(c)) ? 'Legs'
     : (['Biceps', 'Triceps'].includes(c)) ? 'Arms' : c;
   const CATS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core'];
@@ -3857,7 +3881,7 @@ async function renderPlan() {
   const volHTML = `<div class="plan-vcard">
     <div class="plan-vtop"><span class="plan-vtitle">Weekly training volume</span><span class="plan-vsub">${curTotal} / ${planTotal} sets</span></div>
     <div class="plan-vbar"><div class="plan-vfill" style="width:${Math.min(100, (curTotal / planTotal) * 100).toFixed(0)}%"></div></div>
-    ${mrows || '<div class="stats-empty">Add routines to see planned volume.</div>'}
+    ${mrows || '<div class="stats-empty">Add workouts to your split to see planned volume.</div>'}
     <button class="plan-vlink" id="planToBalance">See full muscle balance ${icon('arrow-right', { size: 14 })}</button>
   </div>`;
 
@@ -3885,6 +3909,7 @@ function assignPlanDay(date, templates) {
   back.className = 'modal-backdrop open';
   back.innerHTML = `<div class="modal">
     <p class="modal-title">Plan ${esc(fmtDate(date))}</p>
+    ${templates.length ? '' : '<div class="routines-empty">No active split — set one in Library → Your splits.</div>'}
     ${templates.map(t => `<button class="sheet-btn" data-tid="${esc(t.id)}">${esc(t.name)} — ${t.exercises.length} exercises</button>`).join('')}
     <button class="sheet-btn" data-clear="1" style="color:var(--text-muted)">Clear / rest day</button>
     <button class="sheet-btn" data-cancel="1" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
@@ -3905,11 +3930,11 @@ async function renderDashboard() {
   const recentEl0 = document.getElementById('recentList');
   if (recentEl0 && !recentEl0.children.length) recentEl0.innerHTML = skeletonCards(1);
 
-  const [templates, sessions, streakSettings, bodyLog, nutri] = await Promise.all([
-    getTemplates(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday()]);
+  const [{ active }, sessions, streakSettings, bodyLog, nutri] = await Promise.all([
+    getSplitState(), loadSessions(), getStreakSettings(), getBodyLog(), getNutritionToday()]);
   const body = bodyStats(bodyLog);
-  const next = computeNextTemplate(templates, sessions);
-  renderRoutinesChooser(templates, next);
+  const next = nextWorkout(active, sessions);
+  renderRoutinesChooser(active, next);
   renderStreakChip(sessions); // keeps the (hidden) chip fresh for the settings modal
 
   const now = new Date();
@@ -3924,7 +3949,7 @@ async function renderDashboard() {
     .flatMap(s => (s.exercises || []).flatMap(e => (e.sets || []).filter(st => st.done)))
     .reduce((a, st) => a + (st.weight || 0) * (st.reps || 1), 0);
 
-  const heroHTML = next ? nextSessionCard(next, sessions) : emptyHeroCard();
+  const heroHTML = next ? nextSessionCard(next, active, sessions) : emptyHeroCard(active);
 
   const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;
   // Snapshot: the two halves of the app on one screen — training streak, body, nutrition.
@@ -3967,10 +3992,13 @@ async function renderDashboard() {
 
   // Wire the hero + tiles
   const startBtn = dashTop.querySelector('.next-start[data-tid]');
-  if (startBtn) startBtn.onclick = () => { const t = templates.find(x => x.id === startBtn.dataset.tid); startEmptyWorkout(t); };
+  if (startBtn) startBtn.onclick = () => startEmptyWorkout(startable(active, next.workout));
   dashTop.querySelector('.next-more:not(.hero-empty-lib)')?.addEventListener('click', openRoutineChooser);
   dashTop.querySelector('.hero-empty-start')?.addEventListener('click', () => startEmptyWorkout());
-  dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', () => document.getElementById('libraryBtn').click());
+  dashTop.querySelector('.hero-empty-lib')?.addEventListener('click', e => {
+    const id = e.currentTarget.dataset.split;
+    if (id) openSplitEditor(id); else openSplitLibrary();
+  });
   dashTop.querySelector('#tileStreak')?.addEventListener('click', () => document.getElementById('streakChip').click());
   dashTop.querySelector('#tileBody')?.addEventListener('click', () => openBodyweightModal());
   dashTop.querySelector('#tileCal')?.addEventListener('click', () => { try { window.open(CALORIE_APP_URL, '_blank'); } catch (_) { location.href = CALORIE_APP_URL; } });
@@ -4382,10 +4410,10 @@ function renderHistoryDetailBody() {
 
     const tplBtn = document.createElement('button');
     tplBtn.className = 'header-btn';
-    tplBtn.textContent = 'Save as Routine';
+    tplBtn.textContent = 'Save as workout in my split';
     tplBtn.style.cssText = 'display:block;width:100%;margin-bottom:12px;padding:12px;border-radius:10px;background:var(--surface);border:1px solid rgba(255,255,255,0.12);color:var(--text);font-size:0.9rem;cursor:pointer;';
     tplBtn.onclick = () => {
-      const name = prompt('Routine name:', s.title || 'My Routine');
+      const name = prompt('Workout name:', s.title || 'My workout');
       if (!name) return;
       saveTemplate(name, s.exercises);
     };
@@ -4474,18 +4502,11 @@ document.getElementById('hdDateSave').onclick = async () => {
   renderDashboard();
 };
 
+// Save a logged session's / coach draft's exercises as a workout in the active
+// split (only sets that were actually filled in count as targets).
 async function saveTemplate(name, exercises) {
-  const templates = await getTemplates();
-  templates.push({
-    id: uid(), name,
-    exercises: exercises.map(e => ({
-      name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
-      ...(e.supersetId ? { supersetId: e.supersetId } : {}),
-      sets: e.sets.filter(s => s.done||s.weight||s.reps||s.duration||s.distance).map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
-    })),
-  });
-  await db.set(STORE, 'templates', templates);
-  alert('Saved as routine!');
+  const { split } = await addWorkoutToSplit(name, workoutExercises(exercises, { keepAll: false }));
+  alert(`Saved "${name}" to ${split.name}.`);
 }
 
 // Live mm:ss mask for the history-edit time fields (same behaviour as the
@@ -4522,7 +4543,7 @@ document.getElementById('buildRoutinesBtn').onclick = async () => {
     if (!byTitle[key]) byTitle[key] = s;
   });
 
-  const existing  = await getTemplates();
+  const existing  = (await getSplits()).flatMap(sp => sp.workouts);
   const existingNames = new Set(existing.map(t => t.name.trim()));
 
   const container = document.getElementById('routineCandidates');
@@ -4642,6 +4663,290 @@ function sparklineSVG(vals, { w = 52, h = 16, stroke = 1.6, color = 'var(--blue)
     + `</svg>`;
 }
 
+// ── Your splits (Library tab) ─────────────────────────────────────────────────
+function renderYourSplits(el, splits, active, sessions) {
+  const next = nextWorkout(active, sessions);
+  const others = splits.filter(sp => sp !== active);
+  const activeHTML = active ? `
+    <div class="sp-card" data-split="${esc(active.id)}">
+      <div class="sp-head">
+        <span class="sp-badge">Active</span>
+        <span class="sp-name">${esc(active.name)}</span>
+        <span class="sp-meta">${active.workouts.length} workout${active.workouts.length === 1 ? '' : 's'} ${icon('chevron-right', { size: 14 })}</span>
+      </div>
+      <div class="sp-workouts">
+        ${active.workouts.map((w, i) => `
+          <div class="sp-w" data-wid="${esc(w.id)}">
+            <span class="tc-num">${i + 1}</span>
+            <div class="tc-main">
+              <div class="tc-name">${esc(w.name)}${next && w.id === next.workout.id ? '<span class="tc-next-badge">Next</span>' : ''}</div>
+              <div class="tc-ex">${w.exercises.map(e => esc(e.name)).join(' · ')}</div>
+            </div>
+            <span class="tc-when">${agoTxt(next?.lastTsById.get(w.id))}</span>
+          </div>`).join('') || '<div class="routines-empty">No workouts yet — tap the split to add some.</div>'}
+      </div>
+    </div>` : `<div class="routines-empty">No active split — pick one below, or add one from the <strong>Split library</strong>.</div>`;
+  const othersHTML = others.map(sp => `
+    <div class="sp-card" data-split="${esc(sp.id)}">
+      <div class="sp-head">
+        <span class="sp-name">${esc(sp.name)}</span>
+        <button class="sp-activate" data-activate="${esc(sp.id)}">Set active</button>
+      </div>
+      <div class="sp-sub">${sp.workouts.length} workout${sp.workouts.length === 1 ? '' : 's'}${sp.workouts.length ? ' · ' + sp.workouts.map(w => esc(w.name)).join(' · ') : ''}</div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="lib-routines-head">
+      <span class="section-heading" style="margin:0">Your splits</span>
+    </div>
+    ${activeHTML}
+    ${others.length ? `<div class="lib-routines-divider" style="margin-top:14px">Other splits</div>${othersHTML}` : ''}
+    <div class="sp-actions">
+      <button class="new-routine-btn" id="spNew">${icon('plus', { size: 15 })} New split</button>
+      <button class="new-routine-btn" id="libBrowseSplits">${icon('book-open', { size: 15 })} Split library</button>
+    </div>
+    <div class="lib-routines-divider">Exercises</div>`;
+
+  el.querySelector('#libBrowseSplits').onclick = openSplitLibrary;
+  el.querySelector('#spNew').onclick = createSplit;
+  el.querySelectorAll('.sp-card').forEach(card => card.onclick = () => openSplitEditor(card.dataset.split));
+  el.querySelectorAll('.sp-w').forEach(row => row.onclick = e => {
+    e.stopPropagation();
+    const w = active.workouts.find(x => x.id === row.dataset.wid);
+    if (w) startEmptyWorkout(startable(active, w));
+  });
+  el.querySelectorAll('.sp-activate').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    await setActiveSplit(b.dataset.activate);
+    renderLibrary();
+    renderDashboard();
+  });
+}
+
+async function createSplit() {
+  const name = (prompt('Name your new split:', '') || '').trim();
+  if (!name) return null;
+  const { splits, active } = await getSplitState();
+  const sp = { id: uid(), name: name.slice(0, 60), source: 'custom', workouts: [] };
+  splits.push(sp);
+  await saveSplits(splits);
+  if (!active) await setActiveSplit(sp.id);
+  if (activeTab === 'Library') renderLibrary();
+  openSplitEditor(sp.id);
+  return sp;
+}
+
+// Bottom sheet of choices → resolves with the chosen item's `value` (null on
+// cancel). items: [{ label, value, sub?, danger?, group? }].
+function openSheet(title, items, sub = '') {
+  return new Promise(resolve => {
+    const back = document.createElement('div');
+    back.className = 'modal-backdrop open';
+    let lastGroup = null;
+    const rows = items.map((it, i) => {
+      const g = it.group && it.group !== lastGroup ? `<div class="sheet-group">${esc(it.group)}</div>` : '';
+      lastGroup = it.group || lastGroup;
+      return `${g}<button class="sheet-btn${it.danger ? ' danger' : ''}" data-i="${i}">${esc(it.label)}${it.sub ? `<div class="sheet-sub" style="margin:3px 0 0">${esc(it.sub)}</div>` : ''}</button>`;
+    }).join('');
+    back.innerHTML = `<div class="modal">
+      <p class="modal-title">${esc(title)}</p>
+      ${sub ? `<div class="sheet-sub">${esc(sub)}</div>` : ''}
+      <div class="sheet-scroll">${rows}</div>
+      <button class="sheet-btn" data-cancel="1" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
+    </div>`;
+    document.body.appendChild(back);
+    syncScrollLock();
+    const close = v => { back.remove(); syncScrollLock(); resolve(v); };
+    back.addEventListener('click', e => {
+      const btn = e.target.closest('button');
+      if (e.target === back || btn?.dataset.cancel) return close(null);
+      if (btn?.dataset.i != null) close(items[+btn.dataset.i].value);
+    });
+  });
+}
+
+// ── Split editor ──────────────────────────────────────────────────────────────
+const splitEditorEl = document.getElementById('splitEditor');
+let editingSplitId = null;
+document.getElementById('splitEditorBack').onclick = closeSplitEditor;
+function closeSplitEditor() {
+  splitEditorEl.classList.remove('visible');
+  editingSplitId = null;
+  renderDashboard();
+  if (activeTab === 'Library') renderLibrary();
+  if (activeTab === 'Plan') renderPlan();
+}
+
+async function openSplitEditor(splitId) {
+  editingSplitId = splitId;
+  await renderSplitEditor();
+  splitEditorEl.classList.add('visible');
+}
+
+// Load → mutate → save one split, then re-render the editor.
+async function mutateSplit(fn) {
+  const splits = await getSplits();
+  const sp = splits.find(x => x.id === editingSplitId);
+  if (!sp) return;
+  if (await fn(sp, splits) === false) return;
+  await saveSplits(splits);
+  await renderSplitEditor();
+}
+
+async function renderSplitEditor() {
+  const body = document.getElementById('splitEditorBody');
+  const [{ splits, activeId }, sessions] = await Promise.all([getSplitState(), loadSessions()]);
+  const sp = splits.find(x => x.id === editingSplitId);
+  if (!sp) { splitEditorEl.classList.remove('visible'); return; }
+  const isActive = sp.id === activeId;
+  const next = nextWorkout(sp, sessions);
+  const n = sp.workouts.length;
+
+  body.innerHTML = `
+    <div class="form-group" style="margin-top:6px">
+      <label class="form-label">Split name</label>
+      <input class="form-input" id="seName" maxlength="60" value="${esc(sp.name)}">
+    </div>
+    <div class="se-active">
+      ${isActive ? `<span class="sp-badge">Active split</span><span>Home suggests the next workout from this split, in this order.</span>`
+                 : `<button class="sp-activate" id="seActivate">Make active</button><span>Only the active split appears on Home.</span>`}
+    </div>
+    <div class="section-heading">Workouts · in order</div>
+    ${sp.workouts.map((w, i) => `
+      <div class="se-row" data-wid="${esc(w.id)}">
+        <span class="tc-num">${i + 1}</span>
+        <div class="tc-main" data-act="menu">
+          <div class="tc-name">${esc(w.name)}${isActive && next && w.id === next.workout.id ? '<span class="tc-next-badge">Next</span>' : ''}</div>
+          <div class="tc-ex">${w.exercises.length} exercises · ${w.exercises.map(e => esc(e.name)).join(' · ')}</div>
+        </div>
+        <button class="se-ibtn" data-act="up" aria-label="Move up"${i === 0 ? ' disabled' : ''}>${icon('chevron-up', { size: 16 })}</button>
+        <button class="se-ibtn" data-act="down" aria-label="Move down"${i === n - 1 ? ' disabled' : ''}>${icon('chevron-down', { size: 16 })}</button>
+        <button class="se-ibtn" data-act="menu" aria-label="More">${icon('ellipsis', { size: 16 })}</button>
+      </div>`).join('') || '<div class="routines-empty">No workouts yet.</div>'}
+    <button class="start-btn se-add" id="seAdd">${icon('plus', { size: 18 })} Add workout</button>
+    <button class="se-danger" id="seDelete">Delete split</button>`;
+  refreshIcons();
+
+  const nameEl = body.querySelector('#seName');
+  nameEl.onchange = () => {
+    const v = nameEl.value.trim();
+    if (!v) { nameEl.value = sp.name; return; }
+    mutateSplit(x => { x.name = v.slice(0, 60); });
+  };
+  body.querySelector('#seActivate')?.addEventListener('click', async () => {
+    await setActiveSplit(sp.id);
+    renderSplitEditor();
+  });
+  body.querySelector('#seAdd').onclick = () => addWorkoutFlow(sp, splits);
+  body.querySelector('#seDelete').onclick = async () => {
+    if (!confirm(`Delete "${sp.name}" and its ${n} workout${n === 1 ? '' : 's'}? Logged sessions stay in your history.`)) return;
+    const rest = splits.filter(x => x.id !== sp.id);
+    await saveSplits(rest);
+    await forgetPlannedWorkouts(sp.workouts.map(w => w.id));
+    if (isActive) await setActiveSplit(rest.find(x => x.source !== 'other')?.id || rest[0]?.id || null);
+    closeSplitEditor();
+  };
+  body.querySelectorAll('.se-row').forEach(row => {
+    const wid = row.dataset.wid;
+    row.querySelectorAll('[data-act]').forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const act = b.dataset.act;
+      if (act === 'up' || act === 'down') {
+        mutateSplit(x => {
+          const i = x.workouts.findIndex(w => w.id === wid), j = act === 'up' ? i - 1 : i + 1;
+          if (i < 0 || j < 0 || j >= x.workouts.length) return false;
+          [x.workouts[i], x.workouts[j]] = [x.workouts[j], x.workouts[i]];
+        });
+      } else workoutMenu(sp, splits, wid);
+    });
+  });
+}
+
+async function workoutMenu(sp, splits, wid) {
+  const w = sp.workouts.find(x => x.id === wid);
+  if (!w) return;
+  const others = splits.filter(x => x.id !== sp.id);
+  const choice = await openSheet(w.name, [
+    { label: 'Start this workout', value: 'start' },
+    { label: 'Edit exercises', value: 'edit' },
+    { label: 'Rename', value: 'rename' },
+    { label: 'Duplicate', value: 'dup' },
+    { label: 'Move to another split', value: 'move' },
+    { label: 'Copy to another split', value: 'copy' },
+    { label: 'Remove from split', value: 'remove', danger: true },
+  ]);
+  if (!choice) return;
+  if (choice === 'start') {
+    splitEditorEl.classList.remove('visible');
+    startEmptyWorkout(startable(sp, w));
+  } else if (choice === 'edit') {
+    splitEditorEl.classList.remove('visible');
+    startNewRoutine(w, { splitId: sp.id, workoutId: w.id });
+  } else if (choice === 'rename') {
+    const v = (prompt('Workout name:', w.name) || '').trim();
+    if (v) mutateSplit(x => { x.workouts.find(y => y.id === wid).name = v.slice(0, 60); });
+  } else if (choice === 'dup') {
+    mutateSplit(x => {
+      const i = x.workouts.findIndex(y => y.id === wid);
+      x.workouts.splice(i + 1, 0, { id: uid(), name: `${w.name} (copy)`, exercises: copyExercises(w.exercises) });
+    });
+  } else if (choice === 'move' || choice === 'copy') {
+    const dest = await openSheet(choice === 'move' ? `Move "${w.name}" to…` : `Copy "${w.name}" to…`, [
+      ...others.map(o => ({ label: o.name, value: o.id, sub: `${o.workouts.length} workouts` })),
+      { label: '+ New split…', value: '__new' },
+    ]);
+    if (!dest) return;
+    await mutateSplit((x, all) => {
+      let target = all.find(o => o.id === dest);
+      if (dest === '__new') {
+        const name = (prompt('Name the new split:', '') || '').trim();
+        if (!name) return false;
+        target = { id: uid(), name: name.slice(0, 60), source: 'custom', workouts: [] };
+        all.push(target);
+      }
+      if (!target) return false;
+      if (choice === 'move') {
+        // Keep the id: logged sessions + plan days follow the workout to its new split.
+        const fresh = x.workouts.find(y => y.id === wid);
+        if (!fresh) return false;
+        x.workouts = x.workouts.filter(y => y.id !== wid);
+        target.workouts.push(fresh);
+      } else {
+        target.workouts.push({ id: uid(), name: w.name, exercises: copyExercises(w.exercises) });
+      }
+    });
+  } else if (choice === 'remove') {
+    if (!confirm(`Remove "${w.name}" from ${sp.name}? Logged sessions stay in your history.`)) return;
+    await mutateSplit(x => { x.workouts = x.workouts.filter(y => y.id !== wid); });
+    await forgetPlannedWorkouts([wid]);
+  }
+}
+
+async function addWorkoutFlow(sp, splits) {
+  const others = splits.filter(x => x.id !== sp.id && x.workouts.length);
+  const how = await openSheet(`Add a workout to ${sp.name}`, [
+    { label: 'Build a new workout', value: 'new', sub: 'Pick exercises and target sets' },
+    ...(others.length ? [{ label: 'Copy from another split', value: 'copy', sub: 'Your other splits' }] : []),
+    { label: 'From the Split Library', value: 'lib', sub: 'Any workout from a ready-made split' },
+  ]);
+  if (!how) return;
+  if (how === 'new') {
+    splitEditorEl.classList.remove('visible');
+    startNewRoutine(null, { splitId: sp.id, workoutId: null });
+    return;
+  }
+  const pool = how === 'copy'
+    ? others.flatMap(o => o.workouts.map(w => ({ group: o.name, w })))
+    : ROUTINE_LIBRARY.flatMap(L => L.days.map(w => ({ group: L.name, w })));
+  const pick = await openSheet('Choose a workout', pool.map((p, i) => ({
+    group: p.group, label: p.w.name, value: String(i),
+    sub: p.w.exercises.map(e => e.name).slice(0, 4).join(' · ') + (p.w.exercises.length > 4 ? ' …' : ''),
+  })));
+  if (pick == null) return;
+  const src = pool[+pick].w;
+  mutateSplit(x => { x.workouts.push({ id: uid(), name: src.name, exercises: copyExercises(src.exercises) }); });
+}
+
 let libFilter = 'all'; // 'all' | 'routines' | 'never' | 'custom'
 
 async function renderLibrary() {
@@ -4651,7 +4956,8 @@ async function renderLibrary() {
     libEl0.innerHTML = Array.from({ length: 8 }, () =>
       `<div class="skeleton" style="height:56px;margin-bottom:8px;border-radius:14px"></div>`).join('');
 
-  const [all, sessions, templates] = await Promise.all([getAllExercises(), loadSessions(), getTemplates()]);
+  const [all, sessions, { splits, active }] = await Promise.all([getAllExercises(), loadSessions(), getSplitState()]);
+  const templates = active?.workouts || [];
   // Hide exercises that have been merged into another identity — they show under
   // the canonical exercise now, not as their own library row.
   const visible = all.filter(e => canonicalName(e.name) === e.name);
@@ -4664,32 +4970,13 @@ async function renderLibrary() {
   const loggedCount = visible.filter(e => stats.has(e.name)).length;
   document.getElementById('libCount').textContent = `${visible.length} exercises · ${loggedCount} logged`;
 
-  // Your routines — start any of them straight from the Library (tap to begin).
-  const libRoutinesEl = document.getElementById('libRoutines');
-  libRoutinesEl.innerHTML = `
-    <div class="lib-routines-head">
-      <span class="section-heading" style="margin:0">Your routines</span>
-      <button class="dash-link" id="libBrowseSplits">Browse splits</button>
-    </div>
-    ${templates.length
-      ? templates.map(t => `
-        <div class="lib-routine-card" data-tid="${t.id}">
-          <div class="lib-routine-name">${esc(t.name)}</div>
-          <div class="lib-routine-ex">${t.exercises.map(e => esc(e.name)).join(' · ')}</div>
-        </div>`).join('')
-      : `<div class="routines-empty">No routines yet — tap <strong>Browse splits</strong> for ready-made ones.</div>`}
-    <div class="lib-routines-divider">Exercises</div>`;
-  libRoutinesEl.querySelector('#libBrowseSplits').onclick = () => {
-    renderLibraryList();
-    document.getElementById('routineLibrary').classList.add('visible');
-  };
-  libRoutinesEl.querySelectorAll('.lib-routine-card').forEach(card => {
-    card.onclick = () => startEmptyWorkout(templates.find(t => t.id === card.dataset.tid));
-  });
+  // Your splits — the active one first, expanded (tap a workout to start it);
+  // tap a split's header to edit it. Only one split is active at a time.
+  renderYourSplits(document.getElementById('libRoutines'), splits, active, sessions);
 
   // Filter chips
   const CHIPS = [
-    { v: 'routines', t: 'In my routines' }, { v: 'all', t: 'All' },
+    { v: 'routines', t: 'In my split' }, { v: 'all', t: 'All' },
     { v: 'never', t: 'Never tried' }, { v: 'custom', t: 'Custom' },
   ];
   document.getElementById('libChips').innerHTML = CHIPS.map(c =>
@@ -5239,7 +5526,7 @@ function generateCoachFindings(sessions) {
           { label: 'Pull', pct: (pull / denom) * 100, color: CATEGORY_COLORS.Back,  under: ratio > 1 },
         ] },
         actions: [
-          { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a routine to rebalance it.`, force: 'suggest_routine_edit' },
+          { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a workout in my split to rebalance it.`, force: 'suggest_workout_edit' },
           { label: 'Explain', kind: 'ghost', prompt: `Why does a ${r.toFixed(1)}:1 push-to-pull ratio matter, and how should I fix it?` },
         ],
         key: 'find-balance',
@@ -5281,7 +5568,7 @@ function generateCoachFindings(sessions) {
       body: `${stall.name} hasn't moved in ${stall.n} sessions. A small load bump, an extra set, or a short deload usually breaks a plateau like this.`,
       evidence: { type: 'spark', vals: stall.m.series.slice(-6) },
       actions: [
-        { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.`, force: 'suggest_routine_edit' },
+        { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.`, force: 'suggest_workout_edit' },
         { label: 'Open lift', kind: 'open', exercise: stall.name },
         { label: 'Dismiss', kind: 'dismiss' },
       ],
@@ -5355,11 +5642,11 @@ let _dailyBusy = false;
 async function generateDailySuggestion(today) {
   try {
     const system = await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      loadSessions: loadSessionsCanonical, getSplitContext, getAllExercises, getStreakSettings,
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-    const prompt = `PROACTIVE DAILY REVIEW (${day}). I follow a STRUCTURED SPLIT — help me follow it, don't invent a different workout each day. Draft the routine named in the NEXT IN YOUR SPLIT block (it's computed from my routine order and what I last logged — trust it; never hand me a day I just trained), setting today's loads/reps from my history and PROGRESSION SIGNALS (small bump on rising lifts, a stall-breaker on stalled ones). Favour my existing routines — only tweak one or two exercises if my data clearly justifies it, and say why. Add ONE 2–3 sentence note on the single highest-value focus for today, citing the number or mechanism. Honour my TRAINING PRIORITIES over your own volume/recovery inference; do NOT push a rested small group (e.g. calves/glutes) just because it looks fresh or under-target. Only propose changing the plan itself (draft_split) if my week is genuinely structurally off, and say why. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). I follow a STRUCTURED SPLIT — help me follow it, don't invent a different workout each day. Draft the workout named in the NEXT IN YOUR SPLIT block (it's computed from my active split's order and what I last logged — trust it; never hand me a workout I just trained), setting today's loads/reps from my history and PROGRESSION SIGNALS (small bump on rising lifts, a stall-breaker on stalled ones). Favour the workouts in my split — only tweak one or two exercises if my data clearly justifies it, and say why. Add ONE 2–3 sentence note on the single highest-value focus for today, citing the number or mechanism. Honour my TRAINING PRIORITIES over your own volume/recovery inference; do NOT push a rested small group (e.g. calves/glutes) just because it looks fresh or under-target. Only propose changing the plan itself (draft_split) if my week is genuinely structurally off, and say why. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
     const result = await callCoach({
       apiMessages: [{ role: 'user', content: prompt }],
       system, forceTool: false, getKey: coachGetKey,
@@ -5368,7 +5655,7 @@ async function generateDailySuggestion(today) {
 
     const out = { date: today, text: result.text || '' };
     const tool = result.tool;
-    if (tool?.name === 'draft_routine') {
+    if (tool?.name === 'draft_workout') {
       try { out.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory }); } catch (_) {}
     } else if (tool?.name === 'draft_split') {
       try {
@@ -5377,7 +5664,7 @@ async function generateDailySuggestion(today) {
         for (const d of days) { try { routines.push(await validateRoutine(d, { getAllExercises, guessCategory })); } catch (_) {} }
         if (routines.length) out.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
       } catch (_) {}
-    } else if (tool?.name === 'suggest_routine_edit') {
+    } else if (tool?.name === 'suggest_workout_edit') {
       out.suggestion = tool.input;
     }
     if (!out.text && !out.routine && !out.split && !out.suggestion) return null;
@@ -5626,16 +5913,16 @@ function renderSuggestionCard(sug) {
   card.className = 'coach-suggestion';
   const ops = (sug.operations || []).map(describeOp).join('<br>');
   card.innerHTML = `
-    <div class="coach-sugg-head">${icon('zap', { size: 15 })} Suggested change · ${esc(sug.routine || '')}</div>
+    <div class="coach-sugg-head">${icon('zap', { size: 15 })} Suggested change · ${esc(sug.workout || sug.routine || '')}</div>
     <div class="coach-sugg-body">${ops || '—'}</div>
     <div class="coach-routine-btns">
-      <button class="cr-start cs-apply">✓ Apply to routine</button>
+      <button class="cr-start cs-apply">✓ Apply to workout</button>
       <button class="cr-save cs-dismiss">Dismiss</button>
     </div>`;
   card.querySelector('.cs-apply').onclick = async ev => {
     const btn = ev.currentTarget; btn.disabled = true;
     const ok = await applyRoutineEdit(sug);
-    btn.textContent = ok ? '✓ Applied' : "Couldn't find that routine";
+    btn.textContent = ok ? '✓ Applied' : "Couldn't find that workout";
     if (ok) card.querySelector('.cs-dismiss')?.remove();
   };
   card.querySelector('.cs-dismiss').onclick = () => card.remove();
@@ -5643,10 +5930,13 @@ function renderSuggestionCard(sug) {
 }
 
 async function applyRoutineEdit(sug) {
-  const templates = await getTemplates();
-  const wanted = String(sug?.routine || '').toLowerCase();
-  const t = templates.find(x => x.name.toLowerCase() === wanted)
-         || templates.find(x => x.name.toLowerCase().includes(wanted) && wanted);
+  // Active split first, then every other split. `routine` = pre-rename field
+  // on suggestions persisted in older coach threads.
+  const { splits, active } = await getSplitState();
+  const pool = [...(active?.workouts || []), ...splits.filter(sp => sp !== active).flatMap(sp => sp.workouts)];
+  const wanted = String(sug?.workout || sug?.routine || '').toLowerCase();
+  const t = pool.find(x => x.name.toLowerCase() === wanted)
+         || pool.find(x => x.name.toLowerCase().includes(wanted) && wanted);
   if (!t) return false;
   t.exercises ||= [];
   const findEx = name => {
@@ -5677,7 +5967,7 @@ async function applyRoutineEdit(sug) {
       }
     }
   }
-  await db.set(STORE, 'templates', templates);
+  await saveSplits(splits);
   renderDashboard();
   return true;
 }
@@ -5760,20 +6050,27 @@ function renderRoutineCard(routine) {
     `).join('')}
     <div class="coach-routine-btns">
       <button class="cr-start">${icon('play', { size: 15 })} Start workout</button>
-      <button class="cr-save">${icon('plus', { size: 15 })} Save as routine</button>
+      <button class="cr-save">${icon('plus', { size: 15 })} Add to my split</button>
     </div>`;
-  card.querySelector('.cr-start').onclick = () => { startEmptyWorkout(routine); };
+  // A draft of a workout already in the active split (the daily pick drafts the
+  // NEXT one, progressed) is started AS that workout, so it advances the split.
+  card.querySelector('.cr-start').onclick = async () => {
+    const { active } = await getSplitState();
+    const n = routine.name.trim().toLowerCase();
+    const w = active?.workouts.find(x => x.name.trim().toLowerCase() === n);
+    startEmptyWorkout(w ? { ...routine, splitId: active.id, workoutId: w.id } : routine);
+  };
   card.querySelector('.cr-save').onclick  = () => saveTemplate(routine.name, routine.exercises);
   return card;
 }
 
-// A full multi-day split: each day previewed, saved as routines in one tap.
+// A full multi-day split: each workout previewed, saved as ONE split in one tap.
 function renderSplitCard(split) {
   const card = document.createElement('div');
   card.className = 'coach-routine coach-split';
-  const routines = split.routines || [];
+  const routines = split.routines || [];   // persisted field name — the split's workouts
   card.innerHTML = `
-    <div class="coach-routine-name">${icon('layout-dashboard', { size: 15 })} ${esc(split.name)} · ${routines.length} days</div>
+    <div class="coach-routine-name">${icon('layout-dashboard', { size: 15 })} ${esc(split.name)} · ${routines.length} workouts</div>
     ${routines.map(r => `
       <div class="coach-split-day">
         <div class="coach-split-day-name">${esc(r.name)}</div>
@@ -5781,24 +6078,21 @@ function renderSplitCard(split) {
       </div>
     `).join('')}
     <div class="coach-routine-btns">
-      <button class="cr-save cs-save-all">${icon('plus', { size: 15 })} Save all ${routines.length} routines</button>
+      <button class="cr-save cs-save-all">${icon('plus', { size: 15 })} Save as split</button>
     </div>`;
   card.querySelector('.cs-save-all').onclick = async ev => {
     const btn = ev.currentTarget; btn.disabled = true;
-    const templates = await getTemplates();
-    for (const r of routines) {
-      templates.push({
-        id: uid(), name: r.name,
-        exercises: r.exercises.map(e => ({
-          name: e.name, category: e.category, restTime: e.restTime ?? 60, logType: resolveLogType(e),
-          sets: e.sets.map(s => ({ weight: s.weight, reps: s.reps, distance: s.distance || 0, duration: s.duration || 0, type: s.type })),
-        })),
-      });
-    }
-    await db.set(STORE, 'templates', templates);
-    db.backup();
+    const { splits, active } = await getSplitState();
+    const sp = {
+      id: uid(), name: split.name, source: 'coach',
+      workouts: routines.map(r => ({ id: uid(), name: r.name, exercises: workoutExercises(r.exercises) })),
+    };
+    splits.push(sp);
+    await saveSplits(splits);
+    const makeActive = !active || confirm(`Make "${sp.name}" your active split?`);
+    if (makeActive) await setActiveSplit(sp.id);
     renderDashboard();
-    btn.textContent = `✓ Saved ${routines.length} routines`;
+    btn.textContent = makeActive ? '✓ Saved · now your active split' : '✓ Saved to your splits';
   };
   return card;
 }
@@ -5825,7 +6119,7 @@ const COACH_NEEDS_KEY = new Set(['nokey', 'unavailable', 'proxy_unconfigured', '
 async function buildCoachSystem() {
   try {
     return await assembleContext({
-      loadSessions: loadSessionsCanonical, getTemplates, getAllExercises, getStreakSettings,
+      loadSessions: loadSessionsCanonical, getSplitContext, getAllExercises, getStreakSettings,
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
   } catch (_) {
@@ -5883,7 +6177,7 @@ async function sendCoach(text, forceTool = false) {
     const apiMessages = coachThread.map(m =>
       m.role === 'assistant'
         ? { role: 'assistant', content: m.text
-            || (m.routine ? `[Drafted routine: ${m.routine.name}]` : '')
+            || (m.routine ? `[Drafted workout: ${m.routine.name}]` : '')
             || (m.split ? `[Drafted split: ${m.split.name} — ${(m.split.routines||[]).map(r=>r.name).join(', ')}]` : '')
             || (m.action ? `[${m.action.title}]` : '')
             || '' }   // empty → dropped by sanitizeMessages (no more '…' placeholders)
@@ -5926,10 +6220,10 @@ async function buildCoachBotMsg(result) {
     const res = await coachSetProfile(tool.input);
     botMsg.action = res.summary;
     if (!botMsg.text) botMsg.text = res.text;
-  } else if (tool?.name === 'draft_routine') {
+  } else if (tool?.name === 'draft_workout') {
     try {
       botMsg.routine = await validateRoutine(tool.input, { getAllExercises, guessCategory });
-      if (!botMsg.text) botMsg.text = `Here's a routine — “${botMsg.routine.name}”:`;
+      if (!botMsg.text) botMsg.text = `Here's a workout — “${botMsg.routine.name}”:`;
     } catch (_) {
       if (!botMsg.text) botMsg.text = "I drafted something but couldn't structure it — try rephrasing.";
     }
@@ -5941,7 +6235,7 @@ async function buildCoachBotMsg(result) {
     const res = await coachLogWorkouts(tool.input);
     botMsg.action = res.summary;
     if (!botMsg.text) botMsg.text = res.text;
-  } else if (tool?.name === 'suggest_routine_edit') {
+  } else if (tool?.name === 'suggest_workout_edit') {
     botMsg.suggestion = tool.input;
     if (!botMsg.text) botMsg.text = tool.input?.rationale || 'Here’s a change I’d suggest:';
   } else if (tool?.name === 'draft_split') {
@@ -5953,7 +6247,7 @@ async function buildCoachBotMsg(result) {
       }
       if (routines.length) {
         botMsg.split = { name: String(tool.input?.splitName || 'Training split').slice(0, 60), routines };
-        if (!botMsg.text) botMsg.text = `Here's a ${routines.length}-day split — “${botMsg.split.name}”:`;
+        if (!botMsg.text) botMsg.text = `Here's a ${routines.length}-workout split — “${botMsg.split.name}”:`;
       } else if (!botMsg.text) {
         botMsg.text = "I planned a split but couldn't structure it — try rephrasing.";
       }
@@ -6034,7 +6328,7 @@ async function resendCoach(text, forceTool = false) {
       .filter(m => !m.error)
       .map(m => m.role === 'assistant'
         ? { role: 'assistant', content: m.text
-            || (m.routine ? `[Drafted routine: ${m.routine.name}]` : '')
+            || (m.routine ? `[Drafted workout: ${m.routine.name}]` : '')
             || (m.split ? `[Drafted split: ${m.split.name}]` : '')
             || (m.action ? `[${m.action.title}]` : '') || '' }
         : { role: 'user', content: m.text });
@@ -6060,7 +6354,7 @@ document.getElementById('coachInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sendCoach(e.target.value); }
 });
 document.querySelectorAll('.coach-chip[data-prompt]').forEach(chip => {
-  // data-force may be "1" (force draft_routine) or a specific tool name.
+  // data-force may be "1" (force draft_workout) or a specific tool name.
   chip.onclick = () => sendCoach(chip.dataset.prompt, chip.dataset.force || false);
 });
 document.getElementById('coachClearBtn').onclick = async () => {
@@ -6133,6 +6427,7 @@ loadBarWeight();           // remembered barbell weight for the plate calculator
 await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
+await ensureSplits();      // one-time: flat routines list → splits (after the seed/fix-ups above)
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
 
@@ -6177,7 +6472,7 @@ renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one
 
 // If the cloud pull finished AFTER the cap (slow network), refresh once it lands.
-restore.then(n => { if (n) { invalidateSessions(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
+restore.then(async n => { if (n) { invalidateSessions(); await ensureSplits(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h
 
