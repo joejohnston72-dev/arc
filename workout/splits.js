@@ -49,6 +49,23 @@ export function nextWorkout(split, sessions) {
 
 // Deep-ish copy of a workout's exercises (library/coach data must never be
 // shared by reference with stored splits).
+// Plan-tab assignments are `{ 'YYYY-MM-DD': workoutId }`. Deleting a workout
+// (or its whole split) left every day assigned to it pointing at an id that no
+// longer resolves, so the day silently fell back to "Open" and the planned week
+// quietly emptied. This returns the map with those days dropped. Pure, so the
+// callers decide when to persist — and a MOVE between splits keeps the id, so it
+// must not come through here.
+export function pruneWeekPlan(map, removedIds) {
+  const gone = new Set(removedIds || []);
+  const out = {};
+  let changed = false;
+  for (const [date, id] of Object.entries(map || {})) {
+    if (gone.has(id)) { changed = true; continue; }
+    out[date] = id;
+  }
+  return { map: out, changed };
+}
+
 export function copyExercises(exercises) {
   return (exercises || []).map(e => ({
     ...e,
