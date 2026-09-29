@@ -4,7 +4,7 @@ import { EXERCISES, CATEGORIES, CATEGORY_COLORS } from './exercises.js';
 import { resolveCues } from './cues.js';
 import { ROUTINE_LIBRARY } from './routineLibrary.js';
 import { MY_ROUTINES } from './myRoutines.js';
-import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs } from './splits.js';
+import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan } from './splits.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
@@ -403,6 +403,16 @@ async function getWeekPlanMap() { return (await db.get(STORE, 'week-plan')) || {
 async function setPlanDay(date, tid) {
   const map = await getWeekPlanMap();
   if (tid) map[date] = tid; else delete map[date];
+  await db.set(STORE, 'week-plan', map);
+  db.backup();
+}
+// Forget plan days assigned to workouts that were just deleted. Call it from
+// every path that DESTROYS a workout — not from "Move to another split", which
+// keeps the id precisely so the plan day follows the workout.
+async function forgetPlannedWorkouts(ids) {
+  if (!ids?.length) return;
+  const { map, changed } = pruneWeekPlan(await getWeekPlanMap(), ids);
+  if (!changed) return;
   await db.set(STORE, 'week-plan', map);
   db.backup();
 }
@@ -4832,6 +4842,7 @@ async function renderSplitEditor() {
     if (!confirm(`Delete "${sp.name}" and its ${n} workout${n === 1 ? '' : 's'}? Logged sessions stay in your history.`)) return;
     const rest = splits.filter(x => x.id !== sp.id);
     await saveSplits(rest);
+    await forgetPlannedWorkouts(sp.workouts.map(w => w.id));
     if (isActive) await setActiveSplit(rest.find(x => x.source !== 'other')?.id || rest[0]?.id || null);
     closeSplitEditor();
   };
@@ -4906,7 +4917,8 @@ async function workoutMenu(sp, splits, wid) {
     });
   } else if (choice === 'remove') {
     if (!confirm(`Remove "${w.name}" from ${sp.name}? Logged sessions stay in your history.`)) return;
-    mutateSplit(x => { x.workouts = x.workouts.filter(y => y.id !== wid); });
+    await mutateSplit(x => { x.workouts = x.workouts.filter(y => y.id !== wid); });
+    await forgetPlannedWorkouts([wid]);
   }
 }
 
