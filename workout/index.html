@@ -1619,6 +1619,46 @@
     .template-card:active { background:none; opacity:.7; }
     .tc-next-badge { background:rgba(var(--blue-rgb),0.16); color:var(--train); }
     .tc-del { background:none; border-color:transparent; }
+    .tc-num { flex:0 0 auto; width:20px; font-size:0.75rem; font-weight:700; color:var(--text-muted); text-align:center; }
+
+    /* Splits — Library "Your splits" + the split editor */
+    .sp-card { border-bottom:1px solid var(--border); padding:12px 2px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .sp-card:active { opacity:.7; }
+    .sp-head { display:flex; align-items:center; gap:8px; min-width:0; }
+    .sp-name { flex:1; min-width:0; font-size:0.95rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sp-meta { flex:0 0 auto; font-size:0.72rem; color:var(--text-muted); }
+    .sp-badge { flex:0 0 auto; font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--train); background:rgba(var(--blue-rgb),0.16); border-radius:5px; padding:2px 6px; }
+    .sp-sub { font-size:0.72rem; color:var(--text-muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sp-activate { flex:0 0 auto; background:none; border:1px solid var(--border); border-radius:8px; color:var(--train);
+      font-size:0.72rem; font-weight:700; padding:5px 10px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .sp-workouts { margin:6px 0 2px; }
+    .sp-w { display:flex; align-items:center; gap:10px; padding:9px 0 9px 2px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+    .sp-w:active { opacity:.7; }
+    .sp-w .tc-main .tc-name { font-size:0.86rem; }
+    .sp-actions { display:flex; gap:8px; margin:4px 0 6px; }
+    .sp-actions .new-routine-btn { flex:1; justify-content:center; padding:9px; }
+
+    #splitEditor {
+      position:fixed; inset:0; z-index:65; background:var(--bg);
+      transform:translateX(100%); transition:transform .25s ease; overflow-y:auto; overflow-x:hidden;
+    }
+    #splitEditor.visible { transform:translateX(0); }
+    .se-body { padding:0 var(--gap) 28px; }
+    .se-active { display:flex; align-items:center; gap:10px; margin:12px 0 18px; font-size:0.8rem; color:var(--text-muted); }
+    .se-active .sp-badge { font-size:0.62rem; }
+    .se-row { display:flex; align-items:center; gap:8px; padding:11px 0; border-bottom:1px solid var(--border); }
+    .se-row .tc-main { cursor:pointer; }
+    .se-ibtn { flex:0 0 auto; width:34px; height:34px; display:flex; align-items:center; justify-content:center; padding:0;
+      background:none; border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer;
+      -webkit-tap-highlight-color:transparent; }
+    .se-ibtn:disabled { opacity:.3; cursor:default; }
+    .se-add { margin-top:14px; }
+    .se-danger { display:block; width:100%; margin-top:22px; padding:12px; border-radius:10px; background:none;
+      border:1px solid rgba(var(--red-rgb),0.4); color:var(--red); font-size:0.85rem; font-weight:700; cursor:pointer; }
+    .sheet-sub { font-size:0.72rem; color:var(--text-muted); margin:-4px 0 12px; }
+    .sheet-group { font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:12px 0 6px; }
+    .modal .sheet-scroll { max-height:55vh; overflow-y:auto; }
     .hd-stats { display:flex; flex-wrap:wrap; row-gap:12px; margin:4px 0 18px; }
     .hd-stats .stat-box { flex:1; background:none; border-radius:0; border-left:1px solid var(--border); padding:2px 0 2px 12px; text-align:left; }
     .hd-stats .stat-box.hd-date { flex:0 0 100%; border-left:0; padding-left:0; }
@@ -1711,19 +1751,19 @@
     <div id="recentList"></div>
   </div>
 
-  <!-- Routine chooser sheet (opened from the hero "…") -->
+  <!-- Workout chooser sheet (hero "Swap"): the active split's workouts only -->
   <div class="modal-backdrop" id="routineChooser">
     <div class="modal">
       <div class="chooser-head">
-        <span class="modal-title" style="margin:0">Your routines</span>
+        <span class="modal-title" style="margin:0" id="chooserTitle">Your split</span>
         <button class="chooser-close" id="chooserClose" aria-label="Close" title="Close"><i data-lucide="x" data-size="20"></i></button>
       </div>
       <div id="templatesList"></div>
-      <div id="routinesHint" class="routines-hint" style="display:none">Sorted by what's most due · tap to start</div>
-      <div id="routinesEmpty" class="routines-empty" style="display:none">No routines yet — tap <strong>Library</strong> for ready-made splits, or <strong>New Routine</strong> to build your own.</div>
+      <div id="routinesHint" class="routines-hint" style="display:none">In split order · tap to start</div>
+      <div id="routinesEmpty" class="routines-empty" style="display:none">No workouts here yet — add some in <strong>Edit split</strong>, or pick a ready-made split from the <strong>Split Library</strong>.</div>
       <div class="chooser-actions">
-        <button class="new-routine-btn" id="libraryBtn"><i data-lucide="book-open" data-size="15"></i> Library</button>
-        <button class="new-routine-btn" id="newRoutineBtn"><i data-lucide="plus" data-size="15"></i> New Routine</button>
+        <button class="new-routine-btn" id="chooserEditSplit"><i data-lucide="pencil" data-size="15"></i> Edit split</button>
+        <button class="new-routine-btn" id="chooserAllSplits"><i data-lucide="layout-dashboard" data-size="15"></i> Change split</button>
       </div>
       <button class="start-btn" id="startEmptyBtn" style="margin:12px 0 0"><i data-lucide="dumbbell" data-size="20"></i> Start empty workout</button>
     </div>
@@ -1775,10 +1815,10 @@
 
     <div class="section-heading" style="margin-top:18px">History</div>
     <input class="form-input" id="histSearch" placeholder="Search history — title or exercise…" style="margin-bottom:10px">
-    <button class="import-btn" id="buildRoutinesBtn" style="border-color:rgba(var(--amber-rgb),0.4);color:var(--amber);display:none"><i data-lucide="zap" data-size="16"></i> Build Routines from History</button>
+    <button class="import-btn" id="buildRoutinesBtn" style="border-color:rgba(var(--amber-rgb),0.4);color:var(--amber);display:none"><i data-lucide="zap" data-size="16"></i> Save past sessions as workouts</button>
     <!-- Routine builder panel -->
     <div id="routineBuilder" style="display:none;background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:14px">
-      <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:12px">Save as Routine — tap to add</div>
+      <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:12px">Save as a workout in your active split — tap to add</div>
       <div id="routineCandidates"></div>
       <button id="routineBuilderDone" style="margin-top:10px;width:100%;padding:10px;border-radius:10px;border:none;background:var(--surface2);color:var(--text-muted);font-size:0.85rem;cursor:pointer">Done</button>
     </div>
@@ -1801,10 +1841,10 @@
            holds the method (read TRAINING BALANCE / RECOVERY / PROGRESSION, follow
            the split, cite numbers), so re-stating it here just biases the model and
            drifts out of sync. Keep a data-force hint only where a structured artifact
-           is genuinely wanted (a one-tap routine edit, a drafted routine). -->
-      <button class="coach-chip" data-prompt="Suggest one improvement to my routines." data-force="suggest_routine_edit"><i data-lucide="zap" data-size="15"></i> Improve my routines</button>
+           is genuinely wanted (a one-tap workout edit, a drafted workout). -->
+      <button class="coach-chip" data-prompt="Suggest one improvement to a workout in my split." data-force="suggest_workout_edit"><i data-lucide="zap" data-size="15"></i> Improve my split</button>
       <button class="coach-chip" data-prompt="Build me a training split."><i data-lucide="layout-dashboard" data-size="15"></i> Build a split</button>
-      <button class="coach-chip" data-prompt="Draft me a routine." data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a routine</button>
+      <button class="coach-chip" data-prompt="Draft me a workout." data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a workout</button>
       <button class="coach-chip" data-prompt="What should I train today?"><i data-lucide="calendar" data-size="15"></i> Today's session</button>
       <button class="coach-chip" data-prompt="How's my progress?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
       <button class="coach-chip" data-prompt="Review my last workout."><i data-lucide="search" data-size="15"></i> Review last</button>
@@ -1879,7 +1919,7 @@
 <div id="routineLibrary">
   <div class="page-header">
     <button class="back-btn" id="libraryClose" data-tip="Back" title="Back"><i data-lucide="arrow-left" data-size="24"></i></button>
-    <h1 class="page-title">Routine Library</h1>
+    <h1 class="page-title">Split Library</h1>
   </div>
   <div id="libraryList" style="padding:0 var(--gap)"></div>
 </div>
@@ -1893,9 +1933,18 @@
   <div style="padding:0 var(--gap)">
     <p class="lib-detail-tagline" id="libraryDetailTagline"></p>
     <div id="libraryDetailDays"></div>
-    <button class="start-btn" id="libraryAddBtn" style="margin-top:8px">+ Add this split to my routines</button>
+    <button class="start-btn" id="libraryAddBtn" style="margin-top:8px">+ Add this split</button>
     <div style="height:20px"></div>
   </div>
+</div>
+
+<!-- ── Split editor: rename, reorder, add / edit / move / remove workouts ── -->
+<div id="splitEditor">
+  <div class="page-header">
+    <button class="back-btn" id="splitEditorBack" data-tip="Back" title="Back"><i data-lucide="arrow-left" data-size="24"></i></button>
+    <h1 class="page-title">Edit split</h1>
+  </div>
+  <div class="se-body" id="splitEditorBody"></div>
 </div>
 
 <!-- ── Workout summary ── -->
@@ -2199,9 +2248,9 @@
 
 <div class="modal-backdrop" id="templateNameModal">
   <div class="modal">
-    <p class="modal-title">Save as Routine</p>
+    <p class="modal-title">Save workout</p>
     <div class="form-group">
-      <label class="form-label">Routine name</label>
+      <label class="form-label">Workout name</label>
       <input class="form-input" id="templateNameInput" placeholder="e.g. Push Day" maxlength="50">
     </div>
     <div class="modal-btns">

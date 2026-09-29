@@ -1,4 +1,7 @@
-// AI Coach — Anthropic tool-use call, context builder, routine validation.
+// AI Coach — Anthropic tool-use call, context builder, workout validation.
+// Naming: a WORKOUT is one planned session; a SPLIT is an ordered set of workouts
+// (see splits.js). Persisted coach objects keep their old field names
+// (m.routine, split.routines) so saved threads still render.
 // Pure logic: NO imports from app.js. The app injects its module-scoped
 // helpers (getAllExercises, guessCategory, getKey) where needed.
 import db from '../shared/db.js';
@@ -25,14 +28,14 @@ function sessionTs(s) {
   return isNaN(t) ? 0 : t;
 }
 
-// ── The one tool: draft_routine (schema == the app's template contract) ───────
-export const DRAFT_ROUTINE_TOOL = {
-  name: 'draft_routine',
-  description: "Produce a structured workout routine ONLY when the user asks you to create, draft, or suggest a specific workout or training day (including 'what should I train today'). For advice, progression discussion, form/technique questions, or program review, respond with plain text instead of calling this tool.",
+// ── draft_workout (schema == the app's stored workout contract) ───────────────
+export const DRAFT_WORKOUT_TOOL = {
+  name: 'draft_workout',
+  description: "Produce ONE structured workout ONLY when the user asks you to create, draft, or suggest a specific workout (including 'what should I train today'). For advice, progression discussion, form/technique questions, or program review, respond with plain text instead of calling this tool.",
   input_schema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: 'Short routine name, e.g. "Upper A" or "Push Day".' },
+      name: { type: 'string', description: 'Short workout name, e.g. "Upper A" or "Push". When drafting a workout from their split, use its exact name.' },
       exercises: {
         type: 'array',
         items: {
@@ -132,13 +135,13 @@ export const LOG_WORKOUTS_TOOL = {
   },
 };
 
-export const EDIT_ROUTINE_TOOL = {
-  name: 'suggest_routine_edit',
-  description: "Propose ONE concrete, high-value change to a saved routine, based on the user's history, PBs, training balance, and how they've been swapping/editing exercises. Use when they ask you to analyse/improve/review their routines. Give a short rationale plus specific edit operations the app can apply with one tap.",
+export const EDIT_WORKOUT_TOOL = {
+  name: 'suggest_workout_edit',
+  description: "Propose ONE concrete, high-value change to a workout in the user's split, based on their history, PBs, training balance, and how they've been swapping/editing exercises. Use when they ask you to analyse/improve/review their split or workouts. Give a short rationale plus specific edit operations the app can apply with one tap.",
   input_schema: {
     type: 'object',
     properties: {
-      routine:   { type: 'string', description: 'Exact name of the saved routine to change (from SAVED ROUTINES).' },
+      workout:   { type: 'string', description: 'Exact name of the workout to change (from ACTIVE SPLIT).' },
       rationale: { type: 'string', description: 'One or two plain sentences: what to change and why it helps.' },
       operations: {
         type: 'array',
@@ -147,7 +150,7 @@ export const EDIT_ROUTINE_TOOL = {
           type: 'object',
           properties: {
             action:      { type: 'string', enum: ['replace', 'add', 'remove', 'set_reps'] },
-            exercise:    { type: 'string', description: 'Existing exercise name in the routine (replace / remove / set_reps).' },
+            exercise:    { type: 'string', description: 'Existing exercise name in the workout (replace / remove / set_reps).' },
             newExercise: { type: 'string', description: 'New exercise name (replace / add).' },
             category:    { type: 'string', enum: CATEGORIES, description: 'Category for an added/new exercise.' },
             sets:        { type: 'integer', description: 'Number of working sets (add / set_reps).' },
@@ -157,25 +160,25 @@ export const EDIT_ROUTINE_TOOL = {
         },
       },
     },
-    required: ['routine', 'rationale', 'operations'],
+    required: ['workout', 'rationale', 'operations'],
   },
 };
 
-// ── draft_split: a full multi-day programme the app saves as several routines ──
+// ── draft_split: a full programme the app saves as ONE split of workouts ──────
 export const DRAFT_SPLIT_TOOL = {
   name: 'draft_split',
-  description: "Produce a complete multi-day training split (e.g. Push/Pull/Legs, Upper/Lower) when the user asks you to BUILD or CREATE a new programme or rebalance their training week. Return every day as its own routine; the app saves them all with one tap. Design the split to correct the imbalances shown in TRAINING BALANCE.",
+  description: "Produce a complete multi-day training split (e.g. Push/Pull/Legs, Upper/Lower) when the user asks you to BUILD or CREATE a new programme or rebalance their training week. Return every workout in rotation order; the app saves them as one split with one tap. Design the split to correct the imbalances shown in TRAINING BALANCE.",
   input_schema: {
     type: 'object',
     properties: {
       splitName: { type: 'string', description: 'Overall programme name, e.g. "PPL — rebalanced" or "Upper/Lower".' },
       days: {
         type: 'array',
-        description: 'The training days, in order. Usually 3–6.',
+        description: 'The split\'s workouts, in rotation order. Usually 3–6.',
         items: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Day/routine name, e.g. "Push A", "Legs".' },
+            name: { type: 'string', description: 'Workout name, e.g. "Push A", "Legs".' },
             exercises: {
               type: 'array',
               items: {
@@ -248,7 +251,7 @@ export function normName(s) {
 }
 
 // What the app can do — so the coach can answer "how do I…" questions.
-const APP_CAPABILITIES = `This app (the user's training app) can: log workouts live (sets with kg×reps, or reps/time/distance for other exercise types), auto rest-timer per exercise with a chime, previous-performance ghosts, PB trophies, weekly streak, a Stats tab (monthly calendar, weekly volume, muscle balance, per-exercise progression charts) with workout history + CSV/JSON backup import, a routine Library and saved routines, and this AI Coach. Swipe a set left to delete / right for a drop set; long-press an exercise to reorder; "…" on an exercise to replace it or superset it.`;
+const APP_CAPABILITIES = `This app (the user's training app) can: log workouts live (sets with kg×reps, or reps/time/distance for other exercise types), auto rest-timer per exercise with a chime, previous-performance ghosts, PB trophies, weekly streak, a Stats tab (monthly calendar, weekly volume, muscle balance, per-exercise progression charts) with workout history + CSV/JSON backup import, splits (an ordered set of workouts — one active split at a time; Home always offers the next workout in its order; edit, reorder, add, move or copy workouts in Library → Your splits), a Split Library of ready-made splits, and this AI Coach. Swipe a set left to delete / right for a drop set; long-press an exercise to reorder; "…" on an exercise to replace it or superset it.`;
 
 // Persistent athlete profile → a compact block. This is the coach's memory.
 function profileBlock(p) {
@@ -285,7 +288,9 @@ function prioritiesBlock(p) {
 
 // ── Context builder → system prompt ───────────────────────────────────────────
 // extra = { profile, body, nutrition } — all optional; older callers still work.
-export function buildCoachContext(sessions, templates, records, streak, allExercises, extra = {}) {
+// split = { name, workouts:[…in order], nextId, lastTs:{workoutId: ts} } | null —
+// the ACTIVE split, with "next" already computed by the app (splits.js).
+export function buildCoachContext(sessions, split, records, streak, allExercises, extra = {}) {
   const { profile = null, body = null, nutrition = null } = extra || {};
   const byCat = {};
   for (const e of allExercises) (byCat[e.category] ||= []).push(e.name);
@@ -312,36 +317,24 @@ export function buildCoachContext(sessions, templates, records, streak, allExerc
     return `- ${date} ${s.title || 'Workout'}: ${lifts}`;
   }).join('\n');
 
-  // ── Next-in-split (DETERMINISTIC — computed here, not left to the model) ──────
-  // The app rotates the split by list order: the routine after the most recently
-  // LOGGED one is up next. Feeding the model this computed answer (plus per-routine
-  // recency) is what stops it re-suggesting a day you just trained — the model is
-  // unreliable at re-deriving "match my last session to my split, pick the next".
-  const tmpls = (templates || []);
+  // ── Next-in-split (DETERMINISTIC — computed by the app, not the model) ──────
+  // The app rotates the active split by order: the workout after the most
+  // recently LOGGED one is next. Feeding the model that answer (plus per-workout
+  // recency) stops it re-suggesting a workout you just trained.
+  const tmpls = split?.workouts || [];
   const DAY_MS = 86400000, nowMs = Date.now();
   const lastTrainedDays = {};
-  for (const t of tmpls) {
-    for (const s of sessions) {                 // newest-first
-      if ((s.title || '') === t.name) { const ts = sessionTs(s); if (ts) lastTrainedDays[t.name] = Math.floor((nowMs - ts) / DAY_MS); break; }
-    }
-  }
-  let nextName = null;
-  if (tmpls.length) {
-    const names = tmpls.map(t => t.name);
-    let lastIdx = -1;
-    for (const s of sessions) { const i = names.indexOf(s.title || ''); if (i >= 0) { lastIdx = i; break; } }
-    nextName = names[(lastIdx >= 0 ? lastIdx + 1 : 0) % names.length];
-  }
+  for (const t of tmpls) { const ts = split.lastTs?.[t.id]; if (ts) lastTrainedDays[t.id] = Math.floor((nowMs - ts) / DAY_MS); }
   const daysTxt = n => n == null ? 'not logged yet' : n === 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
-  const nextTmpl = tmpls.find(t => t.name === nextName);
+  const nextTmpl = tmpls.find(t => t.id === split?.nextId);
   const nextBlock = nextTmpl
-    ? `Up next: "${nextTmpl.name}" (last trained ${daysTxt(lastTrainedDays[nextTmpl.name])}). Draft THIS, progressed.\n`
+    ? `Up next: "${nextTmpl.name}" (last trained ${daysTxt(lastTrainedDays[nextTmpl.id])}). Draft THIS, progressed.\n`
       + `Its exercises: ${nextTmpl.exercises.map(e => e.name).join(', ')}\n`
-      + `Split order & recency: ${tmpls.map(t => `${t.name} (${daysTxt(lastTrainedDays[t.name])})`).join(' · ')}`
+      + `Split order & recency: ${tmpls.map((t, i) => `${i + 1}. ${t.name} (${daysTxt(lastTrainedDays[t.id])})`).join(' · ')}`
     : '';
 
-  const routines = tmpls.slice(0, 8).map(t =>
-    `- ${t.name}: ${t.exercises.map(e => e.name).join(', ')}`
+  const routines = tmpls.slice(0, 10).map((t, i) =>
+    `${i + 1}. ${t.name}: ${t.exercises.map(e => e.name).join(', ')}`
   ).join('\n');
 
   // Training-balance analysis: avg working sets/muscle group/week over the last
@@ -441,15 +434,15 @@ VOICE — technical & precise, always explain the why
 - Be concise: a clear, justified recommendation, not an exhaustive survey. At most one meaningful emoji per reply (🏆/🔥), usually none.
 
 HOW TO RESPOND
-- Answer ANY question the user asks — training, technique/form, programming, progression, recovery, nutrition-for-lifters, or how to use this app. Always give a real answer in plain text; never refuse a normal training/health question or reply with just a routine when they asked something else.
-- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their SAVED ROUTINES. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups flagged above or below their own target band, with numbers.
+- Answer ANY question the user asks — training, technique/form, programming, progression, recovery, nutrition-for-lifters, or how to use this app. Always give a real answer in plain text; never refuse a normal training/health question or reply with just a workout when they asked something else.
+- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their ACTIVE SPLIT. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups flagged above or below their own target band, with numbers.
 - Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), DON'T interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
-- ONLY call draft_routine when the user wants a single workout/day created or asks "what should I train today". For a whole multi-day programme/split, call draft_split instead. For everything else, reply with text.
+- ONLY call draft_workout when the user wants a single workout created or asks "what should I train today". For a whole programme/split, call draft_split instead. For everything else, reply with text.
 
 FOLLOWING THE PROGRAM (structure first — this is how effective training actually works)
-- The NEXT IN YOUR SPLIT block below already names the routine that's DUE — it's computed deterministically from their saved routine order and what they last LOGGED, so trust it. When they ask "what should I train today", draft THAT named routine via draft_routine: keep its exercises and name, and set today's loads/reps from their history + PROGRESSION SIGNALS. Do NOT re-derive the rotation yourself, do NOT improvise a different session, and NEVER re-suggest a day they just logged (check the recency in that block — if "Up next" was trained today/yesterday something is off, so pick the following routine and say so).
-- Favour their EXISTING routines over inventing new ones. You may tweak the due routine when their data clearly justifies it — swap a stalled or redundant exercise, add a set to a lagging group, trim an over-MRV one — but change at most one or two things and name the change and its reason in one line. Otherwise reproduce the routine as-is with progressed loads.
-- The user trains a STRUCTURED SPLIT (see SAVED ROUTINES). Your default is to help them follow it — NOT to invent a different session every day, and NOT to hand them the same day twice in a row.
+- The NEXT IN YOUR SPLIT block below already names the workout that's DUE — the app computes it from their active split's order and what they last LOGGED; order is the only rule, so trust it. When they ask "what should I train today", draft THAT named workout via draft_workout: keep its exact name and exercises, and set today's loads/reps from their history + PROGRESSION SIGNALS. Do NOT re-derive the rotation yourself, do NOT improvise a different session, and do NOT skip ahead because a muscle reads as rested.
+- Favour the workouts in their split over inventing new ones. You may tweak the due workout when their data clearly justifies it — swap a stalled or redundant exercise, add a set to a lagging group, trim an over-MRV one — but change at most one or two things and name the change and its reason in one line. Otherwise reproduce the workout as-is with progressed loads.
+- The user trains a STRUCTURED SPLIT (see ACTIVE SPLIT). Your default is to help them follow it — NOT to invent a different session every day.
 - Progress WITHIN the plan: use recent working weights and PROGRESSION SIGNALS to set each lift's target today (small load/rep bump on rising lifts; a stall-breaker — bump, added set, variation, or short deload — on stalled ones). That continuity, the same movements getting heavier over weeks, is what drives results; a random new workout each day does not.
 - Only deviate from the program for a concrete, stated reason: an injury, missing equipment, a group the user explicitly wants more of, or the user asking you to rebuild the split. If the WHOLE week is structurally off, you may propose a new split with draft_split — but say plainly what you changed and why, and respect TRAINING PRIORITIES and TRAINING BALANCE.
 - RECOVERY/READINESS and TRAINING BALANCE inform HOW you load and sequence — they are NOT a cue to train whichever muscle is most rested. Never steer a session toward a small or rarely-trained group (e.g. calves, glutes) just because it reads as "fresh" or "under 10 sets". Honour TRAINING PRIORITIES first, then the user's split.
@@ -464,8 +457,8 @@ ACTIONS YOU CAN TAKE (make real changes in the app)
 - set_coach_profile — save/update the lifter's persistent profile (goal, experience, days/week, equipment, injuries, dislikes/preferences, bodyweight) whenever they tell you a lasting fact. This is your memory across chats; send only the fields that changed.
 - add_library_exercises — add custom exercises to the user's library when they ask you to.
 - log_workouts — log/backfill completed sessions into their history, including on past dates (use TODAY to compute them).
-- suggest_routine_edit — when asked to analyse/improve/review an EXISTING saved routine, propose ONE concrete change to a specific routine (rationale + edit operations, one-tap Apply). Don't rewrite the whole routine — target the highest-value tweak from their data (lagging groups, stalled lifts, exercises they keep swapping, over/under-volume from TRAINING BALANCE).
-- draft_split — when the user asks you to BUILD/CREATE a new split or programme (multiple training days), or to rebalance their week. Return the full set of days; the app saves them all as routines with one tap. Design the split to fix the imbalances in TRAINING BALANCE — pull volume from over-worked groups toward under-worked ones, and say in your text reply which groups you rebalanced and why.
+- suggest_workout_edit — when asked to analyse/improve/review their split or an existing workout, propose ONE concrete change to a specific workout (rationale + edit operations, one-tap Apply). Don't rewrite the whole workout — target the highest-value tweak from their data (lagging groups, stalled lifts, exercises they keep swapping, over/under-volume from TRAINING BALANCE).
+- draft_split — when the user asks you to BUILD/CREATE a new split or programme, or to rebalance their week. Return every workout in rotation order; the app saves them as one split (and can make it the active split) with one tap. Design the split to fix the imbalances in TRAINING BALANCE — pull volume from over-worked groups toward under-worked ones, and say in your text reply which groups you rebalanced and why.
 Call these when the user clearly asks. Do it, then confirm briefly in text. Don't call them for purely hypothetical talk.
 
 APP CAPABILITIES (for "how do I…" questions)
@@ -500,28 +493,28 @@ ${topLines || '- (no history yet)'}
 RECENT SESSIONS
 ${recent || '- (none yet)'}
 
-SAVED ROUTINES
-${routines || '- (none yet)'}
-${nextBlock ? `\nNEXT IN YOUR SPLIT (computed from routine order + what you last logged — trust this for "what should I train today"; draft it, progressed, and don't repeat a day just logged)\n${nextBlock}` : ''}`;
+ACTIVE SPLIT${split ? ` — "${split.name}" (workouts in rotation order)` : ''}
+${routines || '- (no active split yet)'}
+${nextBlock ? `\nNEXT IN YOUR SPLIT (computed from split order + what you last logged — trust this for "what should I train today"; draft it, progressed)\n${nextBlock}` : ''}`;
 }
 
 // Assemble everything callers need for a request. Convenience wrapper.
 // getProfile / getBodyStats / getNutritionToday are optional injected getters
 // (the app supplies them) so coach.js stays free of app-module dependencies.
-export async function assembleContext({ loadSessions, getTemplates, getAllExercises, getStreakSettings,
+export async function assembleContext({ loadSessions, getSplitContext, getAllExercises, getStreakSettings,
                                         getProfile, getBodyStats, getNutritionToday }) {
   const sessions  = await loadSessions();
-  const templates = await getTemplates();
+  const split     = getSplitContext ? await getSplitContext().catch(() => null) : null;
   const records   = buildRecords(sessions);
   const streak    = computeStreak(sessions, await getStreakSettings());
   const allEx     = await getAllExercises();
   const profile   = getProfile         ? await getProfile().catch(() => null)         : null;
   const body      = getBodyStats       ? await getBodyStats().catch(() => null)       : null;
   const nutrition = getNutritionToday  ? await getNutritionToday().catch(() => null)  : null;
-  return buildCoachContext(sessions, templates, records, streak, allEx, { profile, body, nutrition });
+  return buildCoachContext(sessions, split, records, streak, allEx, { profile, body, nutrition });
 }
 
-// ── Validate/normalise a model-produced routine into the template contract ────
+// ── Validate/normalise a model-produced workout into the stored contract ──────
 export async function validateRoutine(routine, { getAllExercises, guessCategory }) {
   const all = await getAllExercises();
   const NORM_INDEX = {};
@@ -615,11 +608,11 @@ export async function callCoach({ apiMessages, system, forceTool = false, getKey
     model: MODEL,
     max_tokens: forceTool ? 4096 : 8192,   // generous — long answers/splits were getting cut off at 4096
     system,
-    tools: [DRAFT_ROUTINE_TOOL, ADD_EXERCISES_TOOL, LOG_WORKOUTS_TOOL, EDIT_ROUTINE_TOOL, DRAFT_SPLIT_TOOL,
+    tools: [DRAFT_WORKOUT_TOOL, ADD_EXERCISES_TOOL, LOG_WORKOUTS_TOOL, EDIT_WORKOUT_TOOL, DRAFT_SPLIT_TOOL,
             SET_PROFILE_TOOL],
-    // forceTool may be a boolean (legacy → draft_routine) or a specific tool name.
+    // forceTool may be a boolean (legacy → draft_workout) or a specific tool name.
     tool_choice: forceTool
-      ? { type: 'tool', name: (typeof forceTool === 'string' && forceTool !== '1') ? forceTool : 'draft_routine' }
+      ? { type: 'tool', name: (typeof forceTool === 'string' && forceTool !== '1') ? forceTool : 'draft_workout' }
       : { type: 'auto' },
     stream: true,
     messages,
