@@ -47,6 +47,48 @@ export function nextWorkout(split, sessions) {
   return { workout: ws[index], index, lastIndex, lastTsById };
 }
 
+// Plan-tab value for a day the user marked as rest (stored in `week-plan` in
+// place of a workout id).
+export const REST_DAY = 'rest';
+
+// Fill the Plan week from the active split. Walks each day from `today` to
+// `until` (YYYY-MM-DD, inclusive):
+//   - a day with a logged session is done — the split order already counts it;
+//   - a rest day gets nothing, so the rest of the split moves back one day;
+//   - a day the user assigned keeps that workout, and the rotation carries on
+//     after it if it's in the split;
+//   - any other day gets the next workout in split order.
+// → { 'YYYY-MM-DD': { rest:true } | { workoutId, auto } } for today onward
+// (days with a session are left out). Past days aren't projected.
+export function projectPlan({ split, sessions, planMap, today, until }) {
+  const out = {};
+  const ws = split?.workouts || [];
+  const loggedDays = new Set((sessions || []).map(s => s.date || (s.startTime || '').slice(0, 10)));
+  let idx = nextWorkout(split, sessions)?.index ?? 0;
+  for (let ds = today; ds <= until; ds = addDays(ds, 1)) {
+    if (loggedDays.has(ds)) continue;
+    const v = planMap?.[ds];
+    if (v === REST_DAY) { out[ds] = { rest: true }; continue; }
+    if (v) {
+      out[ds] = { workoutId: v, auto: false };
+      const i = ws.findIndex(w => w.id === v);
+      if (i >= 0) idx = i + 1;
+      continue;
+    }
+    if (!ws.length) continue;
+    out[ds] = { workoutId: ws[idx % ws.length].id, auto: true };
+    idx++;
+  }
+  return out;
+}
+
+// 'YYYY-MM-DD' + n days (calendar arithmetic at local noon — DST-safe).
+export function addDays(ds, n) {
+  const [y, m, d] = ds.split('-').map(Number);
+  const x = new Date(y, m - 1, d + n, 12);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
 // Deep-ish copy of a workout's exercises (library/coach data must never be
 // shared by reference with stored splits).
 // Plan-tab assignments are `{ 'YYYY-MM-DD': workoutId }`. Deleting a workout
@@ -64,6 +106,51 @@ export function pruneWeekPlan(map, removedIds) {
     out[date] = id;
   }
   return { map: out, changed };
+}
+
+// Before splits existed, the coach's "Save all routines" wrote each day of a
+// drafted split into the flat templates list, so the migration scattered them:
+// days named like a My-split day lost to the original ("My 5-Day Split" takes
+// the first template of a name), the rest went to a library split or "Other
+// workouts", and the coach's split name was lost. This regroups them.
+//   drafts — coach-drafted splits, newest first: [{ name, routines:[{ name, exercises }] }]
+// A day matches a stored workout outside "My 5-Day Split" (the originals stay
+// put) with the same name, preferring one with the same exercise list. A draft is restored only when
+// every day matches (so it was actually saved). Matched workouts MOVE (ids kept,
+// so logged sessions and Plan days follow them); splits left empty are dropped.
+// → { splits, restored:[split] }. Pure: never mutates its inputs.
+export function recoverCoachSplits(splits, drafts, { uid }) {
+  let out = (splits || []).map(sp => ({ ...sp, workouts: [...(sp.workouts || [])] }));
+  const restored = [];
+  const exKey = exs => (exs || []).map(e => (e.name || '').trim().toLowerCase()).join('|');
+  const nm = s => (s || '').trim().toLowerCase();
+  const seen = new Set();
+  for (const d of drafts || []) {
+    const routines = d?.routines || [];
+    const name = (d?.name || '').trim();
+    if (!name || !routines.length || seen.has(nm(name))) continue;
+    seen.add(nm(name));
+    if (out.some(sp => sp.source === 'coach' && nm(sp.name) === nm(name))) continue;   // already a split
+    const claimed = new Set();
+    const find = pred => {
+      for (const sp of out) for (const w of sp.workouts) if (!claimed.has(w.id) && pred(sp, w)) return w;
+      return null;
+    };
+    const picks = [];
+    for (const r of routines) {
+      const w = find((sp, w) => sp.source !== 'my' && nm(w.name) === nm(r.name) && exKey(w.exercises) === exKey(r.exercises))
+             || find((sp, w) => sp.source !== 'my' && nm(w.name) === nm(r.name));
+      if (!w) break;
+      claimed.add(w.id); picks.push(w);
+    }
+    if (picks.length !== routines.length) continue;
+    out = out.map(sp => ({ ...sp, workouts: sp.workouts.filter(w => !claimed.has(w.id)) }))
+             .filter(sp => sp.workouts.length || !['other', 'library'].some(p => (sp.source || '').startsWith(p)));
+    const sp = { id: uid(), name, source: 'coach', workouts: picks };
+    out.push(sp);
+    restored.push(sp);
+  }
+  return { splits: out, restored };
 }
 
 export function copyExercises(exercises) {

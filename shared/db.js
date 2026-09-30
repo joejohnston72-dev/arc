@@ -74,29 +74,90 @@ const isLocalOnly = (store, key) => LOCAL_ONLY.has(`${store}:${key}`);
 // on EVERY write — during a bulk import of hundreds of sessions that meant
 // hundreds of concurrent auth calls, which rate-limited and silently dropped most
 // of the cloud writes. Resolve it once and reuse the promise.
+// Only a real id is cached. getUser() needed the network, and one failed call
+// (opening the app with no signal at the gym) cached null for the life of the
+// page — an iOS PWA can stay alive for days, so every write in that time stayed
+// on the device. getSession() reads the stored session, and a null is retried.
 let _uidPromise = null;
 function getUserId() {
   if (!_uidPromise) {
-    _uidPromise = supabase.auth.getUser()
-      .then(({ data }) => data?.user?.id ?? null)
-      .catch(() => null);
+    _uidPromise = supabase.auth.getSession()
+      .then(({ data }) => data?.session?.user?.id ?? null)
+      .catch(() => null)
+      .then(id => { if (!id) _uidPromise = null; return id; });
   }
   return _uidPromise;
 }
 
+// Writes that haven't reached the cloud yet, as "store:key". Kept in
+// localStorage so they survive a reload. While a key is pending, the cloud pull
+// skips it (the cloud copy is older), and flushPending() retries it on the next
+// launch, on reconnect and before every backup. Before this, a failed upsert was
+// dropped silently and the next pull overwrote the newer local value.
+const PENDING_KEY = 'arc-unsynced';
+function readPending() {
+  try { return new Set(JSON.parse(localStorage.getItem(PENDING_KEY) || '[]')); } catch (_) { return new Set(); }
+}
+function writePending(set) {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify([...set])); } catch (_) {}
+}
+const _writeSeq = new Map();   // "store:key" → latest write number, so an older write finishing can't clear a newer one
+function markPending(id) { const p = readPending(); p.add(id); writePending(p); const n = (_writeSeq.get(id) || 0) + 1; _writeSeq.set(id, n); return n; }
+function clearPending(id, n) {
+  if (n != null && _writeSeq.get(id) !== n) return;
+  const p = readPending(); if (p.delete(id)) writePending(p);
+}
+
 async function remoteSet(store, key, value) {
   if (isLocalOnly(store, key)) return;   // device-local crash-recovery state — never sync
+  const id = `${store}:${key}`;
+  const n = markPending(id);
   const user_id = await getUserId();
   if (!user_id) return;
-  await supabase.from('entries').upsert({ user_id, store, key, value });
+  try {
+    const { error } = await supabase.from('entries').upsert({ user_id, store, key, value });
+    if (!error) clearPending(id, n);
+  } catch (_) {}
 }
 
 async function remoteDel(store, key) {
+  const id = `${store}:${key}`;
+  const n = markPending(id);
   const user_id = await getUserId();
   if (!user_id) return;
-  await supabase.from('entries').delete()
-    .eq('user_id', user_id).eq('store', store).eq('key', key);
+  try {
+    const { error } = await supabase.from('entries').delete()
+      .eq('user_id', user_id).eq('store', store).eq('key', key);
+    if (!error) clearPending(id, n);
+  } catch (_) {}
 }
+
+// Retry every pending write: upsert the current local value, or delete the
+// cloud row if the key is gone locally. Returns the number still pending.
+let _flushing = null;
+function flushPending() {
+  if (_flushing) return _flushing;
+  _flushing = (async () => {
+    const user_id = await getUserId();
+    if (!user_id) return readPending().size;
+    for (const id of readPending()) {
+      const i = id.indexOf(':');
+      const store = id.slice(0, i), key = id.slice(i + 1);
+      if (!STORES.includes(store)) { clearPending(id); continue; }
+      const n = _writeSeq.get(id);
+      try {
+        const value = await idbGet(store, key);
+        const { error } = value === undefined
+          ? await supabase.from('entries').delete().eq('user_id', user_id).eq('store', store).eq('key', key)
+          : await supabase.from('entries').upsert({ user_id, store, key, value });
+        if (!error) clearPending(id, n);
+      } catch (_) {}
+    }
+    return readPending().size;
+  })().finally(() => { _flushing = null; });
+  return _flushing;
+}
+if (typeof window !== 'undefined') window.addEventListener('online', () => { flushPending(); });
 
 // Pull the cloud copy into IndexedDB. PAGINATED — PostgREST caps a select at
 // 1000 rows, and the `entries` table holds every store (workout + calories + …),
@@ -106,6 +167,7 @@ async function syncFromSupabase() {
   const user_id = await getUserId();
   if (!user_id) return 0;
   const PAGE = 1000;
+  const pending = readPending();
   let from = 0, total = 0;
   for (;;) {
     const { data, error } = await supabase.from('entries')
@@ -124,12 +186,15 @@ async function syncFromSupabase() {
       if (!STORES.includes(row.store)) continue;
       // Never let a stale cloud copy resurrect device-local resume state.
       if (isLocalOnly(row.store, row.key)) continue;
+      // A local write that hasn't reached the cloud is newer than this row.
+      if (pending.has(`${row.store}:${row.key}`)) continue;
       try { await idbSet(row.store, row.key, row.value); } catch (_) {}
     }
     total += data.length;
     if (data.length < PAGE) break;
     from += PAGE;
   }
+  flushPending();   // now push up whatever the device still holds that the cloud doesn't
   return total;
 }
 
@@ -139,6 +204,7 @@ async function syncFromSupabase() {
 async function syncToSupabase() {
   const user_id = await getUserId();
   if (!user_id) return 0;
+  await flushPending();   // deletes only reach the cloud through here
   let n = 0;
   for (const store of STORES) {
     let rows;
@@ -183,6 +249,8 @@ const db = {
   clear:  idbClear,
   sync:   syncFromSupabase,   // cloud → device (paginated)
   backup: syncToSupabase,     // device → cloud (batched)
+  flush:  flushPending,       // retry writes that didn't reach the cloud; → count still pending
+  pendingCount: () => readPending().size,
 };
 
 export default db;
