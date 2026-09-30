@@ -4,7 +4,8 @@ import { EXERCISES, CATEGORIES, CATEGORY_COLORS } from './exercises.js';
 import { resolveCues } from './cues.js';
 import { ROUTINE_LIBRARY } from './routineLibrary.js';
 import { MY_ROUTINES } from './myRoutines.js';
-import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan } from './splits.js';
+import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan,
+         recoverCoachSplits, projectPlan, REST_DAY } from './splits.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
@@ -2785,8 +2786,8 @@ async function autoBackupIfStale() {
     const last = +(localStorage.getItem('arc-last-backup') || 0);
     if (Date.now() - last < AUTO_BACKUP_MS) return;
     await restore.catch(() => {});   // never race the initial restore (post-login pull included)
-    await db.backup();
-    localStorage.setItem('arc-last-backup', String(Date.now()));
+    // 0 rows = no session or every batch failed; don't mark it done, retry next open.
+    if (await db.backup()) localStorage.setItem('arc-last-backup', String(Date.now()));
   } catch (_) { /* offline / no session — try again next open */ }
 }
 
@@ -2806,6 +2807,7 @@ document.addEventListener('visibilitychange', () => {
     if (Date.now() >= restEndsAt) finishRest();
     else tickRest();
   }
+  db.flush();            // retry any write that didn't reach the cloud (e.g. logged offline)
   autoBackupIfStale();   // resumed after a gap — mirror up if due
 });
 
@@ -3390,6 +3392,33 @@ async function ensureSplits() {
   if (templates.length) await db.set(STORE, 'splits-migrated', true);
   return true;
 }
+// One-time repair for the migration above: splits the coach drafted before
+// v90 were saved as loose templates, so they came through scattered and
+// nameless. Regroup them from the drafts still in the coach thread / daily pick
+// (see recoverCoachSplits). Makes a restored split active when it holds the
+// most recently logged workout. Waits for real splits so a pre-restore run
+// can't burn the flag.
+async function restoreCoachSplitsOnce() {
+  if (await db.get(STORE, 'coach-splits-recovered')) return false;
+  const splits = await getSplits();
+  if (!splits.length) return false;
+  const thread = (await db.get(STORE, 'coach-thread')) || [];
+  const daily = await db.get(STORE, 'coach-daily');
+  const drafts = [...thread].reverse().map(m => m?.split).concat(daily?.split).filter(s => s?.routines?.length);
+  const { splits: next, restored } = recoverCoachSplits(splits, drafts, { uid });
+  if (restored.length) {
+    await saveSplits(next);
+    const [latest] = await loadSessions();
+    const hit = latest && restored.find(sp => sp.workouts.some(w =>
+      w.id === latest.workoutId || w.name.trim() === (latest.title || '').trim()));
+    const activeId = await getActiveSplitId();
+    if (hit) await setActiveSplit(hit.id);
+    else if (!next.some(s => s.id === activeId)) await setActiveSplit(restored[0].id);   // the active one was emptied
+  }
+  await db.set(STORE, 'coach-splits-recovered', true);
+  return restored.length > 0;
+}
+
 async function getLegacyTemplates() { return (await db.get(STORE, 'templates')) || []; }   // pre-splits list — migration + old seed helpers only
 
 async function seedMyRoutinesOnce() {
@@ -3513,7 +3542,9 @@ function splitFitTag(split, userTotal) {
   return { cls: 'split-fit-best', label: 'Best fit', border: 'var(--green)' };
 }
 
-async function renderLibraryList() {
+// Ready-made splits. Renders into the Split Library overlay, or inline into the
+// Library tab's Splits menu (`containerId` = 'libReady').
+async function renderLibraryList(containerId = 'libraryList') {
   const sessions = await loadSessions();
   const { rows } = weeklySetsByCategory(sessions);
   const userTotal = rows.reduce((a, r) => a + r.perWk, 0);
@@ -3555,12 +3586,13 @@ async function renderLibraryList() {
     foot = `Fit is measured against your current ${top}.`;
   }
 
-  document.getElementById('libraryList').innerHTML = pillsHTML + cardsHTML + (foot ? `<div class="rl-foot">${esc(foot)}</div>` : '');
+  const box = document.getElementById(containerId);
+  box.innerHTML = pillsHTML + cardsHTML + (foot ? `<div class="rl-foot">${esc(foot)}</div>` : '');
 
-  document.querySelectorAll('#libraryList .rl-pill').forEach(pill => {
-    pill.onclick = () => { daysFilter = pill.dataset.days ? +pill.dataset.days : null; renderLibraryList(); };
+  box.querySelectorAll('.rl-pill').forEach(pill => {
+    pill.onclick = () => { daysFilter = pill.dataset.days ? +pill.dataset.days : null; renderLibraryList(containerId); };
   });
-  document.querySelectorAll('#libraryList .split-card').forEach(card => {
+  box.querySelectorAll('.split-card').forEach(card => {
     card.onclick = () => openSplitDetail(card.dataset.split);
   });
 }
@@ -3797,23 +3829,28 @@ async function renderPlan() {
 
   const byDate = {};
   sessions.forEach(s => { const d = s.date || (s.startTime || '').slice(0, 10); (byDate[d] = byDate[d] || []).push(s); });
-  const next = nextWorkout(active, sessions);
   // Assignments can point at a workout in any split (planned before a switch).
   const tById = id => { const hit = findWorkout(splits, id); return hit ? startable(hit.split, hit.workout) : null; };
+  // Today onward is filled from the active split in order; rest days push it back.
+  const weekEnd = ymd(end.getTime() - 86400000);
+  const proj = weekEnd >= todayStr
+    ? projectPlan({ split: active, sessions, planMap, today: todayStr, until: weekEnd }) : {};
 
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     const ds = ymd(d);
+    const p = proj[ds];
     days.push({ ds, dow: d.toLocaleDateString('en-GB', { weekday: 'short' }), num: d.getDate(),
-      isToday: ds === todayStr, past: ds < todayStr, done: byDate[ds] || [], assigned: tById(planMap[ds]) });
+      isToday: ds === todayStr, past: ds < todayStr, done: byDate[ds] || [],
+      rest: !!p?.rest, auto: !!p?.auto, assigned: p?.workoutId ? tById(p.workoutId) : null });
   }
 
   const strip = days.map(dy => {
     let dot;
     if (dy.done.length) dot = `<span class="wdot done">${icon('check', { size: 12 })}</span>`;
-    else if (dy.isToday)  dot = `<span class="wdot now">•</span>`;
-    else if (dy.past)     dot = `<span class="wdot rest"></span>`;
+    else if (dy.isToday && !dy.rest) dot = `<span class="wdot now">•</span>`;
+    else if (dy.past || dy.rest)     dot = `<span class="wdot rest"></span>`;
     else                  dot = `<span class="wdot up"></span>`;
     return `<div class="wcol${dy.isToday ? ' today' : ''}"><span class="wdow">${dy.dow}</span><span class="wnum">${dy.num}</span>${dot}</div>`;
   }).join('');
@@ -3829,8 +3866,13 @@ async function renderPlan() {
         <div class="dbody"><div class="dday">${lbl}</div><div class="dname">${esc(s.title || 'Workout')}${dy.done.length > 1 ? ` +${dy.done.length - 1}` : ''}</div>
         <div class="dmeta">${fmtTime(s.duration || 0)} · ${meta}</div></div></div>`;
     }
+    if (dy.rest) {
+      return `<div class="dcard rest" data-assign="${dy.ds}"><span class="dstate rest">${icon('moon', { size: 15 })}</span>
+        <div class="dbody"><div class="dday"${dy.isToday ? ' style="color:var(--blue)"' : ''}>${lbl}</div><div class="dname muted">Rest day</div>
+        <div class="dmeta">Split moves back a day · tap to change</div></div></div>`;
+    }
     if (dy.isToday) {
-      const t = dy.assigned || (next ? startable(active, next.workout) : null);
+      const t = dy.assigned;
       const body = t
         ? `<div class="dname">${esc(t.name)}</div><div class="dmeta">${t.exercises.length} exercises</div>`
         : `<div class="dname">Open workout</div><div class="dmeta">Tap to choose a workout</div>`;
@@ -3843,7 +3885,7 @@ async function renderPlan() {
       return `<div class="dcard" data-assign="${dy.ds}">
         <span class="dstate up">${icon('dumbbell', { size: 15 })}</span>
         <div class="dbody"><div class="dday">${lbl}</div><div class="dname">${esc(dy.assigned.name)}</div>
-        <div class="dmeta">planned · ${dy.assigned.exercises.length} exercises</div></div></div>`;
+        <div class="dmeta">${dy.auto ? 'up next in split' : 'planned'} · ${dy.assigned.exercises.length} exercises</div></div></div>`;
     }
     if (dy.past) {
       return `<div class="dcard rest"><span class="dstate rest">${icon('moon', { size: 15 })}</span>
@@ -3911,7 +3953,8 @@ function assignPlanDay(date, templates) {
     <p class="modal-title">Plan ${esc(fmtDate(date))}</p>
     ${templates.length ? '' : '<div class="routines-empty">No active split — set one in Library → Your splits.</div>'}
     ${templates.map(t => `<button class="sheet-btn" data-tid="${esc(t.id)}">${esc(t.name)} — ${t.exercises.length} exercises</button>`).join('')}
-    <button class="sheet-btn" data-clear="1" style="color:var(--text-muted)">Clear / rest day</button>
+    <button class="sheet-btn" data-tid="${REST_DAY}">${icon('moon', { size: 15 })} Rest day — split moves back a day</button>
+    <button class="sheet-btn" data-clear="1" style="color:var(--text-muted)">Follow split (auto)</button>
     <button class="sheet-btn" data-cancel="1" style="text-align:center;background:none;color:var(--text-muted)">Cancel</button>
   </div>`;
   document.body.appendChild(back);
@@ -4703,11 +4746,8 @@ function renderYourSplits(el, splits, active, sessions) {
     ${others.length ? `<div class="lib-routines-divider" style="margin-top:14px">Other splits</div>${othersHTML}` : ''}
     <div class="sp-actions">
       <button class="new-routine-btn" id="spNew">${icon('plus', { size: 15 })} New split</button>
-      <button class="new-routine-btn" id="libBrowseSplits">${icon('book-open', { size: 15 })} Split library</button>
-    </div>
-    <div class="lib-routines-divider">Exercises</div>`;
+    </div>`;
 
-  el.querySelector('#libBrowseSplits').onclick = openSplitLibrary;
   el.querySelector('#spNew').onclick = createSplit;
   el.querySelectorAll('.sp-card').forEach(card => card.onclick = () => openSplitEditor(card.dataset.split));
   el.querySelectorAll('.sp-w').forEach(row => row.onclick = e => {
@@ -4948,8 +4988,19 @@ async function addWorkoutFlow(sp, splits) {
 }
 
 let libFilter = 'all'; // 'all' | 'routines' | 'never' | 'custom'
+// Library shows one menu at a time: Splits (yours + ready-made) or Exercises.
+let libView = (() => { try { return localStorage.getItem('arc-lib-view') || 'splits'; } catch (_) { return 'splits'; } })();
+document.getElementById('libSeg').addEventListener('click', e => {
+  const b = e.target.closest('[data-lview]');
+  if (!b || b.dataset.lview === libView) return;
+  libView = b.dataset.lview;
+  try { localStorage.setItem('arc-lib-view', libView); } catch (_) {}
+  renderLibrary();
+});
 
 async function renderLibrary() {
+  document.getElementById('secLibrary').dataset.lview = libView;
+  document.querySelectorAll('#libSeg [data-lview]').forEach(b => b.classList.toggle('on', b.dataset.lview === libView));
   const q      = document.getElementById('libSearch').value.trim();
   const libEl0 = document.getElementById('libraryList2');
   if (libEl0 && !libEl0.children.length && !q)
@@ -4968,11 +5019,18 @@ async function renderLibrary() {
 
   // Count line
   const loggedCount = visible.filter(e => stats.has(e.name)).length;
-  document.getElementById('libCount').textContent = `${visible.length} exercises · ${loggedCount} logged`;
+  document.getElementById('libCount').textContent = libView === 'splits'
+    ? `${splits.length} split${splits.length === 1 ? '' : 's'}`
+    : `${visible.length} exercises · ${loggedCount} logged`;
 
-  // Your splits — the active one first, expanded (tap a workout to start it);
-  // tap a split's header to edit it. Only one split is active at a time.
-  renderYourSplits(document.getElementById('libRoutines'), splits, active, sessions);
+  if (libView === 'splits') {
+    // Your splits — the active one first, expanded (tap a workout to start it);
+    // tap a split's header to edit it. Only one split is active at a time.
+    // Ready-made splits follow in the same menu.
+    renderYourSplits(document.getElementById('libRoutines'), splits, active, sessions);
+    renderLibraryList('libReady');
+    return;
+  }
 
   // Filter chips
   const CHIPS = [
@@ -6428,6 +6486,7 @@ await seedMyRoutinesOnce();
 await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
 await ensureSplits();      // one-time: flat routines list → splits (after the seed/fix-ups above)
+await restoreCoachSplitsOnce();   // one-time: regroup coach splits the migration scattered
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
 
@@ -6472,7 +6531,7 @@ renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one
 
 // If the cloud pull finished AFTER the cap (slow network), refresh once it lands.
-restore.then(async n => { if (n) { invalidateSessions(); await ensureSplits(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
+restore.then(async n => { if (n) { invalidateSessions(); await ensureSplits(); await restoreCoachSplitsOnce(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h
 

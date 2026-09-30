@@ -1326,6 +1326,9 @@
     .seg button { flex:1; border:none; background:none; color:var(--text-muted); font-size:0.82rem; font-weight:700;
       padding:8px; border-radius:9px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
     .seg button.on { background:var(--blue); color:var(--on-accent); }
+    #secLibrary .seg button.on { background:var(--surface); color:var(--text); box-shadow:0 1px 0 rgba(255,255,255,0.04) inset; }
+    #secLibrary[data-lview="splits"] #libExPane,
+    #secLibrary[data-lview="exercises"] #libSplitPane { display:none; }
 
     /* ══ REDESIGN: PR timeline ══ */
     .pr-row { display:flex; gap:12px; }
@@ -1781,13 +1784,23 @@
       <h1 class="lib-title">Library</h1>
       <span class="lib-count" id="libCount"></span>
     </div>
-    <div id="libRoutines"></div>
-    <div class="lib-search-wrap">
-      <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
-      <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
+    <div class="seg" id="libSeg">
+      <button data-lview="splits">Splits</button>
+      <button data-lview="exercises">Exercises</button>
     </div>
-    <div class="lib-chips" id="libChips"></div>
-    <div id="libraryList2"></div>
+    <div id="libSplitPane">
+      <div id="libRoutines"></div>
+      <div class="lib-routines-divider">Ready-made splits</div>
+      <div id="libReady"></div>
+    </div>
+    <div id="libExPane">
+      <div class="lib-search-wrap">
+        <span class="lib-search-icon"><i data-lucide="search" data-size="16"></i></span>
+        <input id="libSearch" placeholder="Search exercises…" autocomplete="off">
+      </div>
+      <div class="lib-chips" id="libChips"></div>
+      <div id="libraryList2"></div>
+    </div>
   </div>
 
   <!-- Stats (+ History folded in below the charts) -->
