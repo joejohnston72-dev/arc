@@ -1,9 +1,6 @@
 // Personal bests, milestones and the weekly streak.
 // Pure functions over session records + a small settings blob in db.
 import db from '../shared/db.js';
-// Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
-// between midnight and 1am BST (or evenings in the Americas) under the wrong day.
-const localYMD = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
 
 
 const STORE = 'workout';
@@ -66,53 +63,14 @@ export function absorbSet(exName, set, records) {
 }
 
 // ── Weekly streak ─────────────────────────────────────────────────────────────
+export { computeStreak, currentIllness } from './streak.js';
 export async function getStreakSettings() {
   const s = (await db.get(STORE, 'streak-settings')) || {};
-  return { seed: s.seed || 0, seedDate: s.seedDate || null, target: s.target || 3 };
+  return { seed: s.seed || 0, seedDate: s.seedDate || null, target: s.target || 3,
+           sick: Array.isArray(s.sick) ? s.sick : [] };
 }
 export async function saveStreakSettings(settings) {
   await db.set(STORE, 'streak-settings', settings);
-}
-
-function mondayOf(d) {
-  const x = new Date(d); x.setHours(12, 0, 0, 0);
-  const day = (x.getDay() + 6) % 7; // Mon=0
-  x.setDate(x.getDate() - day);
-  return localYMD(x);
-}
-function weekBefore(mondayIso) {
-  const x = new Date(mondayIso + 'T12:00:00');
-  x.setDate(x.getDate() - 7);
-  return localYMD(x);
-}
-
-// Consecutive weeks (ending now) with >= target workouts. The in-progress week
-// counts if already met, and never breaks the chain while pending. If the
-// unbroken chain reaches back to the week the seed was set, the seed is added.
-export function computeStreak(sessions, { seed = 0, seedDate = null, target = 3 } = {}) {
-  const counts = {};
-  for (const s of sessions) {
-    const d = s.date || (s.startTime || '').slice(0, 10);
-    if (!d) continue;
-    const wk = mondayOf(new Date(d + 'T12:00:00'));
-    counts[wk] = (counts[wk] || 0) + 1;
-  }
-
-  const thisWeek = mondayOf(new Date());
-  let weeks = 0;
-  let cursor = thisWeek;
-  if ((counts[cursor] || 0) >= target) { weeks++; }
-  cursor = weekBefore(cursor); // pending current week never breaks the chain
-  while ((counts[cursor] || 0) >= target) { weeks++; cursor = weekBefore(cursor); }
-
-  // cursor is now the first week that FAILED. Seed bridges if every week after
-  // the seed week met the target (or the seed was set this/last week).
-  let total = weeks;
-  if (seed > 0 && seedDate) {
-    const seedWeek = mondayOf(new Date(seedDate + 'T12:00:00'));
-    if (cursor <= seedWeek) total = weeks + seed;
-  }
-  return { weeks: total, thisWeekCount: counts[thisWeek] || 0, target };
 }
 
 // ── Milestones ────────────────────────────────────────────────────────────────

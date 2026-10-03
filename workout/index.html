@@ -2119,6 +2119,17 @@
       <label class="form-label">Starting streak (carry over a previous streak, in weeks)</label>
       <input class="form-input" id="streakSeedInput" type="number" min="0" inputmode="numeric" placeholder="e.g. 48">
     </div>
+    <div class="form-group">
+      <label class="form-label">Illness — weeks you're unwell are paused, not lost</label>
+      <div id="sickNow"></div>
+      <div id="sickList" style="margin-top:4px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input class="form-input" id="sickFrom" type="date" aria-label="Unwell from" style="flex:1;min-width:0">
+        <input class="form-input" id="sickTo" type="date" aria-label="Unwell to (blank if still unwell)" style="flex:1;min-width:0">
+        <button class="btn btn-g" id="sickAdd" type="button" style="flex:none">Add</button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:5px">From / to. Leave “to” blank if you're still unwell.</div>
+    </div>
     <div class="modal-btns">
       <button class="btn btn-g" id="streakCancel">Cancel</button>
       <button class="btn btn-p" id="streakSave">Save</button>
