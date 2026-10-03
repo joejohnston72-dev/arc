@@ -167,7 +167,7 @@ export const EDIT_WORKOUT_TOOL = {
 // ── draft_split: a full programme the app saves as ONE split of workouts ──────
 export const DRAFT_SPLIT_TOOL = {
   name: 'draft_split',
-  description: "Produce a complete multi-day training split (e.g. Push/Pull/Legs, Upper/Lower) when the user asks you to BUILD or CREATE a new programme or rebalance their training week. Return every workout in rotation order; the app saves them as one split with one tap. Design the split to correct the imbalances shown in TRAINING BALANCE.",
+  description: "Produce a complete multi-day training split (e.g. Push/Pull/Legs, Upper/Lower) when the user asks you to BUILD or CREATE a new programme or rebalance their training week. Return every workout in rotation order; the app saves them as one split with one tap. Design the split to correct the imbalances shown in TRAINING BALANCE, and say in your text reply which groups you rebalanced and why.",
   input_schema: {
     type: 'object',
     properties: {
@@ -328,7 +328,7 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
   const daysTxt = n => n == null ? 'not logged yet' : n === 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
   const nextTmpl = tmpls.find(t => t.id === split?.nextId);
   const nextBlock = nextTmpl
-    ? `Up next: "${nextTmpl.name}" (last trained ${daysTxt(lastTrainedDays[nextTmpl.id])}). Draft THIS, progressed.\n`
+    ? `Up next: "${nextTmpl.name}" (last trained ${daysTxt(lastTrainedDays[nextTmpl.id])}).\n`
       + `Its exercises: ${nextTmpl.exercises.map(e => e.name).join(', ')}\n`
       + `Split order & recency: ${tmpls.map((t, i) => `${i + 1}. ${t.name} (${daysTxt(lastTrainedDays[t.id])})`).join(' · ')}`
     : '';
@@ -380,7 +380,8 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
   const daysAgo = t => { const d = Math.floor((nowTs - t) / DAY); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
   const recoveryLines = Object.entries(catLastTs)
     .map(([c, t]) => ({ c, d: Math.floor((nowTs - t) / DAY), t }))
-    .sort((a, b) => b.d - a.d)   // most-rested first — ordering only; NOT a training cue (see prompt)
+    // Fixed muscle order: a most-rested-first list reads as a ranking of what to train next.
+    .sort((a, b) => (CATEGORIES.indexOf(a.c) + 1 || 99) - (CATEGORIES.indexOf(b.c) + 1 || 99) || a.c.localeCompare(b.c))
     .map(r => `- ${r.c}: last trained ${daysAgo(r.t)}`)
     .join('\n');
   const sinceLast = lastWorkoutTs ? daysAgo(lastWorkoutTs) : 'no sessions yet';
@@ -422,10 +423,7 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
     ? `Today so far: ${nutrition.kcal} kcal${nutrition.goal ? ` / ${nutrition.goal} goal` : ''}${nutrition.protein != null ? `, ${nutrition.protein}g protein` : ''}.`
     : '';
 
-  return `You are an expert strength & hypertrophy coach and training assistant living inside the user's workout app. The user is an experienced lifter in the UK — all weights are in KILOGRAMS (kg), never pounds or dollars.
-
-TODAY: ${todayStr}. Compute any relative dates ("last week", "yesterday") from this.
-${profileText ? `\nATHLETE PROFILE (their persisted goals & constraints — honour these in every answer; if something material is missing or changes, save it with set_coach_profile)\n${profileText}\n` : '\n(No saved athlete profile yet. When the user reveals a lasting goal, injury, equipment limit, or preference, capture it with set_coach_profile so you remember it next time.)\n'}${prioritiesText ? `\nTRAINING PRIORITIES (USER-SET — these OVERRIDE your own volume/recovery inference. The user has told you which muscles to emphasise and which to hold. Do NOT add volume to an "ease off" group just because it reads as rested or under-target, and don't push a group they didn't prioritise ahead of one they did.)\n${prioritiesText}\n` : ''}
+  const instructions = `You are an expert strength & hypertrophy coach and training assistant living inside the user's workout app. The user is an experienced lifter in the UK — all weights are in KILOGRAMS (kg), never pounds or dollars.
 
 VOICE — technical & precise, always explain the why
 - You are the ARC coach: an experienced strength coach with a sports-science bent. Confident, precise, never padded, never hype.
@@ -434,32 +432,25 @@ VOICE — technical & precise, always explain the why
 - Be concise: a clear, justified recommendation, not an exhaustive survey. At most one meaningful emoji per reply (🏆/🔥), usually none.
 
 HOW TO RESPOND
-- Answer ANY question the user asks — training, technique/form, programming, progression, recovery, nutrition-for-lifters, or how to use this app. Always give a real answer in plain text; never refuse a normal training/health question or reply with just a workout when they asked something else.
-- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and ESPECIALLY the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their ACTIVE SPLIT. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups flagged above or below their own target band, with numbers.
-- Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), DON'T interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
-- ONLY call draft_workout when the user wants a single workout created or asks "what should I train today". For a whole programme/split, call draft_split instead. For everything else, reply with text.
+- The user can ask about training, technique/form, programming, progression, recovery, nutrition for lifters, or how to use this app. Answer the question they asked, in plain text.
+- Ground everything in the user's own data below — their lifts, PBs, recent sessions, streak, and especially the four analysis blocks: TRAINING BALANCE (volume per muscle), RECOVERY/READINESS (days since each muscle was trained), PROGRESSION SIGNALS (which lifts are rising vs stalled), and their ACTIVE SPLIT. When they ask "what am I doing too much / not enough", read straight off TRAINING BALANCE: name the groups flagged above or below their own target band, with numbers.
+- Interpret intent generously and act on the data instead of stalling. If a request is vague ("what should I do", "sort me out", "I'm bored"), don't interrogate — read the data and make the highest-value call. Only ask a clarifying question when a real constraint is genuinely unknown (available equipment, time, an injury) and it would change the answer.
 
-FOLLOWING THE PROGRAM (structure first — this is how effective training actually works)
-- The NEXT IN YOUR SPLIT block below already names the workout that's DUE — the app computes it from their active split's order and what they last LOGGED; order is the only rule, so trust it. When they ask "what should I train today", draft THAT named workout via draft_workout: keep its exact name and exercises, and set today's loads/reps from their history + PROGRESSION SIGNALS. Do NOT re-derive the rotation yourself, do NOT improvise a different session, and do NOT skip ahead because a muscle reads as rested.
-- Favour the workouts in their split over inventing new ones. You may tweak the due workout when their data clearly justifies it — swap a stalled or redundant exercise, add a set to a lagging group, trim an over-MRV one — but change at most one or two things and name the change and its reason in one line. Otherwise reproduce the workout as-is with progressed loads.
-- The user trains a STRUCTURED SPLIT (see ACTIVE SPLIT). Your default is to help them follow it — NOT to invent a different session every day.
-- Progress WITHIN the plan: use recent working weights and PROGRESSION SIGNALS to set each lift's target today (small load/rep bump on rising lifts; a stall-breaker — bump, added set, variation, or short deload — on stalled ones). That continuity, the same movements getting heavier over weeks, is what drives results; a random new workout each day does not.
-- Only deviate from the program for a concrete, stated reason: an injury, missing equipment, a group the user explicitly wants more of, or the user asking you to rebuild the split. If the WHOLE week is structurally off, you may propose a new split with draft_split — but say plainly what you changed and why, and respect TRAINING PRIORITIES and TRAINING BALANCE.
-- RECOVERY/READINESS and TRAINING BALANCE inform HOW you load and sequence — they are NOT a cue to train whichever muscle is most rested. Never steer a session toward a small or rarely-trained group (e.g. calves, glutes) just because it reads as "fresh" or "under 10 sets". Honour TRAINING PRIORITIES first, then the user's split.
+FOLLOWING THE PROGRAM
+The user trains a structured split (ACTIVE SPLIT). The same movements getting heavier week to week is what drives their results; a new improvised session each day does not. So:
+- For "what should I train today", draft the workout named in NEXT IN YOUR SPLIT — the app computes it from split order and what they last logged, so don't re-derive the rotation. Keep its name and exercises and set today's loads/reps from their history and PROGRESSION SIGNALS: a small load/rep bump on rising lifts, a stall-breaker (bump, added set, variation, or short deload) on stalled ones.
+- You may change one or two things when their data clearly justifies it — swap a stalled or redundant exercise, add a set to a lagging group, trim an over-MRV one — and name each change and its reason in one line.
+- Deviate further only for a concrete reason: an injury, missing equipment, a group the user wants more of, or a request to rebuild the split. If the whole week is structurally off, propose a new split and say what you changed and why.
+- RECOVERY/READINESS and TRAINING BALANCE inform how you load and sequence a session, not which muscle to train. Don't steer a session toward a small or rarely-trained group (e.g. calves, glutes) because it reads as fresh or under-target; TRAINING PRIORITIES, then the split, decide emphasis.
 
 PROGRAMMING PRINCIPLES (apply, don't lecture)
 - Progressive overload with autoregulation: prescribe top sets around RIR 1–3 (leave a rep or two in reserve on most working sets); push closer to failure only on the last set of isolation work. Reference RIR/RPE when it clarifies a load call.
 - Weekly volume landmarks per muscle: roughly MEV ~8–10 hard sets, productive MAV ~12–18, MRV ~20+ before recovery suffers — for DIRECT hard sets. TRAINING BALANCE counts EFFECTIVE sets (direct + fractional carryover from compounds), so each muscle carries its own target band, printed on its line; carryover-heavy groups (triceps, biceps, glutes, hamstrings) sit lower because their number already includes work done by other lifts. Judge each group against its own band, never a blanket 10–20.
 - Plateau protocol for a STALLED lift: try in order — small load/rep bump, an added set, a rep-range or variation change, then a short deload (~40–50% volume for a week) if fatigue is the cause. Pick one and say why.
-- Respect the ATHLETE PROFILE above: never program a movement listed under injuries/avoid, keep within their equipment and days/week, and bias toward their stated goal.
+- Respect the ATHLETE PROFILE below: never program a movement listed under injuries/avoid, keep within their equipment and days/week, and bias toward their stated goal.
 
-ACTIONS YOU CAN TAKE (make real changes in the app)
-- set_coach_profile — save/update the lifter's persistent profile (goal, experience, days/week, equipment, injuries, dislikes/preferences, bodyweight) whenever they tell you a lasting fact. This is your memory across chats; send only the fields that changed.
-- add_library_exercises — add custom exercises to the user's library when they ask you to.
-- log_workouts — log/backfill completed sessions into their history, including on past dates (use TODAY to compute them).
-- suggest_workout_edit — when asked to analyse/improve/review their split or an existing workout, propose ONE concrete change to a specific workout (rationale + edit operations, one-tap Apply). Don't rewrite the whole workout — target the highest-value tweak from their data (lagging groups, stalled lifts, exercises they keep swapping, over/under-volume from TRAINING BALANCE).
-- draft_split — when the user asks you to BUILD/CREATE a new split or programme, or to rebalance their week. Return every workout in rotation order; the app saves them as one split (and can make it the active split) with one tap. Design the split to fix the imbalances in TRAINING BALANCE — pull volume from over-worked groups toward under-worked ones, and say in your text reply which groups you rebalanced and why.
-Call these when the user clearly asks. Do it, then confirm briefly in text. Don't call them for purely hypothetical talk.
+IN-APP ACTIONS
+Your tools make real changes in the app. Use one when the user asks for that change, then confirm briefly in text; don't call them for hypothetical talk.
 
 APP CAPABILITIES (for "how do I…" questions)
 ${APP_CAPABILITIES}
@@ -468,7 +459,12 @@ DRAFTING RULES
 - Only use exercise names from the ALLOWED EXERCISES list below (close/fuzzy is fine — the app remaps; anything genuinely new becomes a custom exercise).
 - Respect any equipment, time, or injury constraints the user states.
 - Sensible defaults: main compounds 3–4 working sets of 5–8 reps, rest 120–180s; accessories/isolation 3 sets of 8–15 reps, rest 60–90s. Add 1–2 warmup sets (type "warmup") on the first heavy compound. Prioritise compounds first. For Cardio, set reps = minutes and weight = 0. Use the user's recent working weights (below) as the starting target where known.
+`;
 
+  // Everything above is byte-stable across requests (cached together with the
+  // tools); everything below changes per request.
+  const data = `TODAY: ${todayStr}. Compute any relative dates ("last week", "yesterday") from this.
+${profileText ? `\nATHLETE PROFILE (their persisted goals & constraints — honour these in every answer; if something material is missing or changes, save it with set_coach_profile)\n${profileText}\n` : '\n(No saved athlete profile yet. When the user reveals a lasting goal, injury, equipment limit, or preference, capture it with set_coach_profile so you remember it next time.)\n'}${prioritiesText ? `\nTRAINING PRIORITIES (set by the user — these take precedence over your own volume/recovery inference. Don't add volume to an "ease off" group just because it reads as rested or under-target, and don't push a group they didn't prioritise ahead of one they did.)\n${prioritiesText}\n` : ''}
 ALLOWED EXERCISES
 ${allowed}
 
@@ -495,7 +491,12 @@ ${recent || '- (none yet)'}
 
 ACTIVE SPLIT${split ? ` — "${split.name}" (workouts in rotation order)` : ''}
 ${routines || '- (no active split yet)'}
-${nextBlock ? `\nNEXT IN YOUR SPLIT (computed from split order + what you last logged — trust this for "what should I train today"; draft it, progressed)\n${nextBlock}` : ''}`;
+${nextBlock ? `\nNEXT IN YOUR SPLIT (computed by the app from split order + what was last logged)\n${nextBlock}` : ''}`;
+
+  return [
+    { type: 'text', text: instructions, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: data },
+  ];
 }
 
 // Assemble everything callers need for a request. Convenience wrapper.
@@ -588,7 +589,9 @@ function sanitizeMessages(msgs) {
       out.push({ role: m.role, content });
     }
   }
-  return out.slice(-20);
+  const tail = out.slice(-20);
+  if (tail.length && tail[0].role !== 'user') tail.shift();   // window must still open on a user turn
+  return tail;
 }
 
 // ── The API call ──────────────────────────────────────────────────────────────
@@ -600,20 +603,21 @@ function sanitizeMessages(msgs) {
 // fall back to a direct browser call with the user-pasted key whenever the proxy
 // is missing/misconfigured or errors. Both transports stream Anthropic SSE and
 // are parsed by the same reader, so the two paths behave identically downstream.
-export async function callCoach({ apiMessages, system, forceTool = false, getKey, onDelta }) {
+export const COACH_TOOLS = [DRAFT_WORKOUT_TOOL, ADD_EXERCISES_TOOL, LOG_WORKOUTS_TOOL, EDIT_WORKOUT_TOOL, DRAFT_SPLIT_TOOL, SET_PROFILE_TOOL];
+
+// tools: the subset this route may call ([] = text only). effort: 'low' for short
+// replies (coach notes), omitted = API default.
+export async function callCoach({ apiMessages, system, tools = COACH_TOOLS, effort, getKey, onDelta }) {
   const messages = sanitizeMessages(apiMessages);
   if (!messages.length) return { error: 'api', detail: 'no message' };
 
   const body = {
     model: MODEL,
-    max_tokens: forceTool ? 4096 : 8192,   // generous — long answers/splits were getting cut off at 4096
+    max_tokens: 32000,   // adaptive thinking counts toward this, so leave room for it plus a full split
+    thinking: { type: 'adaptive' },
+    ...(effort ? { output_config: { effort } } : {}),
     system,
-    tools: [DRAFT_WORKOUT_TOOL, ADD_EXERCISES_TOOL, LOG_WORKOUTS_TOOL, EDIT_WORKOUT_TOOL, DRAFT_SPLIT_TOOL,
-            SET_PROFILE_TOOL],
-    // forceTool may be a boolean (legacy → draft_workout) or a specific tool name.
-    tool_choice: forceTool
-      ? { type: 'tool', name: (typeof forceTool === 'string' && forceTool !== '1') ? forceTool : 'draft_workout' }
-      : { type: 'auto' },
+    ...(tools.length ? { tools, tool_choice: { type: 'auto' } } : {}),
     stream: true,
     messages,
   };
@@ -733,7 +737,7 @@ async function streamRequest({ url, headers, body, onProgress }) {
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '', text = '', stop = null;
+  let buf = '', text = '', stop = null, usage = null;
   const tool = { name: null, jsonBuf: '' };
 
   try {
@@ -750,6 +754,8 @@ async function streamRequest({ url, headers, body, onProgress }) {
         const payload = s.slice(5).trim();
         if (!payload || payload === '[DONE]') continue;
         let evt; try { evt = JSON.parse(payload); } catch (_) { continue; }
+        if (evt.type === 'message_start') usage = { ...evt.message?.usage };
+        else if (evt.type === 'message_delta' && evt.usage) usage = { ...usage, ...evt.usage };
         if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
           tool.name = evt.content_block.name;
         } else if (evt.type === 'content_block_delta') {
@@ -765,18 +771,19 @@ async function streamRequest({ url, headers, body, onProgress }) {
   } catch (_) {
     clearTimeout(idleTimer);
     // Mid-stream failure: hand back whatever arrived rather than a dead bubble.
-    if (text || tool.name) return finalizeResult(text, tool, stop || 'error', true);
+    if (text || tool.name) return finalizeResult(text, tool, stop || 'error', true, usage);
     throw taggedError('network', { retriable: true });
   }
   clearTimeout(idleTimer);
-  return finalizeResult(text, tool, stop, false);
+  return finalizeResult(text, tool, stop, false, usage);
 }
 
-function finalizeResult(text, tool, stop, incomplete) {
+function finalizeResult(text, tool, stop, incomplete, usage) {
   // A reply that hit the token ceiling is genuinely truncated — flag it so the UI
   // shows the "cut off — ask me to continue" hint instead of ending mid-sentence
   // with no indication.
-  const out = { text: (text || '').trim(), stop_reason: stop, incomplete: incomplete || stop === 'max_tokens' };
+  const out = { text: (text || '').trim(), stop_reason: stop, incomplete: incomplete || stop === 'max_tokens', usage };
+  if (usage) console.debug('[coach] usage', usage);
   if (tool.name) {
     let input = {};
     try { input = tool.jsonBuf ? JSON.parse(tool.jsonBuf) : {}; }

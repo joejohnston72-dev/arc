@@ -1853,11 +1853,10 @@
       <!-- Chips carry the user's INTENT only. The coach's system prompt already
            holds the method (read TRAINING BALANCE / RECOVERY / PROGRESSION, follow
            the split, cite numbers), so re-stating it here just biases the model and
-           drifts out of sync. Keep a data-force hint only where a structured artifact
-           is genuinely wanted (a one-tap workout edit, a drafted workout). -->
-      <button class="coach-chip" data-prompt="Suggest one improvement to a workout in my split." data-force="suggest_workout_edit"><i data-lucide="zap" data-size="15"></i> Improve my split</button>
+           drifts out of sync. -->
+      <button class="coach-chip" data-prompt="Suggest one improvement to a workout in my split."><i data-lucide="zap" data-size="15"></i> Improve my split</button>
       <button class="coach-chip" data-prompt="Build me a training split."><i data-lucide="layout-dashboard" data-size="15"></i> Build a split</button>
-      <button class="coach-chip" data-prompt="Draft me a workout." data-force="1"><i data-lucide="hammer" data-size="15"></i> Draft a workout</button>
+      <button class="coach-chip" data-prompt="Draft me a workout."><i data-lucide="hammer" data-size="15"></i> Draft a workout</button>
       <button class="coach-chip" data-prompt="What should I train today?"><i data-lucide="calendar" data-size="15"></i> Today's session</button>
       <button class="coach-chip" data-prompt="How's my progress?"><i data-lucide="chart-line" data-size="15"></i> My progress</button>
       <button class="coach-chip" data-prompt="Review my last workout."><i data-lucide="search" data-size="15"></i> Review last</button>

@@ -20,7 +20,8 @@ supabase functions deploy coach                            # verify_jwt stays ON
 ## Behaviour
 
 - Holds the Anthropic key server-side (`ANTHROPIC_API_KEY`).
-- Clamps `max_tokens` to 256–8192 (default 4096) so long answers/splits don't truncate.
+- Clamps `max_tokens` to 256–64000 (default 32000); adaptive thinking counts toward it.
+- Forwards only `model`, `max_tokens`, `thinking`, `output_config`, `system`, `tools`, `tool_choice`, `messages`.
 - Retries transient upstream errors (429/529, network) up to twice before streaming.
 - If the secret is missing it returns `{ "error": "proxy_unconfigured" }` (501),
   which the client treats as a signal to fall back to a user-pasted key.

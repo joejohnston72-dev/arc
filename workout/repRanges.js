@@ -247,17 +247,14 @@ export function resolveRepRange(ex) {
 // null on any failure (no key, offline, bad response) — callers fall back to
 // the category default above, so the UI always has something sensible to show.
 const MODEL = 'claude-sonnet-5';
-const RANGE_TOOL = {
-  name: 'rep_range',
-  description: 'Report the ideal training rep range for one exercise, based on current strength & hypertrophy research.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      min: { type: 'integer', description: 'Lower bound of the ideal rep range per set.' },
-      max: { type: 'integer', description: 'Upper bound of the ideal rep range per set.' },
-    },
-    required: ['min', 'max'],
+const RANGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    min: { type: 'integer', description: 'Lower bound of the ideal rep range per set.' },
+    max: { type: 'integer', description: 'Upper bound of the ideal rep range per set.' },
   },
+  required: ['min', 'max'],
+  additionalProperties: false,
 };
 
 export async function fetchAIRepRange({ name, category, getKey }) {
@@ -274,21 +271,22 @@ export async function fetchAIRepRange({ name, category, getKey }) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 200,
-        tools: [RANGE_TOOL],
-        tool_choice: { type: 'tool', name: 'rep_range' },
+        max_tokens: 2048,   // adaptive thinking is on by default and counts toward this
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: RANGE_SCHEMA } },
         messages: [{
           role: 'user',
-          content: `Exercise: "${name}" (muscle group: ${category || 'unknown'}). What's the ideal rep range per working set for general strength/hypertrophy training? Call rep_range with your answer.`,
+          content: `Exercise: "${name}" (muscle group: ${category || 'unknown'}). What's the ideal rep range per working set for general strength/hypertrophy training, based on current research?`,
         }],
       }),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const block = (data.content || []).find(b => b.type === 'tool_use');
+    if (data.stop_reason !== 'end_turn') return null;
+    const block = (data.content || []).find(b => b.type === 'text');
     if (!block) return null;
-    const min = parseInt(block.input?.min, 10);
-    const max = parseInt(block.input?.max, 10);
+    const out = JSON.parse(block.text);
+    const min = parseInt(out?.min, 10);
+    const max = parseInt(out?.max, 10);
     if (!Number.isFinite(min) || !Number.isFinite(max) || min < 1 || max < min) return null;
     return { min, max: Math.min(max, 50) };
   } catch (_) {

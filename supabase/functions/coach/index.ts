@@ -48,14 +48,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ error: 'bad_request' }, 400);
   }
 
-  // Clamp max_tokens into a sane band; default generous so long splits/answers
-  // don't truncate (a common cause of cut-off replies before).
-  const wantedMax = Number(payload.max_tokens) || 8192;
-  const max_tokens = Math.min(Math.max(wantedMax, 256), 16384);
+  // Clamp max_tokens into a sane band; adaptive thinking counts toward it, so
+  // leave room for thinking plus a long split/answer.
+  const wantedMax = Number(payload.max_tokens) || 32000;
+  const max_tokens = Math.min(Math.max(wantedMax, 256), 64000);
 
   const body = {
     model: typeof payload.model === 'string' ? payload.model : DEFAULT_MODEL,
     max_tokens,
+    thinking: payload.thinking,
+    output_config: payload.output_config,
     system: payload.system,
     tools: payload.tools,
     tool_choice: payload.tool_choice,
