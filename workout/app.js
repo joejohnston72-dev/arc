@@ -10,7 +10,8 @@ import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
-import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
+import { assembleContext, callCoach, validateRoutine, normName,
+         DRAFT_WORKOUT_TOOL, EDIT_WORKOUT_TOOL, DRAFT_SPLIT_TOOL } from './coach.js';
 import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
@@ -1453,12 +1454,12 @@ async function maybeAutoCoachNote(ei) {
   const prompt =
     `Exercise: ${ex.name}. Target reps: ${range}. Today's sets: ${setsStr}. `
     + `${ex.prevPerf ? `Previous session: ${ex.prevPerf}. ` : 'No prior data. '}${highlight}\n`
-    + `Write ONE short coaching note (max 16 words) on this performance — whether to add load or reps next time, or a form/tempo cue. Note text only, no preamble.`;
-  const system = 'You are a concise strength coach. Reply with a single short note (≤16 words), plain text, British English, numbers over adjectives, at most one emoji.';
+    + `Write a coaching note on this performance — whether to add load or reps next time, or a form/tempo cue.`;
+  const system = 'You are a concise strength coach. Your reply is shown verbatim in a small note bubble under the exercise: one short sentence, plain text, no preamble. British English, numbers over adjectives, at most one emoji.';
 
   showCoachNoteBubble(ei, '', true);   // transient "Coach is noting…" bubble
   let res;
-  try { res = await callCoach({ apiMessages: [{ role: 'user', content: prompt }], system, getKey: coachGetKey }); }
+  try { res = await callCoach({ apiMessages: [{ role: 'user', content: prompt }], system, tools: [], effort: 'low', getKey: coachGetKey }); }
   catch (_) { res = { error: 'network' }; }
 
   const note = (res?.text || '').replace(/\s+/g, ' ').trim().replace(/^["']|["']$/g, '').slice(0, 140);
@@ -1659,11 +1660,11 @@ async function openExerciseDetail(name) {
 
   // Coach note — stalling / progressing, with a one-tap ask.
   let note = '';
-  const askLink = (prompt, force) => `<button class="ed-note-link" data-prompt="${esc(prompt)}" data-force="${esc(force || '')}">Ask coach to help ${icon('arrow-right', { size: 13 })}</button>`;
+  const askLink = (prompt) => `<button class="ed-note-link" data-prompt="${esc(prompt)}">Ask coach to help ${icon('arrow-right', { size: 13 })}</button>`;
   if (st && st.series.length >= 4) {
     const recent = st.series.slice(-4), max = Math.max(...recent), min = Math.min(...recent);
     if (max > 0 && (max - min) / max < 0.03) {
-      note = `<div class="ed-note"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Stalling — 4 sessions flat.</b> Your top set has held around ${fmtKg(max)} kg. A short deload or an extra work set usually breaks this.</div>${askLink(`My ${name} has stalled for 4 sessions. Suggest one concrete change to progress it.`, 'suggest_workout_edit')}</div></div>`;
+      note = `<div class="ed-note"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Stalling — 4 sessions flat.</b> Your top set has held around ${fmtKg(max)} kg. A short deload or an extra work set usually breaks this.</div>${askLink(`My ${name} has stalled for 4 sessions. Suggest one concrete change to progress it.`)}</div></div>`;
     } else if (st.series[st.series.length - 1] > st.series[0]) {
       note = `<div class="ed-note good"><span class="ci">${icon('bot', { size: 19 })}</span><div><div class="ed-note-body"><b>Progressing.</b> Top set is up from ${fmtKg(st.series[0])} to ${fmtKg(st.series[st.series.length - 1])} kg. Whatever you're doing, keep it.</div>${askLink(`How do I keep progressing my ${name}?`)}</div></div>`;
     }
@@ -1714,9 +1715,9 @@ async function openExerciseDetail(name) {
     else { closeExerciseDetail(); startEmptyWorkout({ exercises: [{ name, category: def.category }] }); }
   });
   document.getElementById('exDetailBody').querySelectorAll('.ed-note-link').forEach(b => b.onclick = () => {
-    const p = b.dataset.prompt, f = b.dataset.force;
+    const p = b.dataset.prompt;
     closeExerciseDetail();
-    if (p) askCoachFromHome(p, f || false);
+    if (p) askCoachFromHome(p);
   });
   // Identity mapping
   document.getElementById('edMerge')?.addEventListener('click', () => openMergePicker(name));
@@ -4113,7 +4114,7 @@ function mbFixHTML(sessions) {
   const a = (f.actions || []).find(x => x.kind === 'primary');
   return `<div class="mb-fix">
     <span class="mb-fix-txt"><b>${esc(f.eyebrow)}.</b> ${esc(f.body)}</span>
-    <button class="mb-fix-btn" data-mbprompt="${esc(a?.prompt || '')}" data-mbforce="${esc(a?.force || '')}">${icon('bot', { size: 14 })} Fix with coach</button>
+    <button class="mb-fix-btn" data-mbprompt="${esc(a?.prompt || '')}">${icon('bot', { size: 14 })} Fix with coach</button>
   </div>`;
 }
 
@@ -4235,7 +4236,7 @@ async function renderStats() {
   // Muscle-balance fix → coach
   el.querySelector('.mb-fix-btn')?.addEventListener('click', e => {
     const b = e.currentTarget;
-    if (b.dataset.mbprompt) askCoachFromHome(b.dataset.mbprompt, b.dataset.mbforce || false);
+    if (b.dataset.mbprompt) askCoachFromHome(b.dataset.mbprompt);
   });
 
   // Month navigation
@@ -5376,7 +5377,7 @@ document.getElementById('awTitle').addEventListener('input', e => {
 // ════════════════════════════════════════════════════════════════════════════
 let coachThread = null;   // [{role, text, routine?}]
 let coachBusy = false;
-let lastCoachSend = null; // {text, forceTool} — for one-tap Retry after an error
+let lastCoachSend = null; // {text} — for one-tap Retry after an error
 
 // Coach API key: workout-store key, falling back to any key previously saved
 // under the (now-removed) habits store so it carries over seamlessly.
@@ -5584,7 +5585,7 @@ function generateCoachFindings(sessions) {
           { label: 'Pull', pct: (pull / denom) * 100, color: CATEGORY_COLORS.Back,  under: ratio > 1 },
         ] },
         actions: [
-          { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a workout in my split to rebalance it.`, force: 'suggest_workout_edit' },
+          { label: 'Suggest a fix', kind: 'primary', prompt: `My push-to-pull working-set ratio is about ${r.toFixed(1)}:1 (${heavy}-dominant). Suggest one concrete change to a workout in my split to rebalance it.` },
           { label: 'Explain', kind: 'ghost', prompt: `Why does a ${r.toFixed(1)}:1 push-to-pull ratio matter, and how should I fix it?` },
         ],
         key: 'find-balance',
@@ -5626,7 +5627,7 @@ function generateCoachFindings(sessions) {
       body: `${stall.name} hasn't moved in ${stall.n} sessions. A small load bump, an extra set, or a short deload usually breaks a plateau like this.`,
       evidence: { type: 'spark', vals: stall.m.series.slice(-6) },
       actions: [
-        { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.`, force: 'suggest_workout_edit' },
+        { label: 'Suggest a change', kind: 'primary', prompt: `My ${stall.name} has stalled for ${stall.n} sessions. Suggest one concrete change to progress it.` },
         { label: 'Open lift', kind: 'open', exercise: stall.name },
         { label: 'Dismiss', kind: 'dismiss' },
       ],
@@ -5704,10 +5705,10 @@ async function generateDailySuggestion(today) {
       getProfile: getCoachProfile, getBodyStats: getCoachBodyStats, getNutritionToday,
     });
     const day = new Date().toLocaleDateString('en-GB', { weekday: 'long' });
-    const prompt = `PROACTIVE DAILY REVIEW (${day}). I follow a STRUCTURED SPLIT — help me follow it, don't invent a different workout each day. Draft the workout named in the NEXT IN YOUR SPLIT block (it's computed from my active split's order and what I last logged — trust it; never hand me a workout I just trained), setting today's loads/reps from my history and PROGRESSION SIGNALS (small bump on rising lifts, a stall-breaker on stalled ones). Favour the workouts in my split — only tweak one or two exercises if my data clearly justifies it, and say why. Add ONE 2–3 sentence note on the single highest-value focus for today, citing the number or mechanism. Honour my TRAINING PRIORITIES over your own volume/recovery inference; do NOT push a rested small group (e.g. calves/glutes) just because it looks fresh or under-target. Only propose changing the plan itself (draft_split) if my week is genuinely structurally off, and say why. Do NOT call any tool that changes my data — no logging workouts, no adding exercises, no editing my profile.`;
+    const prompt = `PROACTIVE DAILY REVIEW (${day}). Draft today's workout from my split, progressed, and add a 2–3 sentence note on the single highest-value focus for today. This shows as a card on my Home screen.`;
     const result = await callCoach({
       apiMessages: [{ role: 'user', content: prompt }],
-      system, forceTool: false, getKey: coachGetKey,
+      system, tools: [DRAFT_WORKOUT_TOOL, EDIT_WORKOUT_TOOL, DRAFT_SPLIT_TOOL], getKey: coachGetKey,
     });
     if (!result || result.error) return null;
 
@@ -5795,9 +5796,9 @@ function renderDailyCard(daily) {
 }
 
 // Switch to the Coach tab and run a prompt there (used by Home action buttons).
-function askCoachFromHome(prompt, force) {
+function askCoachFromHome(prompt) {
   document.querySelector('.tab[data-tab="Coach"]').click();
-  setTimeout(() => sendCoach(prompt, force || false), 60);
+  setTimeout(() => sendCoach(prompt), 60);
 }
 
 // ── Weekly review — rule-based, no API needed (this-week vs last-week + balance)
@@ -5849,7 +5850,7 @@ function renderWeeklyCard(wk) {
     <div class="dw-note">${wk.note}</div>
     <button class="dw-cta">${icon('bot', { size: 15 })} Ask for a full review</button>`;
   card.querySelector('.dw-cta').onclick = () =>
-    askCoachFromHome('Give me a full weekly review: what went well, what lagged, and the single most important change for next week — cite my numbers.', false);
+    askCoachFromHome('Give me a full weekly review: what went well, what lagged, and the single most important change for next week — cite my numbers.');
   return card;
 }
 
@@ -5923,7 +5924,7 @@ function wireFindingButtons(root) {
         return;
       }
       if (a.kind === 'open') { openExerciseDetail(a.exercise); return; }
-      askCoachFromHome(a.prompt, a.force || false);
+      askCoachFromHome(a.prompt);
     };
   });
 }
@@ -6185,11 +6186,11 @@ async function buildCoachSystem() {
   }
 }
 
-async function sendCoach(text, forceTool = false) {
+async function sendCoach(text) {
   if (coachBusy) return;
   text = text.trim();
   if (!text) return;
-  lastCoachSend = { text, forceTool };
+  lastCoachSend = { text };
   await loadCoachThread();
 
   const available = await coachHasTransport();
@@ -6241,7 +6242,7 @@ async function sendCoach(text, forceTool = false) {
             || '' }   // empty → dropped by sanitizeMessages (no more '…' placeholders)
         : { role: 'user', content: m.text }
     );
-    const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey, onDelta });
+    const result = await callCoach({ apiMessages, system, getKey: coachGetKey, onDelta });
     typing.remove();
     streamMsg.remove();   // re-rendered properly below (with cards/markup)
 
@@ -6335,10 +6336,10 @@ function pushCoachError(code, allowRetry = false, detail = '') {
     retry.innerHTML = `${icon('refresh-cw', { size: 14 })} Retry`;
     retry.onclick = () => {
       retry.remove();
-      const { text, forceTool } = lastCoachSend;
+      const { text } = lastCoachSend;
       // Drop the failed user turn's echo won't happen — resend re-adds a bubble;
       // instead re-run the same request without duplicating the user message.
-      resendCoach(text, forceTool);
+      resendCoach(text);
     };
     thread.appendChild(retry);
   }
@@ -6357,7 +6358,7 @@ function pushCoachError(code, allowRetry = false, detail = '') {
 
 // Retry the last request WITHOUT re-appending the user's bubble (it's already in
 // the thread). Mirrors sendCoach's send path but skips pushing a new user turn.
-async function resendCoach(text, forceTool = false) {
+async function resendCoach(text) {
   if (coachBusy) return;
   const key = await coachGetKey();
   let token = null;
@@ -6390,7 +6391,7 @@ async function resendCoach(text, forceTool = false) {
             || (m.split ? `[Drafted split: ${m.split.name}]` : '')
             || (m.action ? `[${m.action.title}]` : '') || '' }
         : { role: 'user', content: m.text });
-    const result = await callCoach({ apiMessages, system, forceTool, getKey: coachGetKey, onDelta });
+    const result = await callCoach({ apiMessages, system, getKey: coachGetKey, onDelta });
     typing.remove(); streamMsg.remove();
     if (result.error) { pushCoachError(result.error, true, result.detail); coachBusy = false; return; }
     const botMsg = await buildCoachBotMsg(result);
@@ -6412,8 +6413,7 @@ document.getElementById('coachInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); sendCoach(e.target.value); }
 });
 document.querySelectorAll('.coach-chip[data-prompt]').forEach(chip => {
-  // data-force may be "1" (force draft_workout) or a specific tool name.
-  chip.onclick = () => sendCoach(chip.dataset.prompt, chip.dataset.force || false);
+  chip.onclick = () => sendCoach(chip.dataset.prompt);
 });
 document.getElementById('coachClearBtn').onclick = async () => {
   if (!confirm('Clear the coach chat?')) return;
