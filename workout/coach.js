@@ -473,7 +473,7 @@ ALLOWED EXERCISES
 ${allowed}
 
 THIS LIFTER
-Lifetime: ${lt.workouts} workouts, ${lt.hours.toFixed(0)}h trained, ${(lt.volume/1000).toFixed(1)} tonnes lifted. Current streak: ${streak.weeks} week(s) (${streak.thisWeekCount}/${streak.target} this week).
+Lifetime: ${lt.workouts} workouts, ${lt.hours.toFixed(0)}h trained, ${(lt.volume/1000).toFixed(1)} tonnes lifted. Current streak: ${streak.weeks} week(s) (${streak.thisWeekCount}/${streak.target} this week)${streak.pausedNow ? ' — the user is/was unwell this week, so the streak is paused (illness never breaks it); prioritise recovery over training' : ''}.
 
 Last workout: ${sinceLast}.
 ${bodyText ? `\n${bodyText}` : ''}${nutritionText ? `\nNUTRITION (from the linked nutrition app, read-only) — ${nutritionText}` : ''}

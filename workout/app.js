@@ -7,7 +7,7 @@ import { MY_ROUTINES } from './myRoutines.js';
 import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan,
          recoverCoachSplits, projectPlan, REST_DAY } from './splits.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
-         getStreakSettings, saveStreakSettings, computeStreak, computeMilestones } from './achievements.js';
+         getStreakSettings, saveStreakSettings, computeStreak, computeMilestones, currentIllness } from './achievements.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
@@ -3647,19 +3647,54 @@ document.getElementById('libraryAddBtn').onclick = async () => {
 // ── Streak (weekly, with an editable seed) ────────────────────────
 async function renderStreakChip(sessions) {
   const settings = await getStreakSettings();
-  const { weeks, thisWeekCount, target } = computeStreak(sessions, settings);
+  const { weeks, thisWeekCount, target, pausedNow } = computeStreak(sessions, settings);
   const el = document.getElementById('streakChip');
   if (!el) return;
   const flame = `<span style="color:var(--amber);display:inline-flex;vertical-align:-0.2em">${icon('flame', { size: 16 })}</span>`;
+  const week = pausedNow && thisWeekCount < target ? 'paused (unwell)' : `${thisWeekCount}/${target} this week`;
   el.innerHTML = weeks > 0
-    ? `${flame} <strong>${weeks}-week streak</strong> · ${thisWeekCount}/${target} this week`
-    : `${flame} ${thisWeekCount}/${target} workouts this week`;
+    ? `${flame} <strong>${weeks}-week streak</strong> · ${week}`
+    : `${flame} ${pausedNow && thisWeekCount < target ? 'Streak paused (unwell)' : `${thisWeekCount}/${target} workouts this week`}`;
 }
+
+// Illness periods [{from, to|null}] edited in the streak modal; saved with Save.
+let sickDraft = [];
+const fmtSickDay = iso => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+function renderSickEditor() {
+  const open = currentIllness(sickDraft);
+  document.getElementById('sickNow').innerHTML = open
+    ? `<button class="btn btn-p" type="button" id="sickRecovered" style="width:100%">I've recovered (unwell since ${fmtSickDay(open.from)})</button>`
+    : `<button class="btn btn-g" type="button" id="sickStart" style="width:100%">I'm unwell — pause my streak</button>`;
+  const past = sickDraft.map((p, i) => ({ p, i })).filter(({ p }) => p.to).sort((a, b) => b.p.from.localeCompare(a.p.from));
+  document.getElementById('sickList').innerHTML = past.map(({ p, i }) =>
+    `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:0.85rem;border-bottom:1px solid var(--border)">
+      <span>${fmtSickDay(p.from)}${p.to !== p.from ? ` – ${fmtSickDay(p.to)}` : ''}</span>
+      <button type="button" data-sick-del="${i}" title="Remove" aria-label="Remove illness period" style="background:none;border:none;color:var(--text-muted);cursor:pointer;display:flex">${icon('x', { size: 16 })}</button>
+    </div>`).join('');
+}
+document.getElementById('streakModal').addEventListener('click', e => {
+  const today = localYMD();
+  if (e.target.closest('#sickStart')) sickDraft.push({ from: today, to: null });
+  else if (e.target.closest('#sickRecovered')) { const o = currentIllness(sickDraft); o.to = today < o.from ? o.from : today; }
+  else if (e.target.closest('[data-sick-del]')) sickDraft.splice(+e.target.closest('[data-sick-del]').dataset.sickDel, 1);
+  else if (e.target.closest('#sickAdd')) {
+    const from = document.getElementById('sickFrom').value;
+    let to = document.getElementById('sickTo').value || null;
+    if (!from) return;
+    if (to && to < from) to = from;
+    if (!to && currentIllness(sickDraft)) { alert('Mark the current illness as recovered first.'); return; }
+    sickDraft.push({ from, to });
+    document.getElementById('sickFrom').value = document.getElementById('sickTo').value = '';
+  } else return;
+  renderSickEditor();
+});
 
 document.getElementById('streakChip').onclick = async () => {
   const s = await getStreakSettings();
   document.getElementById('streakSeedInput').value   = s.seed || '';
   document.getElementById('streakTargetInput').value = s.target || 3;
+  sickDraft = s.sick.map(p => ({ ...p }));
+  renderSickEditor();
   document.getElementById('streakModal').classList.add('open');
 };
 document.getElementById('streakCancel').onclick = () => document.getElementById('streakModal').classList.remove('open');
@@ -3671,11 +3706,13 @@ document.getElementById('streakSave').onclick = async () => {
   const target = Math.max(1, parseInt(document.getElementById('streakTargetInput').value) || 3);
   const prev = await getStreakSettings();
   await saveStreakSettings({
-    seed, target,
+    seed, target, sick: sickDraft,
     seedDate: seed !== prev.seed ? localYMD() : (prev.seedDate || localYMD()),
   });
   document.getElementById('streakModal').classList.remove('open');
   renderStreakChip(await loadSessions());
+  renderDashboard();
+  if (activeTab === 'Plan') renderPlan();
 };
 
 // ── Skeleton loaders (shown while IndexedDB/stats resolve) ────────────────────
@@ -3895,11 +3932,13 @@ async function renderPlan() {
       <div class="dbody"><div class="dday">${lbl}</div><div class="dname muted">Open</div><div class="dmeta">Tap to plan a workout</div></div></div>`;
   }).join('');
 
-  const { thisWeekCount, target } = computeStreak(sessions, streakSettings);
+  const { thisWeekCount, target, pausedNow } = computeStreak(sessions, streakSettings);
   const imbalance = generateCoachFindings(sessions).find(f => f.severity === 'warn');
   const streakLine = thisWeekCount >= target
     ? `You've hit your <b>${target}/week</b> target — nice.`
-    : `You're at <b>${thisWeekCount}/${target}</b> this week — ${target - thisWeekCount} to go.`;
+    : pausedNow
+      ? `Your streak is <b>paused</b> while you're unwell — rest up, it'll be waiting.`
+      : `You're at <b>${thisWeekCount}/${target}</b> this week — ${target - thisWeekCount} to go.`;
   const noteBody = imbalance ? `${streakLine} Coach flagged an ${esc(imbalance.eyebrow.toLowerCase())}: ${esc(imbalance.body)}` : streakLine;
   const noteHTML = `<div class="plan-note"><span class="ci">${icon('bot', { size: 19 })}</span><div class="plan-note-body">${noteBody}</div></div>`;
 
@@ -3984,7 +4023,7 @@ async function renderDashboard() {
   const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' });
   const weekNo = isoWeek(now);
   const dayNo = ((now.getDay() + 6) % 7) + 1;
-  const { weeks, thisWeekCount, target } = computeStreak(sessions, streakSettings);
+  const { weeks, thisWeekCount, target, pausedNow } = computeStreak(sessions, streakSettings);
 
   const ym = localYMD(now).slice(0, 7);
   const monthVol = sessions
@@ -3994,7 +4033,7 @@ async function renderDashboard() {
 
   const heroHTML = next ? nextSessionCard(next, active, sessions) : emptyHeroCard(active);
 
-  const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : `${thisWeekCount}/${target}`;
+  const streakVal = weeks > 0 ? `${weeks} wk${weeks > 1 ? 's' : ''}` : pausedNow && thisWeekCount < target ? 'Paused' : `${thisWeekCount}/${target}`;
   // Snapshot: the two halves of the app on one screen — training streak, body, nutrition.
   const bodyTile = body
     ? `<div><div class="snap-val">${body.latest} kg</div><div class="snap-lbl">Bodyweight</div></div>
@@ -4012,7 +4051,7 @@ async function renderDashboard() {
     <div class="dash-snapshot">
       <div class="snap-tile" id="tileStreak">
         <span class="snap-ico" style="background:rgba(var(--teal-rgb),0.14);color:var(--prog)">${icon('flame', { size: 16 })}</span>
-        <div><div class="snap-val">${streakVal}</div><div class="snap-lbl">Streak</div></div>
+        <div><div class="snap-val">${streakVal}</div><div class="snap-lbl">Streak${pausedNow && thisWeekCount < target && weeks > 0 ? ' · paused' : ''}</div></div>
         <div class="snap-sub flat">${thisWeekCount} / ${target} this week</div>
       </div>
       <div class="snap-tile" id="tileBody">
