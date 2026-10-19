@@ -1,6 +1,6 @@
 import { supabase }                     from '../shared/supabase.js';
 import db, { initialSync }              from '../shared/db.js';
-import { EXERCISES, CATEGORIES, CATEGORY_COLORS } from './exercises.js';
+import { EXERCISES, CATEGORIES, CATEGORY_COLORS, muscleContributions } from './exercises.js';
 import { resolveCues } from './cues.js';
 import { ROUTINE_LIBRARY } from './routineLibrary.js';
 import { MY_ROUTINES } from './myRoutines.js';
@@ -11,7 +11,8 @@ import { buildRecords, detectPBs, absorbSet, e1RM,
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
-import { resolveRepRange, fetchAIRepRange } from './repRanges.js';
+import { resolveRepRange, fetchAIRepRange, rangeFromSets } from './repRanges.js';
+import { buildSetRows, toCSV, buildBackup, SET_COLUMNS } from './exportData.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
 // Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
@@ -535,16 +536,21 @@ document.getElementById('chooserAllSplits').onclick = () => {
 document.getElementById('dashAllHistory').onclick = () => document.querySelector('.tab[data-tab="Stats"]').click();
 
 // Ghost targets: what the inputs *suggest* (placeholder), never pre-filled values.
-function ghostsFor(prevSets, templateSet, si) {
+// Normally last time's numbers win over the template's; a coach-drafted workout
+// prescribes today's numbers, so there the template wins (preferTemplate).
+function ghostsFor(prevSets, templateSet, si, preferTemplate = false) {
   const prev = prevSets?.[si] ?? prevSets?.at(-1) ?? null;
-  return {
+  return preferTemplate ? {
+    tW: templateSet?.weight || prev?.weight || null,
+    tR: templateSet?.reps   || prev?.reps   || null,
+  } : {
     tW: prev?.weight || templateSet?.weight || null,
     tR: prev?.reps   || templateSet?.reps   || null,
   };
 }
 
-function freshSet(tpl, prevSets, si) {
-  const { tW, tR } = ghostsFor(prevSets, tpl, si);
+function freshSet(tpl, prevSets, si, preferTemplate = false) {
+  const { tW, tR } = ghostsFor(prevSets, tpl, si, preferTemplate);
   return {
     id: uid(),
     type: tpl?.type === 'warmup' || tpl?.type === 'dropset' ? tpl.type : 'normal',
@@ -567,6 +573,10 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
   sessionRecords = buildRecords(past);
 
   const allEx = await getAllExercises();
+  // Started from a coach draft: the coach's reps/loads are this session's targets,
+  // not the standard rep range or last time's numbers. Session-only — the split
+  // workout and the library keep their own ranges.
+  const coach = !!prefill?.coachTargets;
   const exercises = (prefill?.exercises || []).map(e => {
     const prev = prevPerfFrom(past, e.name);
     const def = allEx.find(x => x.name === e.name);
@@ -574,15 +584,17 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
     // (leg raises etc.) so they're reps-only from the start, not just at render.
     const logType = resolveLogType({ name: e.name, category: e.category,
       logType: e.logType || prev?.logType || def?.logType || exLogType(e.name, e.category) });
+    const coachRange = coach && logType !== 'duration' && logType !== 'cardio' ? rangeFromSets(e.sets) : null;
     return {
       id: uid(), name: e.name, category: e.category, logType,
       restTime: e.restTime ?? prev?.restTime ?? 60,
       notes: '', carriedNote: prev?.notes || '',   // last session's note — shown once, then auto-cleared on save
-      repRange: e.repRange || def?.repRange || null,
+      repRange: coachRange || e.repRange || def?.repRange || null,
+      ...(coachRange ? { repSource: 'coach' } : {}),
       prevPerf: prev ? prev.sets.slice(0,3).map(s => `${fmtKg(s.weight)}×${s.reps}`).join(', ') : null,
       prevSets: prev?.sets || null,
       ...(e.supersetId ? { supersetId: e.supersetId } : {}),
-      sets: (e.sets?.length ? e.sets : [{}]).map((tpl, si) => freshSet(tpl, prev?.sets || null, si)),
+      sets: (e.sets?.length ? e.sets : [{}]).map((tpl, si) => freshSet(tpl, prev?.sets || null, si, coach)),
     };
   });
 
@@ -916,8 +928,10 @@ function replaceSetRow(ei, setId) {
 
 // Target rep-range badge markup (icon + text), shared by the block build and
 // the async AI-lookup patcher so both render identically.
-function repRangeHTML(range) {
-  return range ? `${icon('target', { size: 13 })} Target: ${range.min}–${range.max} reps` : '';
+function repRangeHTML(range, coach = false) {
+  if (!range) return '';
+  const reps = range.min === range.max ? range.min : `${range.min}–${range.max}`;
+  return `${icon('target', { size: 13 })} ${coach ? 'Coach target' : 'Target'}: ${reps} reps`;
 }
 
 function buildExerciseBlock(ex, ei) {
@@ -951,7 +965,7 @@ function buildExerciseBlock(ex, ei) {
       <button class="ex-cue-btn" data-cue="${esc(ex.name)}" aria-label="Form cues" data-tip="Form cues" title="Form cues">${icon('info', { size: 17 })}</button>
       <button class="ex-menu-btn" data-ei="${ei}" aria-label="Exercise options" data-tip="Options" title="Options">${icon('ellipsis', { size: 18 })}</button>
     </div>
-    <div class="ex-rep-range" data-ex-name="${esc(ex.name)}">${repRangeHTML(range)}</div>
+    <div class="ex-rep-range" data-ex-name="${esc(ex.name)}"${ex.repSource === 'coach' ? ' data-coach="1"' : ''}>${repRangeHTML(range, ex.repSource === 'coach')}</div>
     <div class="ex-rest-control">
       <span class="ex-rest-icon">${icon('timer', { size: 15 })}</span>
       <span class="ex-rest-label">Rest timer</span>
@@ -2052,8 +2066,9 @@ async function replaceExercise(ei, newName, newCat) {
   const def = allEx.find(x => x.name === newName);
   const logType = prev?.logType || def?.logType || exLogType(newName, newCat);
 
+  const { repSource, ...keep } = old;   // a coach rep target belonged to the old exercise
   activeSession.exercises[ei] = {
-    ...old,
+    ...keep,
     name: newName, category: newCat, logType,
     notes: '', carriedNote: prev?.notes || '',
     repRange: def?.repRange || null,
@@ -2404,7 +2419,9 @@ function finishWarnings() {
 }
 
 async function showWorkoutSummary() {
-  skipRest();
+  // The rest timer keeps running behind the summary: tapping outside it goes back
+  // to the workout, and that used to come back with the timer gone. Save/discard
+  // stop it (saveWorkout / cancelWorkout).
   refreshAllPBs();   // ensure the PB count reflects the final, corrected numbers
   const title = document.getElementById('awTitle').value.trim() || 'Workout';
   activeSession.title = title;
@@ -2524,6 +2541,7 @@ document.getElementById('discardBtn').onclick = () => { if (confirm('Discard thi
 
 async function saveWorkout() {
   releaseWakeLock();
+  skipRest();
   // Backfill: a workout logged for a past day via the calendar saves to that
   // date with a neutral noon timestamp and 0 duration (both editable after).
   const isBackfill = !!backfillDate;
@@ -2542,7 +2560,9 @@ async function saveWorkout() {
     // and never propagates further — only a note you type this session persists.
     exercises: activeSession.exercises.map(({ prevPerf, prevSets, carriedNote, ...e }) => ({
       ...e,
-      sets: e.sets.map(({ touched, tW, tR, ...s }) => s), // strip transient fields
+      // Live-editor fields go; the targets shown for each set are kept as
+      // targetWeight/targetReps so a planned-vs-done comparison survives.
+      sets: e.sets.map(({ touched, tW, tR, ...s }) => ({ ...s, ...(tW ? { targetWeight: tW } : {}), ...(tR ? { targetReps: tR } : {}) })),
     })),
   };
   await ensureExercisesInRepo(session.exercises);   // catalogue anything new
@@ -2748,7 +2768,15 @@ function bumpRest(delta) {
   restEndsAt = Math.max(Date.now() + 1000, restEndsAt + delta * 1000);
   restTotalSecs = Math.max(restTotalSecs + delta, 1);
   restFiredChime = false;
-  db.set(STORE, 'active-rest', { endsAt: restEndsAt, totalSecs: restTotalSecs });
+  db.set(STORE, 'active-rest', { endsAt: restEndsAt, totalSecs: restTotalSecs, exName: restExNameForNotif });
+  // +15 on a finished rest restarts the countdown — drop the done styling with it.
+  const bar = document.getElementById('restBar');
+  if (bar?.classList.contains('done-state')) {
+    bar.classList.remove('flash', 'done-state');
+    document.getElementById('restBarName').textContent = restExNameForNotif ? `Rest — ${restExNameForNotif}` : 'Rest';
+    clearInterval(restTimer);
+    restTimer = setInterval(tickRest, 250);
+  }
   tickRest();
 }
 
@@ -2764,13 +2792,21 @@ function resumeRestFromDb(saved) {
     clearInterval(restTimer);
     tickRest();
     restTimer = setInterval(tickRest, 250);
-  } else if (Date.now() - saved.endsAt < 60_000) {
-    // Expired very recently (probably while backgrounded) — signal once
-    restEndsAt = saved.endsAt;
-    document.getElementById('restBar').classList.add('visible');
-    finishRest();
   } else {
-    db.set(STORE, 'active-rest', null);
+    // Ended while the app was closed (iOS often kills a backgrounded PWA). Show
+    // the done state like a live timer would — it stays until Skip or the next
+    // set — but only chime if it ended moments ago.
+    restEndsAt = saved.endsAt;
+    restExNameForNotif = saved.exName || '';
+    document.getElementById('restBar').classList.add('visible');
+    if (Date.now() - saved.endsAt < 60_000) finishRest();
+    else {
+      restFiredChime = true;
+      clearInterval(restTimer);
+      updateRestDisplay(0);
+      document.getElementById('restBar').classList.add('done-state');
+      document.getElementById('restBarName').innerHTML = `${icon('circle-check', { size: 15 })} Rest done — next set!`;
+    }
   }
 }
 
@@ -3278,11 +3314,12 @@ document.getElementById('editExSave').onclick = async () => {
 // Patches any already-rendered rep-range badges for this exercise name in place.
 function patchRepRangeBadge(name, range) {
   if (!range) return;
+  // A coach-set target outranks the looked-up standard range for this session.
   document.querySelectorAll('.ex-rep-range').forEach(el => {
-    if (el.dataset.exName === name) el.innerHTML = repRangeHTML(range);
+    if (el.dataset.exName === name && !el.dataset.coach) el.innerHTML = repRangeHTML(range);
   });
   if (activeSession) {
-    for (const ex of activeSession.exercises) if (ex.name === name) ex.repRange = range;
+    for (const ex of activeSession.exercises) if (ex.name === name && ex.repSource !== 'coach') ex.repRange = range;
   }
 }
 
@@ -5201,20 +5238,47 @@ document.getElementById('backupCloudBtn').onclick = async () => {
   } catch (err) { showProgress('❌ Backup failed: ' + err.message, 6000); }
 };
 
-// Download a JSON backup of everything in the workout store — a device-owned
-// copy that doesn't depend on the cloud at all.
+function downloadFile(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Download a JSON backup of every local store (workouts, ARC Fuel nutrition,
+// legacy habits) plus the resolved exercise library — a device-owned copy that
+// doesn't depend on the cloud. API keys are left out.
 document.getElementById('exportBtn').onclick = async () => {
   try {
-    const entries = await db.getAll(STORE);
-    const blob = new Blob([JSON.stringify({ app: 'gym', version: 1, exportedAt: new Date().toISOString(), entries }, null, 0)],
-      { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gym-backup-${localYMD()}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showProgress(`✅ Exported ${entries.length} items. Save the file somewhere safe.`, 6000);
+    const [workout, calories, habits, exercises] = await Promise.all(
+      [db.getAll(STORE), db.getAll('calories'), db.getAll('habits'), getAllExercises()]);
+    const reference = {
+      exercises: exercises.map(e => {
+        const logType = resolveLogType(e);
+        return { ...e, logType, repRange: resolveRepRange({ ...e, logType }),
+                 secondaryMuscles: Object.fromEntries(muscleContributions(e).filter(m => !m.primary).map(m => [m.muscle, m.frac])) };
+      }),
+    };
+    const backup = buildBackup({ stores: { workout, calories, habits }, reference });
+    downloadFile(`arc-backup-${localYMD()}.json`, JSON.stringify(backup), 'application/json');
+    showProgress(`✅ Exported ${backup.entries.length} items. Save the file somewhere safe.`, 6000);
+  } catch (err) { showProgress('❌ Export failed: ' + err.message, 6000); }
+};
+
+// One row per logged set with every stored field plus derived columns, for a
+// spreadsheet or analysis. Read-only — Import still takes the JSON backup.
+document.getElementById('exportCsvBtn').onclick = async () => {
+  try {
+    const [sessions, { splits }] = await Promise.all([loadSessions(), getSplitState()]);
+    const rows = buildSetRows(sessions, {
+      canonicalName, resolveLogType, resolveRepRange,
+      splitName:   s => splits.find(sp => sp.id === s.splitId)?.name,
+      workoutName: s => (s.workoutId && findWorkout(splits, s.workoutId)?.workout.name) || '',
+    });
+    downloadFile(`arc-sets-${localYMD()}.csv`, toCSV(SET_COLUMNS, rows), 'text/csv');
+    showProgress(`✅ Exported ${rows.length} sets from ${sessions.length} workouts.`, 6000);
   } catch (err) { showProgress('❌ Export failed: ' + err.message, 6000); }
 };
 
@@ -6155,7 +6219,7 @@ function renderRoutineCard(routine) {
     const { active } = await getSplitState();
     const n = routine.name.trim().toLowerCase();
     const w = active?.workouts.find(x => x.name.trim().toLowerCase() === n);
-    startEmptyWorkout(w ? { ...routine, splitId: active.id, workoutId: w.id } : routine);
+    startEmptyWorkout({ ...routine, coachTargets: true, ...(w ? { splitId: active.id, workoutId: w.id } : {}) });
   };
   card.querySelector('.cr-save').onclick  = () => saveTemplate(routine.name, routine.exercises);
   return card;
