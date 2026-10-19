@@ -242,6 +242,16 @@ export function resolveRepRange(ex) {
   return fallback ? { min: fallback[0], max: fallback[1] } : null;
 }
 
+// Rep target from a drafted exercise's own sets (a coach-built workout): the
+// min–max of its working-set reps. Warm-ups and drop sets don't set the target.
+export function rangeFromSets(sets) {
+  const reps = (sets || [])
+    .filter(s => s && s.type !== 'warmup' && s.type !== 'dropset')
+    .map(s => parseInt(s.reps) || 0)
+    .filter(r => r > 0);
+  return reps.length ? { min: Math.min(...reps), max: Math.max(...reps) } : null;
+}
+
 // ── AI lookup for new/custom exercises ────────────────────────────────────────
 // Uses the same Anthropic key + model as the AI coach. Returns { min, max } or
 // null on any failure (no key, offline, bad response) — callers fall back to
