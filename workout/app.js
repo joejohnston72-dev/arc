@@ -13,6 +13,7 @@ import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
 import { resolveRepRange, fetchAIRepRange, rangeFromSets } from './repRanges.js';
 import { buildSetRows, toCSV, buildBackup, SET_COLUMNS } from './exportData.js';
+import { makeCategoryResolver, wasLegacyGuess } from './categorize.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
 // Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
@@ -314,16 +315,44 @@ const fmtDate = iso => {
 // it 2–3×). A 2s memo collapses those redundant full-store scans; every local
 // mutation calls invalidateSessions() for correctness, and the TTL self-heals
 // any path that forgets to (e.g. a background cloud pull) within 2s.
+// ── Exercise categories, resolved on read ─────────────────────────────────────
+// The pre-v95 importer guessed categories by substring ("Machine" → Back via
+// "chin", "Cable" → Core via "ab", no match → Back), and every session stores
+// its guess. categoryOf (categorize.js) re-derives them: library first, then a
+// stored value the old guesser didn't write, then the new guess, then 'Other'.
+// Applied when sessions are read, so no stored session is rewritten — the same
+// approach as exercise aliases.
+let categoryOf = makeCategoryResolver({ exercises: EXERCISES, categories: CATEGORIES });
+let _catSig = '';
+async function syncCategoryResolver() {
+  const exercises = await getAllExercises();
+  const sig = exercises.map(e => `${e.name}|${e.category}`).join('\n') + '#' + exAliasVersion;
+  if (sig === _catSig) return;
+  _catSig = sig;
+  categoryOf = makeCategoryResolver({ exercises, categories: CATEGORIES, canonicalName });
+}
+function withCategories(s) {
+  let changed = false;
+  const exercises = s.exercises.map(e => {
+    const c = categoryOf(e.name, e.category);
+    if (c === e.category) return e;
+    changed = true;
+    return { ...e, category: c };
+  });
+  return changed ? { ...s, exercises } : s;
+}
+function guessCategory(name) { return categoryOf(name, null); }
+
 let _sessCache = null;
 function invalidateSessions() { _sessCache = null; }
 async function loadSessions() {
   if (_sessCache && Date.now() - _sessCache.t < 2000) return _sessCache.data.slice();
-  const all = await db.getAll(STORE);
+  const [all] = await Promise.all([db.getAll(STORE), syncCategoryResolver()]);
   const data = all
     .filter(r => r.key.startsWith('session-') && r.value?.exercises)
     .map(r => ({ v: r.value, ts: parseToDate(r.value.date || r.value.startTime || '')?.getTime() || 0 }))
     .sort((a, b) => b.ts - a.ts)   // decorate-sort: parse each date once, not per comparison
-    .map(x => x.v);
+    .map(x => withCategories(x.v));
   _sessCache = { t: Date.now(), data };
   return data.slice();   // callers get their own array; the cache copy stays canonical
 }
@@ -3074,7 +3103,7 @@ async function ensureExercisesInRepo(exercises) {
     known.add(key);
     const entry = {
       id: uid(), name,
-      category: ex.category || guessCategory(name),
+      category: categoryOf(name, ex.category),
       logType: ex.logType || exLogType(name, ex.category),
       custom: true,
     };
@@ -3435,6 +3464,25 @@ async function ensureSplits() {
 // (see recoverCoachSplits). Makes a restored split active when it holds the
 // most recently logged workout. Waits for real splits so a pre-restore run
 // can't burn the flag.
+// One-time: custom exercises catalogued from imported sessions inherited the old
+// guesser's category. Re-resolve those (only where the stored value is exactly
+// what the old guesser writes for that name, so a category you chose is kept).
+async function fixCustomCategoriesOnce() {
+  if (await db.get(STORE, 'categories-fixed-v1')) return;
+  const custom = (await db.get(STORE, 'exercises-custom')) || [];
+  if (!custom.length) return;   // nothing restored yet — try again after the cloud pull
+  const builtins = (await getAllExercises()).filter(e => !e.custom);
+  const resolve = makeCategoryResolver({ exercises: builtins, categories: CATEGORIES });
+  let changed = 0;
+  for (const e of custom) {
+    if (!wasLegacyGuess(e.name, e.category)) continue;
+    const c = resolve(e.name, e.category);
+    if (c !== e.category) { e.category = c; changed++; }
+  }
+  if (changed) await db.set(STORE, 'exercises-custom', custom);
+  await db.set(STORE, 'categories-fixed-v1', true);
+}
+
 async function restoreCoachSplitsOnce() {
   if (await db.get(STORE, 'coach-splits-recovered')) return false;
   const splits = await getSplits();
@@ -4575,7 +4623,8 @@ async function saveHistoryEdits() {
 async function openHistoryDetail(sessionId) {
   const s = await db.get(STORE, 'session-' + sessionId);
   if (!s) return;
-  hdSession = s;
+  await syncCategoryResolver();
+  hdSession = withCategories(s);
   hdEditMode = false;
   renderHistoryDetailBody();
   document.getElementById('historyDetail').classList.add('visible');
@@ -5362,7 +5411,7 @@ function parseWorkoutCSV(text) {
     if (!workouts[wKey].exercises[exName]) {
       workouts[wKey].exercises[exName] = {
         id: uid(), name: exName,
-        category: guessCategory(exName),
+        category: categoryOf(exName, null),
         notes: row.exercise_notes || '',
         sets: [],
       };
@@ -5384,21 +5433,6 @@ function parseWorkoutCSV(text) {
   }));
 }
 
-function guessCategory(name) {
-  const n = name.toLowerCase();
-  if (/bench|chest|fly|pec|push.?up|dip/.test(n))                      return 'Chest';
-  if (/deadlift|row|pull.?up|chin|lat|pulldown|face.?pull/.test(n))    return 'Back';
-  if (/shoulder|press.*over|overhead|lateral|delt|arnold/.test(n))     return 'Shoulders';
-  if (/curl|bicep/.test(n))                                             return 'Biceps';
-  if (/tricep|pushdown|skull|close.?grip|extension/.test(n))           return 'Triceps';
-  if (/squat|leg.?press|hack|lunge|split|sissy/.test(n))               return 'Quads';
-  if (/leg.?curl|hamstring|romanian|rdl|good.?morning/.test(n))        return 'Hamstrings';
-  if (/hip.?thrust|glute|kickback|abduct/.test(n))                     return 'Glutes';
-  if (/calf|calves/.test(n))                                            return 'Calves';
-  if (/plank|crunch|ab|core|oblique|dragon|pallof|leg.?raise/.test(n)) return 'Core';
-  if (/run|cardio|bike|cycle|row.*machine|stair|rope/.test(n))         return 'Cardio';
-  return 'Back'; // fallback
-}
 
 // Delimiter-detecting parser — handles TSV and CSV
 function parseCSV(text) {
@@ -6590,6 +6624,7 @@ await fixIncompletePushDayOnce();
 await swapPullDayInclineCurlOnce();
 await ensureSplits();      // one-time: flat routines list → splits (after the seed/fix-ups above)
 await restoreCoachSplitsOnce();   // one-time: regroup coach splits the migration scattered
+await fixCustomCategoriesOnce();  // one-time: undo the old importer's category guesses in the library
 await checkForAbandonedSession();
 refreshIcons();   // paint the static tab-bar / header / chip icon placeholders
 
@@ -6634,7 +6669,7 @@ renderHistory();
 backfillCustomRepRanges(); // background — fills in AI rep ranges for any custom exercise missing one
 
 // If the cloud pull finished AFTER the cap (slow network), refresh once it lands.
-restore.then(async n => { if (n) { invalidateSessions(); await ensureSplits(); await restoreCoachSplitsOnce(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
+restore.then(async n => { if (n) { invalidateSessions(); await ensureSplits(); await restoreCoachSplitsOnce(); await fixCustomCategoriesOnce(); renderDashboard(); renderHistory(); renderStats(); } }).catch(() => {});
 
 autoBackupIfStale();   // mirror local → cloud on open, throttled to ~6h
 
