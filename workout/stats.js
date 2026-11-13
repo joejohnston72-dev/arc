@@ -223,6 +223,7 @@ function computeWeeklySetsByCategory(sessions, weeksBack) {
         cardioMin += workingSets(ex).reduce((a, st) => a + (st.reps || 0), 0);
         continue;
       }
+      if (ex.category === 'Other') continue;   // sauna, stretching… — not muscle volume
       const n = workingSets(ex).length;
       if (!n) continue;
       for (const c of muscleContributions(ex)) {

@@ -368,7 +368,7 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
     if (!t) continue;
     if (t > lastWorkoutTs) lastWorkoutTs = t;
     for (const ex of s.exercises || []) {
-      if (!ex.category || ex.category === 'Cardio') continue;
+      if (!ex.category || ex.category === 'Cardio' || ex.category === 'Other') continue;
       // A muscle counts as trained if a lift loaded it directly OR indirectly as a
       // compound's secondary mover — squatting fatigues the glutes even with no
       // dedicated glute work, so readiness should reflect that.

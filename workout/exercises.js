@@ -29,7 +29,7 @@ export const EXERCISES = [
   { name: 'Deadlift (Barbell)',              category: 'Back' },
   { name: 'Deadlift (Dumbbell)',             category: 'Back' },
   { name: 'Deadlift (Trap Bar)',             category: 'Back' },
-  { name: 'Romanian Deadlift',               category: 'Back' },
+  { name: 'Romanian Deadlift',               category: 'Hamstrings' },
   { name: 'Sumo Deadlift',                   category: 'Back' },
   { name: 'Rack Pull',                       category: 'Back' },
   { name: 'Pull Up',                         category: 'Back' },
@@ -301,7 +301,7 @@ export const SECONDARY_MUSCLES = {
   'Deadlift (Barbell)':             { Glutes: 0.5, Hamstrings: 0.5 },
   'Deadlift (Dumbbell)':            { Glutes: 0.5, Hamstrings: 0.5 },
   'Deadlift (Trap Bar)':            { Quads: 0.5, Glutes: 0.5, Hamstrings: 0.35 },
-  'Romanian Deadlift':              { Hamstrings: 0.8, Glutes: 0.6 },
+  'Romanian Deadlift':              { Glutes: 0.6 },
   'Sumo Deadlift':                  { Glutes: 0.6, Hamstrings: 0.4, Quads: 0.4 },
   'Rack Pull':                      { Glutes: 0.4, Hamstrings: 0.35 },
   // ── Vertical / horizontal pulls → biceps ──
