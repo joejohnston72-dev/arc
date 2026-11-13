@@ -37,13 +37,14 @@ for (const [name, cat] of Object.entries(cases)) eq(guessCategory(name), cat, na
 const categoryOf = makeCategoryResolver({ exercises: EXERCISES, categories: CATEGORIES });
 eq(categoryOf('Bench Press (Barbell)', 'Back'), 'Chest', 'library beats a stored value');
 eq(categoryOf('Shrug (Cable)', 'Core'), 'Back', 'exact library name');
+eq(categoryOf('Romanian Deadlift', 'Back'), 'Hamstrings', 'built-in RDL is a hamstring lift');
 // …then a stored value the old guesser did NOT write (user/coach-set)…
 eq(categoryOf('Zercher Thing', 'Glutes'), 'Glutes', 'non-legacy stored value is kept');
 // …otherwise the new guess, else Other.
 eq(legacyGuessCategory('Single Arm Lateral Raise (Cable)'), 'Back', 'old guesser really did this');
 eq(categoryOf('Single Arm Lateral Raise (Cable)', 'Back'), 'Shoulders', 'legacy guess replaced');
 eq(categoryOf('sauna', 'Back'), 'Other', 'legacy fallback becomes Other');
-eq(categoryOf('Romanian Deadlift (Barbell)', 'Back'), 'Hamstrings', 'ambiguous base name falls through to the guess');
+eq(categoryOf('Romanian Deadlift (Barbell)', 'Back'), 'Hamstrings', 'base name of the RDL variants');
 // Aliases: a merged variation takes its canonical lift's category.
 const aliased = makeCategoryResolver({ exercises: EXERCISES, categories: CATEGORIES,
   canonicalName: n => (n === 'My Bench' ? 'Bench Press (Barbell)' : n) });
