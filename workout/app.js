@@ -8,6 +8,7 @@ import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneW
          recoverCoachSplits, projectPlan, REST_DAY } from './splits.js';
 import { buildRecords, detectPBs, absorbSet, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones, currentIllness } from './achievements.js';
+import { asWorkingSet, workingSetsOf, workingSessions } from './workingSet.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
@@ -512,7 +513,9 @@ let focusClockTimer = null;
 
 // ── In-progress autosave ──────────────────────────────────────────────────────
 let saveTimer = null;
+let lastActivityMs = 0;   // last real edit — the hide-flush must not count as activity
 function saveSoon() {
+  lastActivityMs = Date.now();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveActiveSession, 1000);
 }
@@ -525,6 +528,7 @@ function saveActiveSession() {
     workoutEditTarget,
     title: document.getElementById('awTitle').value,
     savedAt: Date.now(),
+    lastActiveAt: lastActivityMs || Date.now(),
   });
 }
 async function clearActiveSessionStore() {
@@ -599,7 +603,7 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
 
   // One history load powers previous-performance ghosts AND PB records.
   const past = await loadSessions();
-  sessionRecords = buildRecords(past);
+  sessionRecords = buildRecords(workingSessions(past));
 
   const allEx = await getAllExercises();
   // Started from a coach draft: the coach's reps/loads are this session's targets,
@@ -638,6 +642,7 @@ async function startEmptyWorkout(prefill = null, backfill = null) {
     ...(prefill?.workoutId && prefill?.splitId ? { splitId: prefill.splitId, workoutId: prefill.workoutId } : {}),
   };
   sessionStartMs = Date.now();
+  lastActivityMs = Date.now();
   ensureExercisesInRepo(exercises);   // catalogue anything a started routine references
   acquireWakeLock();
   openActiveWorkout();
@@ -756,18 +761,37 @@ function fitActiveWorkout() {
     if (!aw.classList.contains('visible')) return;
     const vv = window.visualViewport;
     if (!vv) return;
+    // iOS pans the whole page up to show a focused set input. That drags this
+    // fixed overlay with it: the header slides off the top and WebKit draws the
+    // caret a row away from the field actually being typed in. Undo the pan and
+    // scroll the input into view inside #awBody instead (padded above the keyboard).
+    const focused = document.activeElement;
+    const inAw = focused && aw.contains(focused) && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
+    if (inAw && vv.offsetTop > 0) { window.scrollTo(0, 0); fitActiveWorkout(); return; }
     // Height of the keyboard = layout viewport minus the still-visible strip.
     const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     const applied = kb > 80 ? kb : 0;   // ignore tiny insets / the input accessory bar
-    if (applied === lastKb) return;     // no change → no reflow, no jitter
-    lastKb = applied;
-    aw.style.paddingBottom = applied ? applied + 'px' : '';
+    aw.classList.toggle('kb-open', !!applied);   // CSS hides Add Exercise to free up rows
+    if (applied !== lastKb) {           // no change → no reflow, no jitter
+      lastKb = applied;
+      aw.style.paddingBottom = applied ? applied + 'px' : '';
+    }
+    if (inAw && applied) keepInputVisible(focused);
   });
 }
+function keepInputVisible(el) {
+  if (!awBody.contains(el)) return;
+  const body = awBody.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (r.bottom > body.bottom - 8) awBody.scrollTop += r.bottom - body.bottom + 24;
+  else if (r.top < body.top + 8) awBody.scrollTop -= body.top - r.top + 24;
+}
+document.getElementById('awBody').addEventListener('focusin', () => fitActiveWorkout());
 function unfitActiveWorkout() {
   cancelAnimationFrame(fitRaf);
   const aw = document.getElementById('activeWorkout');
   aw.style.paddingBottom = '';
+  aw.classList.remove('kb-open');
   lastKb = -1;
   syncScrollLock();
 }
@@ -823,25 +847,74 @@ if (window.visualViewport) {
 }
 
 // ── Restore an in-progress workout after a kill/reload ────────────────────────
-async function checkForAbandonedSession() {
-  const saved = await db.get(STORE, 'active-session');
-  if (!saved?.session?.exercises?.length) return;
-  const ageMin = Math.round((Date.now() - (saved.savedAt || 0)) / 60000);
-  const ageTxt = ageMin < 60 ? `${ageMin} min ago` : `${Math.round(ageMin/60)}h ago`;
-  const label  = saved.title || saved.session.title || 'Workout';
-  if (ageMin > 720) { await clearActiveSessionStore(); return; } // stale >12h — silently drop
-  if (!confirm(`Resume "${label}" in progress? (last active ${ageTxt})`)) {
-    await clearActiveSessionStore();
-    return;
-  }
+// A workout left open this long with no edits is treated as finished and saved
+// to history automatically — forgetting to tap Finish must never lose it.
+const AUTO_FINISH_MIN = 180;
+const hasDoneSets = sess => (sess?.exercises || []).some(e => (e.sets || []).some(st => st.done));
+
+async function restoreSavedSession(saved) {
   routineMode = !!saved.routineMode;
   workoutEditTarget = routineMode ? (saved.workoutEditTarget || null) : null;
   activeSession = saved.session;
   activeSession.pbs ||= [];
   sessionStartMs = Date.parse(activeSession.startTime) || (Date.now() - 60000);
+  lastActivityMs = saved.lastActiveAt || saved.savedAt || Date.now();
   const past = await loadSessions();
-  sessionRecords = buildRecords(past, activeSession.id);
+  sessionRecords = buildRecords(workingSessions(past), activeSession.id);
   document.getElementById('awFinishBtn').textContent = routineMode ? 'Save' : 'Finish';
+  document.getElementById('awTitle').value = saved.title || activeSession.title || '';
+}
+
+function showInfoToast(text) {
+  const el = document.getElementById('pbToast');
+  el.innerHTML = `<span style="color:var(--green);display:inline-flex;vertical-align:-0.2em;margin-right:4px">${icon('circle-check', { size: 18 })}</span>${esc(text)}`;
+  el.classList.add('visible');
+  clearTimeout(pbToastTimer);
+  pbToastTimer = setTimeout(() => el.classList.remove('visible'), 5000);
+}
+
+// Save the in-memory workout as finished, ending at its last activity.
+async function autoFinishActive() {
+  const title = document.getElementById('awTitle').value.trim() || activeSession.title || 'Workout';
+  refreshAllPBs();
+  await saveWorkout({ endMs: lastActivityMs || Date.now() });
+  showInfoToast(`Saved "${title}" to your history — it was left unfinished.`);
+}
+
+// Still open after a long idle (app left running in the background) → finish it.
+function maybeAutoFinishIdle() {
+  if (!activeSession || routineMode || backfillDate || !lastActivityMs) return;
+  if (Date.now() - lastActivityMs < AUTO_FINISH_MIN * 60000) return;
+  if (!hasDoneSets(activeSession)) return;
+  autoFinishActive();
+}
+
+// ── Restore an in-progress workout after a kill/reload ────────────────────────
+async function checkForAbandonedSession() {
+  const saved = await db.get(STORE, 'active-session');
+  if (!saved?.session?.exercises?.length) return;
+  const lastActive = saved.lastActiveAt || saved.savedAt || 0;
+  const ageMin = Math.round((Date.now() - lastActive) / 60000);
+  const ageTxt = ageMin < 60 ? `${ageMin} min ago` : `${Math.round(ageMin/60)}h ago`;
+  const label  = saved.title || saved.session.title || 'Workout';
+  // Logged sets are never thrown away: a stale workout, or one you choose not to
+  // resume, is saved to history as finished (edit or delete it there).
+  const keep = !saved.routineMode && hasDoneSets(saved.session);
+  if (keep && ageMin >= AUTO_FINISH_MIN) {
+    await restoreSavedSession(saved);
+    await autoFinishActive();
+    return;
+  }
+  if (ageMin > 720) { await clearActiveSessionStore(); return; } // stale >12h, nothing logged — drop
+  const msg = keep
+    ? `Resume "${label}"? (last active ${ageTxt})\n\nCancel saves it to your history as finished.`
+    : `Resume "${label}" in progress? (last active ${ageTxt})`;
+  if (!confirm(msg)) {
+    if (keep) { await restoreSavedSession(saved); await autoFinishActive(); }
+    else await clearActiveSessionStore();
+    return;
+  }
+  await restoreSavedSession(saved);
   acquireWakeLock();
   openActiveWorkout();
   document.getElementById('awTitle').value = saved.title || activeSession.title || '';
@@ -963,6 +1036,35 @@ function repRangeHTML(range, coach = false) {
   return `${icon('target', { size: 13 })} ${coach ? 'Coach target' : 'Target'}: ${reps} reps`;
 }
 
+// Each superset group in the session gets its own rail colour, in order.
+const SS_COLORS = ['purple', 'teal', 'orange', 'blue', 'red', 'amber'];
+function supersetIndex(ei) {
+  const list = activeSession.exercises;
+  let n = -1;
+  for (let i = 0; i <= ei; i++) if (list[i].supersetId && list[i - 1]?.supersetId !== list[i].supersetId) n++;
+  return Math.max(0, n);
+}
+
+// "Last time + best" card — fills the space above the exercise in focus view
+// (CSS hides it in the list view). Last time = the previous session's working
+// sets; best = heaviest working set + est. 1RM from the historical baseline.
+function lastTimeCardHTML(ex, lt) {
+  const prev = (ex.prevSets || []).map(asWorkingSet).filter(st => st && st.type !== 'warmup');
+  const fmt = st => lt === 'weighted' ? `${fmtKg(st.weight)}×${st.reps || 0}`
+    : lt === 'bodyweight' ? `${st.reps || 0} reps`
+    : lt === 'duration' ? (fmtDuration(st.duration) || '—')
+    : `${st.distance || 0}km`;
+  const last = prev.length ? prev.map(st => `<span class="lt-chip">${esc(fmt(st))}</span>`).join('') : '<span class="lt-empty">First time — set the baseline</span>';
+  const rec = lt === 'weighted' ? sessionRecords?.[ex.name] : null;
+  const best = rec?.maxWeight
+    ? `<div class="lt-row"><span class="lt-lbl">${icon('trophy', { size: 13 })} Best</span><span class="lt-best">${fmtKg(rec.maxWeight)} kg × ${rec.repsAtWeight?.[String(rec.maxWeight)] || 0}<span class="lt-sub"> · e1RM ${Math.round(rec.maxE1rm)} kg</span></span></div>`
+    : '';
+  return `<div class="ex-last-card">
+    <div class="lt-row"><span class="lt-lbl">${icon('calendar', { size: 13 })} Last time</span><span class="lt-chips">${last}</span></div>
+    ${best}
+  </div>`;
+}
+
 function buildExerciseBlock(ex, ei) {
   const block = document.createElement('div');
   block.className = 'ex-block';
@@ -973,7 +1075,10 @@ function buildExerciseBlock(ex, ei) {
   const inSS = !!ex.supersetId;
   const firstOfGroup = inSS && (!prevEx || prevEx.supersetId !== ex.supersetId);
   const lastOfGroup  = inSS && (!nextEx || nextEx.supersetId !== ex.supersetId);
-  if (inSS) block.classList.add('ss-member');
+  if (inSS) {
+    block.classList.add('ss-member');
+    block.style.setProperty('--ss', `var(--${SS_COLORS[supersetIndex(ei) % SS_COLORS.length]})`);
+  }
   if (firstOfGroup) block.classList.add('ss-first');
   if (lastOfGroup)  block.classList.add('ss-last');
   const color = CATEGORY_COLORS[ex.category] || '#979ca4';
@@ -984,6 +1089,7 @@ function buildExerciseBlock(ex, ei) {
   const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
 
   block.innerHTML = `
+    ${lastTimeCardHTML(ex, lt)}
     ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
       <span class="ex-grip" aria-hidden="true">${icon('grip-vertical', { size: 17 })}</span>
@@ -1157,7 +1263,7 @@ awBody.addEventListener('input', e => {
     if (field === 'weight') { t.closest('td')?.querySelector('.set-nudge')?.remove(); queueSanityCheck(ex, set, t.closest('.set-row')); }
     // Editing a completed set's weight/reps re-checks its trophy live, so a
     // mistyped PB disappears the moment the number is corrected.
-    if (!routineMode && set.done && (field === 'weight' || field === 'reps')) refreshExercisePBs(ei);
+    if (!routineMode && set.done && /^(weight|reps)2?$/.test(field)) refreshExercisePBs(ei);
     saveSoon();
   } else if (t.classList.contains('ex-notes-input')) {
     const ex = activeSession?.exercises[t.dataset.ei];
@@ -1401,9 +1507,13 @@ function toggleSetDone(ei, setId, rowEl) {
     }
 
     unlockAudio();
-    // In a superset you go straight to the paired exercise — only rest after the
-    // last member of the group (or a normal, ungrouped exercise).
-    if (!routineMode && isLastSupersetMember(ei)) startRest(ex.restTime ?? 60, ex.name);
+    // In a superset you go straight to the paired exercise — rest once every
+    // member has done this round, whichever order you did them in.
+    if (!routineMode && supersetRoundDone(ei)) {
+      const group = supersetGroup(ei);
+      const last = group[group.length - 1];
+      startRest(last.restTime ?? 60, group.length > 1 ? 'Superset' : ex.name);
+    }
   }
 
   rowEl.classList.toggle('done', set.done);
@@ -1429,7 +1539,7 @@ function exerciseNotable(ex) {
   const pb = (activeSession?.pbs || []).some(p => p.exercise === ex.name);
   const r = ex.repRange;
   let offRange = false, dir = '';
-  const working = ex.sets.filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
+  const working = workingSetsOf(ex).filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
   if (r?.min && r?.max && working.length) {
     const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
     if ((top.reps || 0) > r.max + 1) { offRange = true; dir = 'over'; }
@@ -1526,7 +1636,7 @@ function computeExercisePBs(ei) {
   const base = sessionRecords[ex.name];
   const rec = {};
   if (base) rec[ex.name] = { maxWeight: base.maxWeight, maxE1rm: base.maxE1rm, repsAtWeight: { ...base.repsAtWeight } };
-  for (const set of ex.sets) {
+  for (const set of workingSetsOf(ex)) {   // warm-up/drop rows → their working set
     if (!set.done) continue;
     const found = detectPBs(ex.name, set, rec);
     if (found.length) {
@@ -1844,11 +1954,31 @@ function normalizeSupersets() {
   }
 }
 
-function isLastSupersetMember(ei) {
+// The contiguous run of exercises sharing ei's supersetId (just [ex] if none).
+// [first, last] index of that run.
+function supersetRange(ei) {
+  const list = activeSession?.exercises || [];
+  const gid = list[+ei]?.supersetId;
+  let a = +ei, b = +ei;
+  if (gid) {
+    while (a > 0 && list[a - 1].supersetId === gid) a--;
+    while (b < list.length - 1 && list[b + 1].supersetId === gid) b++;
+  }
+  return [a, b];
+}
+function supersetGroup(ei) {
+  const [a, b] = supersetRange(ei);
+  return (activeSession?.exercises || []).slice(a, b + 1);
+}
+// True when checking a set of ei completes a superset round: every other member
+// has at least as many done sets (or has run out of sets). Order-independent, so
+// doing the triceps before the lateral raise still triggers the rest timer.
+function supersetRoundDone(ei) {
   const ex = activeSession?.exercises[+ei];
   if (!ex?.supersetId) return true;
-  const next = activeSession.exercises[+ei + 1];
-  return !next || next.supersetId !== ex.supersetId;
+  const done = e => (e.sets || []).filter(s => s.done).length;
+  const k = done(ex);
+  return supersetGroup(ei).every(m => m === ex || done(m) >= Math.min(k, (m.sets || []).length));
 }
 // Pick which exercises to pair (any of them, not just the adjacent one). The
 // chosen members are reordered to sit contiguously so the group stays a valid,
@@ -1935,7 +2065,7 @@ function openExMenuSheet(ei) {
   // "Do this next" only means something when the exercise isn't already sitting
   // where it would land, and when there's more than one exercise to order.
   document.getElementById('exMenuNext').style.display =
-    (activeSession.exercises.length > 1 && nextSlotFor(ei) !== ei) ? '' : 'none';
+    (activeSession.exercises.length > 1 && nextSlotFor(ei) !== supersetRange(ei)[0]) ? '' : 'none';
   document.getElementById('exMenuReorder').style.display =
     activeSession.exercises.length > 1 ? '' : 'none';
   // Configure the superset row — needs at least one other exercise to pair with.
@@ -2148,6 +2278,21 @@ function enterReorderMode() {
   // against. Drop to list view for the duration and restore it on exit.
   if (focusView) { reorderResumeFocus = true; setFocusView(false, { persist: false }); }
   document.getElementById('activeWorkout').classList.add('reordering');
+  // Wrap each superset's blocks in one .ss-unit so a drag moves the pair together
+  // and nothing can be dropped between its members. exitReorderMode re-renders,
+  // which removes the wrappers.
+  let unit = null, unitGid = null;
+  [...awBody.querySelectorAll('.ex-block')].forEach(b => {
+    const gid = activeSession.exercises[+b.dataset.ei]?.supersetId || null;
+    if (!gid) { unit = unitGid = null; return; }
+    if (gid !== unitGid) {
+      unit = document.createElement('div');
+      unit.className = 'ss-unit';
+      b.before(unit);
+      unitGid = gid;
+    }
+    unit.appendChild(b);
+  });
   awBody.querySelectorAll('.ex-block').forEach(b => {
     const ex = activeSession.exercises[+b.dataset.ei];
     const sum = b.querySelector('.ex-reorder-sum');
@@ -2172,11 +2317,15 @@ document.getElementById('reorderDoneBtn').onclick = exitReorderMode;
 // you just finished would anchor on itself and get shoved to the end. The returned
 // index is a position in the post-move array, so it doubles as the "already there,
 // hide the option" test.
+// Supersets move as one unit: `ei`'s whole group is lifted out, and it never
+// lands inside another group (it goes after that group's last member instead).
 function nextSlotFor(ei) {
   const list = activeSession?.exercises || [];
+  const [a, b] = supersetRange(ei);
   let lastDone = -1;
-  list.forEach((ex, i) => { if (i !== ei && (ex.sets || []).some(s => s.done)) lastDone = i; });
-  return lastDone > ei ? lastDone : lastDone + 1;
+  list.forEach((ex, i) => { if ((i < a || i > b) && (ex.sets || []).some(s => s.done)) lastDone = i; });
+  if (lastDone >= 0) lastDone = supersetRange(lastDone)[1];
+  return lastDone > b ? lastDone - (b - a) : lastDone + 1;
 }
 
 // The reorder people actually want mid-session, and it needs no drag at all.
@@ -2184,9 +2333,10 @@ function moveExerciseNext(ei) {
   const list = activeSession?.exercises || [];
   if (ei < 0 || ei >= list.length) return;
   const to = nextSlotFor(ei);
-  if (to === ei) return;
-  const [item] = list.splice(ei, 1);
-  list.splice(to, 0, item);
+  const [a, b] = supersetRange(ei);
+  if (to === a) return;
+  const items = list.splice(a, b - a + 1);
+  list.splice(to, 0, ...items);
   normalizeSupersets();
   renderActiveSession();
   saveSoon();
@@ -2313,8 +2463,9 @@ awBody.addEventListener('touchmove', e => { if (dragActive) e.preventDefault(); 
 // DOM, which drops pointer capture, and the pointerup then never reaches it —
 // leaving the drag stuck mid-flight with nothing committed. Window listeners plus
 // viewport-relative clientY are immune to the card moving under them.
-function startReorderDrag(e, card) {
+function startReorderDrag(e, block) {
   const list = awBody;
+  const card = block.closest('.ss-unit') || block;   // supersets drag as one unit
   const pid = e.pointerId;
   dragActive = true;
   card.classList.add('dragging');
@@ -2352,7 +2503,7 @@ function startReorderDrag(e, card) {
     card.style.transform = `translateY(${lastY - anchorY}px)`;
     const rect = card.getBoundingClientRect();
     const cardMid = rect.top + rect.height / 2;
-    for (const other of list.querySelectorAll('.ex-block')) {
+    for (const other of list.querySelectorAll(':scope > .ex-block, :scope > .ss-unit')) {
       if (other === card) continue;
       const r = other.getBoundingClientRect();
       const otherMid = r.top + r.height / 2;
@@ -2545,7 +2696,7 @@ function summaryCoachNote() {
   for (const ex of activeSession.exercises) {
     const range = ex.repRange || resolveRepRange(ex);
     if (!range || !range.min || !range.max) continue;
-    const working = ex.sets.filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
+    const working = workingSetsOf(ex).filter(s => s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset');
     if (!working.length) continue;
     const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
     if ((top.reps || 0) > range.max + 1) {
@@ -2568,7 +2719,10 @@ function handleSummaryBgClick(e) {
 document.getElementById('saveBtn').onclick    = saveWorkout;
 document.getElementById('discardBtn').onclick = () => { if (confirm('Discard this workout? All logged sets will be lost.')) cancelWorkout(); };
 
-async function saveWorkout() {
+// Pass { endMs } to save a workout that was left open: it ends at the last
+// activity rather than now (so the duration isn't hours of idle phone time).
+async function saveWorkout(opts) {
+  const endMs = typeof opts?.endMs === 'number' ? opts.endMs : null;
   releaseWakeLock();
   skipRest();
   // Backfill: a workout logged for a past day via the calendar saves to that
@@ -2578,10 +2732,10 @@ async function saveWorkout() {
   const session = {
     ...activeSession,
     title:     document.getElementById('awTitle').value.trim() || 'Workout',
-    date:      dateStr,
+    date:      endMs && !isBackfill ? localYMD(new Date(sessionStartMs || endMs)) : dateStr,
     startTime: isBackfill ? `${dateStr}T12:00:00` : activeSession.startTime,
-    endTime:   isBackfill ? `${dateStr}T12:00:00` : new Date().toISOString(),
-    duration:  isBackfill ? 0 : sessionSecsNow(),
+    endTime:   isBackfill ? `${dateStr}T12:00:00` : new Date(endMs || Date.now()).toISOString(),
+    duration:  isBackfill ? 0 : endMs ? Math.max(0, Math.floor((endMs - sessionStartMs) / 1000)) : sessionSecsNow(),
     // Strip transient/derived fields — prevPerf/prevSets were only ghosting aids
     // for the live editor and would otherwise bloat every saved session forever.
     // Strip transient/derived fields. `carriedNote` (last session's note, shown
@@ -2863,6 +3017,7 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   // visible again
+  maybeAutoFinishIdle();   // left open for hours → save it rather than resume stale
   if (activeSession) {
     acquireWakeLock(); // iOS silently releases it on hide
     try { if (audioCtx && audioCtx.state !== 'running') audioCtx.resume(); } catch (_) {}
@@ -4778,7 +4933,7 @@ function computeExerciseStatsMap(sessions) {
     const d = parseToDate(s.date || s.startTime || '');
     const t = d && !isNaN(d) ? d.getTime() : 0;
     for (const ex of s.exercises || []) {
-      const working = (ex.sets || []).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
+      const working = workingSetsOf(ex).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
       if (!working.length) continue;
       const key = canonicalName(ex.name);      // fold merged variations into one identity
       const existed = map.has(key);

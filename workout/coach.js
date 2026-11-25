@@ -8,6 +8,7 @@ import db from '../shared/db.js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../shared/supabase.js';
 import { CATEGORIES, muscleContributions } from './exercises.js';
 import { buildRecords, computeStreak } from './achievements.js';
+import { workingSetsOf, workingSessions } from './workingSet.js';
 import { lifetimeTotals, exerciseFrequency, weeklySetsByCategory } from './stats.js';
 
 const MODEL = 'claude-sonnet-5';
@@ -309,7 +310,7 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
   const recent = sessions.slice(0, 6).map(s => {
     const date = s.date || (s.startTime || '').slice(0, 10);
     const lifts = (s.exercises || []).slice(0, 4).map(ex => {
-      const done = (ex.sets || []).filter(st => st.done && st.weight);
+      const done = workingSetsOf(ex).filter(st => st.done && st.weight && st.type !== 'warmup');
       if (!done.length) return ex.name;
       const top = done.reduce((a, b) => (b.weight > a.weight ? b : a));
       return ex.category === 'Cardio' ? `${ex.name} ${top.reps}min` : `${ex.name} ${top.weight}×${top.reps}`;
@@ -389,7 +390,7 @@ export function buildCoachContext(sessions, split, records, streak, allExercises
   const seriesByEx = {};
   for (let i = sessions.length - 1; i >= 0; i--) {   // oldest → newest (chronological)
     for (const ex of sessions[i].exercises || []) {
-      const working = (ex.sets || []).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
+      const working = workingSetsOf(ex).filter(st => st.done && (st.weight || 0) > 0 && st.type !== 'warmup' && st.type !== 'dropset');
       if (!working.length) continue;
       const top = working.reduce((a, b) => (b.weight > a.weight ? b : a));
       (seriesByEx[ex.name] ||= []).push(top.weight);
@@ -505,7 +506,7 @@ export async function assembleContext({ loadSessions, getSplitContext, getAllExe
                                         getProfile, getBodyStats, getNutritionToday }) {
   const sessions  = await loadSessions();
   const split     = getSplitContext ? await getSplitContext().catch(() => null) : null;
-  const records   = buildRecords(sessions);
+  const records   = buildRecords(workingSessions(sessions));
   const streak    = computeStreak(sessions, await getStreakSettings());
   const allEx     = await getAllExercises();
   const profile   = getProfile         ? await getProfile().catch(() => null)         : null;
