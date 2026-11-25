@@ -1,4 +1,4 @@
-const CACHE = 'arc-v97';
+const CACHE = 'arc-v98';
 // Paths are RELATIVE to this service worker's URL (its own directory is the SW
 // scope), so they resolve correctly whatever the repo/deploy slug is —
 // /life-dashboard/ today, /arc/ once the GitHub repo is renamed — with no code
@@ -23,6 +23,7 @@ const PRECACHE = [
   './workout/splits.js',
   './workout/stats.js',
   './workout/achievements.js',
+  './workout/records.js',
   './workout/streak.js',
   './workout/coach.js',
   './workout/exportData.js',

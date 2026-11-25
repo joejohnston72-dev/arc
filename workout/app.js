@@ -6,7 +6,7 @@ import { ROUTINE_LIBRARY } from './routineLibrary.js';
 import { MY_ROUTINES } from './myRoutines.js';
 import { nextWorkout, buildSplitsFromTemplates, copyExercises, sessionTs, pruneWeekPlan,
          recoverCoachSplits, projectPlan, REST_DAY } from './splits.js';
-import { buildRecords, detectPBs, absorbSet, e1RM,
+import { buildRecords, sessionPBs, e1RM,
          getStreakSettings, saveStreakSettings, computeStreak, computeMilestones, currentIllness } from './achievements.js';
 import { asWorkingSet, workingSetsOf, workingSessions } from './workingSet.js';
 import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
@@ -1628,26 +1628,12 @@ async function maybeAutoCoachNote(ei) {
 // ── PB recomputation (idempotent — trophies track live set values) ────────────
 // sessionRecords stays the immutable historical baseline; each recompute seeds a
 // throwaway copy from it and absorbs the current session's done sets in order,
-// so a set only keeps a trophy while its numbers still beat everything before it.
+// so a set only keeps a trophy while its numbers still beat everything before it
+// (history and earlier sets) and no later set this session beat it outright.
 function computeExercisePBs(ei) {
   const ex = activeSession?.exercises[ei];
-  const pbs = [], pbSetIds = new Set(), pbBySet = new Map();
-  if (!ex) return { pbs, pbSetIds, pbBySet };
-  const base = sessionRecords[ex.name];
-  const rec = {};
-  if (base) rec[ex.name] = { maxWeight: base.maxWeight, maxE1rm: base.maxE1rm, repsAtWeight: { ...base.repsAtWeight } };
-  for (const set of workingSetsOf(ex)) {   // warm-up/drop rows → their working set
-    if (!set.done) continue;
-    const found = detectPBs(ex.name, set, rec);
-    if (found.length) {
-      // Carry the achieving set's numbers so surfaces (e.g. the PB-first summary)
-      // can render {kg}×{reps} + est. 1RM without re-scanning the session.
-      for (const p of found) { p.weight = set.weight; p.reps = set.reps || 0; p.est = Math.round(e1RM(set.weight, set.reps || 1)); }
-      pbs.push(...found); pbSetIds.add(set.id); pbBySet.set(set.id, found[0]);
-    }
-    absorbSet(ex.name, set, rec);
-  }
-  return { pbs, pbSetIds, pbBySet };
+  if (!ex) return { pbs: [], pbSetIds: new Set(), pbBySet: new Map() };
+  return sessionPBs(ex.name, workingSetsOf(ex), sessionRecords[ex.name]); // warm-up/drop rows → their working set
 }
 
 function applyPbClasses(ei, pbSetIds) {

@@ -5,62 +5,7 @@ import db from '../shared/db.js';
 
 const STORE = 'workout';
 
-export const e1RM = (w, r) => (r > 0 ? w * (1 + r / 30) : w); // Epley
-
-// A drop set is a continuation of the set before it (lighter weight, to failure),
-// not a standalone effort — so it never counts toward PBs/records, same as warmups.
-const isWorkingSet = s => s && s.done && (s.weight || 0) > 0 && s.type !== 'warmup' && s.type !== 'dropset';
-
-// ── Records ───────────────────────────────────────────────────────────────────
-// Build per-exercise all-time records from past sessions.
-// -> { [name]: { maxWeight, maxE1rm, repsAtWeight: {weight: bestReps} } }
-export function buildRecords(sessions, excludeId = null) {
-  const rec = {};
-  for (const s of sessions) {
-    if (!s?.exercises || s.id === excludeId) continue;
-    for (const ex of s.exercises) {
-      const r = (rec[ex.name] ||= { maxWeight: 0, maxE1rm: 0, repsAtWeight: {} });
-      for (const set of ex.sets || []) {
-        if (!isWorkingSet(set)) continue;
-        if (set.weight > r.maxWeight) r.maxWeight = set.weight;
-        const est = e1RM(set.weight, set.reps || 1);
-        if (est > r.maxE1rm) r.maxE1rm = est;
-        const key = String(set.weight);
-        if ((set.reps || 0) > (r.repsAtWeight[key] || 0)) r.repsAtWeight[key] = set.reps || 0;
-      }
-    }
-  }
-  return rec;
-}
-
-// Detect PBs for one just-completed set vs the records map. Returns [] or PB list.
-export function detectPBs(exName, set, records) {
-  if (!isWorkingSet(set)) return [];
-  const r = records[exName];
-  const pbs = [];
-  if (!r) return pbs; // first ever session of this exercise — no baseline, no fanfare
-  if (set.weight > r.maxWeight) {
-    pbs.push({ exercise: exName, type: 'weight', label: `${set.weight} kg — heaviest ever` });
-  } else if ((set.reps || 0) > (r.repsAtWeight[String(set.weight)] || 0) && r.repsAtWeight[String(set.weight)]) {
-    pbs.push({ exercise: exName, type: 'reps', label: `${set.reps} reps @ ${set.weight} kg — rep PB` });
-  }
-  const est = e1RM(set.weight, set.reps || 1);
-  if (r.maxE1rm && est > r.maxE1rm && !pbs.some(p => p.type === 'weight')) {
-    pbs.push({ exercise: exName, type: 'e1rm', label: `Est. 1RM ${Math.round(est)} kg — new best` });
-  }
-  return pbs;
-}
-
-// Live-update a records map after a PB so repeated sets don't re-trigger.
-export function absorbSet(exName, set, records) {
-  if (!isWorkingSet(set)) return;
-  const r = (records[exName] ||= { maxWeight: 0, maxE1rm: 0, repsAtWeight: {} });
-  if (set.weight > r.maxWeight) r.maxWeight = set.weight;
-  const est = e1RM(set.weight, set.reps || 1);
-  if (est > r.maxE1rm) r.maxE1rm = est;
-  const key = String(set.weight);
-  if ((set.reps || 0) > (r.repsAtWeight[key] || 0)) r.repsAtWeight[key] = set.reps || 0;
-}
+export { e1RM, buildRecords, detectPBs, absorbSet, sessionPBs } from './records.js';
 
 // ── Weekly streak ─────────────────────────────────────────────────────────────
 export { computeStreak, currentIllness } from './streak.js';
