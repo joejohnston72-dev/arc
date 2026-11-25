@@ -1045,6 +1045,26 @@ function supersetIndex(ei) {
   return Math.max(0, n);
 }
 
+// "Last time + best" card — fills the space above the exercise in focus view
+// (CSS hides it in the list view). Last time = the previous session's working
+// sets; best = heaviest working set + est. 1RM from the historical baseline.
+function lastTimeCardHTML(ex, lt) {
+  const prev = (ex.prevSets || []).map(asWorkingSet).filter(st => st && st.type !== 'warmup');
+  const fmt = st => lt === 'weighted' ? `${fmtKg(st.weight)}×${st.reps || 0}`
+    : lt === 'bodyweight' ? `${st.reps || 0} reps`
+    : lt === 'duration' ? (fmtDuration(st.duration) || '—')
+    : `${st.distance || 0}km`;
+  const last = prev.length ? prev.map(st => `<span class="lt-chip">${esc(fmt(st))}</span>`).join('') : '<span class="lt-empty">First time — set the baseline</span>';
+  const rec = lt === 'weighted' ? sessionRecords?.[ex.name] : null;
+  const best = rec?.maxWeight
+    ? `<div class="lt-row"><span class="lt-lbl">${icon('trophy', { size: 13 })} Best</span><span class="lt-best">${fmtKg(rec.maxWeight)} kg × ${rec.repsAtWeight?.[String(rec.maxWeight)] || 0}<span class="lt-sub"> · e1RM ${Math.round(rec.maxE1rm)} kg</span></span></div>`
+    : '';
+  return `<div class="ex-last-card">
+    <div class="lt-row"><span class="lt-lbl">${icon('calendar', { size: 13 })} Last time</span><span class="lt-chips">${last}</span></div>
+    ${best}
+  </div>`;
+}
+
 function buildExerciseBlock(ex, ei) {
   const block = document.createElement('div');
   block.className = 'ex-block';
@@ -1069,6 +1089,7 @@ function buildExerciseBlock(ex, ei) {
   const range = resolveRepRange({ name: ex.name, category: ex.category, logType: lt, repRange: ex.repRange });
 
   block.innerHTML = `
+    ${lastTimeCardHTML(ex, lt)}
     ${firstOfGroup ? `<div class="ss-label">${icon('repeat', { size: 12 })} Superset</div>` : ''}
     <div class="ex-block-header" data-ei="${ei}">
       <span class="ex-grip" aria-hidden="true">${icon('grip-vertical', { size: 17 })}</span>
