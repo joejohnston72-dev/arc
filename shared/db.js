@@ -14,11 +14,17 @@ import { supabase } from './supabase.js';
 // it). It never leaves the device, so the name is invisible to users.
 const DB_NAME    = 'life-dashboard';
 const DB_VERSION = 1;
-const STORES     = ['calories', 'workout', 'habits'];
+// 'calories' is written by the standalone ARC Fuel app and read here for the
+// nutrition card. The old 'habits' store is gone: its cloud rows are ignored.
+const STORES     = ['calories', 'workout'];
 
 // ── IndexedDB ─────────────────────────────────────────────────────────────────
+// One shared connection. It used to open a new one for every read and write and
+// never close them, which would also block any future DB_VERSION upgrade.
+let _dbPromise = null;
 function open() {
-  return new Promise((resolve, reject) => {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = e => {
       const db = e.target.result;
@@ -26,18 +32,30 @@ function open() {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
       }
     };
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror   = e => reject(e.target.error);
+    req.onsuccess = e => {
+      const db = e.target.result;
+      // Another tab is upgrading, or the browser closed it: drop it and reopen next call.
+      db.onversionchange = () => { db.close(); _dbPromise = null; };
+      db.onclose = () => { _dbPromise = null; };
+      resolve(db);
+    };
+    req.onerror = e => { _dbPromise = null; reject(e.target.error); };
   });
+  return _dbPromise;
 }
 
+// Writes resolve once the transaction COMMITS, not when the request succeeds, so
+// "saved" really means on disk.
 function tx(store, mode, fn) {
   return open().then(db => new Promise((resolve, reject) => {
     const t   = db.transaction(store, mode);
     const s   = t.objectStore(store);
     const req = fn(s);
-    req.onsuccess = e => resolve(e.target.result);
+    let result;
+    req.onsuccess = e => { result = e.target.result; if (mode === 'readonly') resolve(result); };
     req.onerror   = e => reject(e.target.error);
+    t.oncomplete  = () => resolve(result);
+    t.onabort     = () => reject(t.error);
   }));
 }
 
@@ -66,7 +84,8 @@ function idbGetAll(store) {
 // the next launch's cloud pull could restore a stale copy and re-show the
 // "Resume workout in progress?" prompt hours or days later, on any device. These
 // keys stay purely on-device — resume is a per-device concept. Keyed "store:key".
-const LOCAL_ONLY = new Set(['workout:active-session', 'workout:active-rest']);
+// The pasted Anthropic key is a credential: it stays on this device too.
+const LOCAL_ONLY = new Set(['workout:active-session', 'workout:active-rest', 'workout:anthropic-key']);
 const isLocalOnly = (store, key) => LOCAL_ONLY.has(`${store}:${key}`);
 
 // ── Supabase remote ───────────────────────────────────────────────────────────
@@ -120,14 +139,22 @@ async function remoteSet(store, key, value) {
   } catch (_) {}
 }
 
+// A delete leaves a TOMBSTONE row in the cloud instead of removing it. Removing
+// the row let deleted workouts come back: other devices still held a local copy,
+// the cloud pull never removed it, and their next backup uploaded it again. A
+// tombstone tells every device to delete its copy, and backup won't overwrite it.
+const TOMBSTONE = '__deleted';
+const isTombstone = v => !!(v && typeof v === 'object' && v[TOMBSTONE] === true);
+const tombstone = () => ({ [TOMBSTONE]: true, at: new Date().toISOString() });
+
 async function remoteDel(store, key) {
+  if (isLocalOnly(store, key)) return;
   const id = `${store}:${key}`;
   const n = markPending(id);
   const user_id = await getUserId();
   if (!user_id) return;
   try {
-    const { error } = await supabase.from('entries').delete()
-      .eq('user_id', user_id).eq('store', store).eq('key', key);
+    const { error } = await supabase.from('entries').upsert({ user_id, store, key, value: tombstone() });
     if (!error) clearPending(id, n);
   } catch (_) {}
 }
@@ -143,13 +170,12 @@ function flushPending() {
     for (const id of readPending()) {
       const i = id.indexOf(':');
       const store = id.slice(0, i), key = id.slice(i + 1);
-      if (!STORES.includes(store)) { clearPending(id); continue; }
+      if (!STORES.includes(store) || isLocalOnly(store, key)) { clearPending(id); continue; }
       const n = _writeSeq.get(id);
       try {
         const value = await idbGet(store, key);
-        const { error } = value === undefined
-          ? await supabase.from('entries').delete().eq('user_id', user_id).eq('store', store).eq('key', key)
-          : await supabase.from('entries').upsert({ user_id, store, key, value });
+        const { error } = await supabase.from('entries')
+          .upsert({ user_id, store, key, value: value === undefined ? tombstone() : value });
         if (!error) clearPending(id, n);
       } catch (_) {}
     }
@@ -188,14 +214,48 @@ async function syncFromSupabase() {
       if (isLocalOnly(row.store, row.key)) continue;
       // A local write that hasn't reached the cloud is newer than this row.
       if (pending.has(`${row.store}:${row.key}`)) continue;
-      try { await idbSet(row.store, row.key, row.value); } catch (_) {}
+      try {
+        if (isTombstone(row.value)) await idbDel(row.store, row.key);   // deleted on another device
+        else await idbSet(row.store, row.key, row.value);
+      } catch (_) {}
     }
     total += data.length;
     if (data.length < PAGE) break;
     from += PAGE;
   }
   flushPending();   // now push up whatever the device still holds that the cloud doesn't
+  purgeCloudSecrets(user_id);
   return total;
+}
+
+// Older versions synced the pasted Anthropic key to the cloud. Remove those rows.
+let _secretsPurged = false;
+function purgeCloudSecrets(user_id) {
+  if (_secretsPurged) return;
+  _secretsPurged = true;
+  supabase.from('entries').delete().eq('user_id', user_id).eq('key', 'anthropic-key')
+    .then(({ error }) => { if (error) _secretsPurged = false; }, () => { _secretsPurged = false; });
+}
+
+// Keys deleted on any device, as "store:key". Backup applies these locally and
+// never re-uploads them, even on a device that has been open since before the delete.
+async function cloudTombstones(user_id) {
+  const out = new Set();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from('entries')
+      .select('store, key')
+      .eq('user_id', user_id)
+      .eq(`value->>${TOMBSTONE}`, 'true')
+      .order('store', { ascending: true })
+      .order('key',   { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+    for (const r of data) out.add(`${r.store}:${r.key}`);
+    if (data.length < PAGE) break;
+  }
+  return out;
 }
 
 // Push EVERYTHING in local IndexedDB up to the cloud, batched — a reliable
@@ -205,12 +265,21 @@ async function syncToSupabase() {
   const user_id = await getUserId();
   if (!user_id) return 0;
   await flushPending();   // deletes only reach the cloud through here
+  // If this fails we can't tell what was deleted elsewhere, so don't push at all.
+  let dead;
+  try { dead = await cloudTombstones(user_id); } catch (_) { return 0; }
+  const pending = readPending();
   let n = 0;
   for (const store of STORES) {
     let rows;
     try { rows = await idbGetAll(store); } catch (_) { continue; }
+    for (const { key } of rows) {
+      const id = `${store}:${key}`;
+      if (dead.has(id) && !pending.has(id)) { try { await idbDel(store, key); } catch (_) {} }
+    }
     const payload = rows
       .filter(({ key }) => !isLocalOnly(store, key))   // don't back up transient resume state
+      .filter(({ key }) => !dead.has(`${store}:${key}`) || pending.has(`${store}:${key}`))
       .map(({ key, value }) => ({ user_id, store, key, value }));
     for (let i = 0; i < payload.length; i += 200) {
       const chunk = payload.slice(i, i + 200);

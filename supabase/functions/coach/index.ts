@@ -18,6 +18,35 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-sonnet-5';
+// The model is chosen HERE, never by the caller, so nobody can point the key at
+// a pricier model. Override with the COACH_MODEL secret.
+const MODEL = Deno.env.get('COACH_MODEL') || DEFAULT_MODEL;
+const MAX_TOKENS = 8192;
+const MAX_BODY_BYTES = 400_000;
+
+// verify_jwt alone is NOT enough: the public anon key in shared/supabase.js is
+// itself a valid JWT, so it let anyone call this function. Ask Supabase Auth who
+// the token belongs to — the anon key has no user and is rejected. Then, if the
+// ALLOWED_EMAILS secret is set (comma-separated), only those accounts may spend
+// the key; email sign-up is open, so without it any new account could.
+async function authorisedUser(req: Request): Promise<{ id: string; email?: string } | null> {
+  const auth = req.headers.get('authorization') || '';
+  const url = Deno.env.get('SUPABASE_URL');
+  const anon = Deno.env.get('SUPABASE_ANON_KEY');
+  if (!auth.startsWith('Bearer ') || !url || !anon) return null;
+  try {
+    const r = await fetch(`${url}/auth/v1/user`, { headers: { authorization: auth, apikey: anon } });
+    if (!r.ok) return null;
+    const u = await r.json();
+    if (!u?.id) return null;
+    const allow = (Deno.env.get('ALLOWED_EMAILS') || '')
+      .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (allow.length && !allow.includes(String(u.email || '').toLowerCase())) return null;
+    return { id: u.id, email: u.email };
+  } catch {
+    return null;
+  }
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -41,20 +70,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // user-pasted key instead of surfacing a hard error.
   if (!key) return json({ error: 'proxy_unconfigured' }, 501);
 
+  if (!(await authorisedUser(req))) return json({ error: 'unauthorized' }, 401);
+
   let payload: Record<string, unknown>;
   try {
-    payload = await req.json();
+    const raw = await req.text();
+    if (raw.length > MAX_BODY_BYTES) return json({ error: 'too_large' }, 413);
+    payload = JSON.parse(raw);
   } catch {
     return json({ error: 'bad_request' }, 400);
   }
 
   // Clamp max_tokens into a sane band; default generous so long splits/answers
   // don't truncate (a common cause of cut-off replies before).
-  const wantedMax = Number(payload.max_tokens) || 8192;
-  const max_tokens = Math.min(Math.max(wantedMax, 256), 16384);
+  const wantedMax = Number(payload.max_tokens) || MAX_TOKENS;
+  const max_tokens = Math.min(Math.max(wantedMax, 256), MAX_TOKENS);
 
   const body = {
-    model: typeof payload.model === 'string' ? payload.model : DEFAULT_MODEL,
+    model: MODEL,
     max_tokens,
     system: payload.system,
     tools: payload.tools,
