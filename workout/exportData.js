@@ -11,6 +11,9 @@ const e1RM = (w, r) => (r > 0 ? w * (1 + r / 30) : w);
 
 // Keys that hold credentials. Never written to a file the user may share.
 export const SECRET_KEYS = new Set(['anthropic-key']);
+// Keys left out of a backup and ignored on import: credentials, plus device-only
+// resume state (restoring it brought back a stale "Resume workout?" prompt).
+export const SKIP_KEYS = new Set([...SECRET_KEYS, 'active-session', 'active-rest']);
 
 export const SET_COLUMNS = [
   'session_id', 'date', 'weekday', 'start_time', 'end_time', 'session_duration_sec', 'session_title',
@@ -97,12 +100,11 @@ export function toCSV(columns, rows) {
   return [columns.join(','), ...rows.map(r => columns.map(c => cell(r[c])).join(','))].join('\r\n') + '\r\n';
 }
 
-// stores = { workout: [{key,value}], calories: [...], habits: [...] }.
-// `entries` (the workout store) keeps the shape Import reads, so an old or new
-// backup restores the same way; the rest is for analysis and completeness.
-export function buildBackup({ stores, reference = {}, exportedAt = new Date().toISOString() }) {
-  const clean = rows => (rows || []).filter(r => !SECRET_KEYS.has(r.key));
-  const other = {};
-  for (const [name, rows] of Object.entries(stores)) if (name !== 'workout') other[name] = clean(rows);
-  return { app: 'arc', version: 2, exportedAt, entries: clean(stores.workout), stores: other, reference };
+// workout = [{key,value}] from the workout store. `entries` keeps the shape
+// Import reads, so an old or new backup restores the same way. Nutrition belongs
+// to the standalone ARC Fuel app and the old habits store is gone, so neither is
+// included.
+export function buildBackup({ workout, reference = {}, exportedAt = new Date().toISOString() }) {
+  const entries = (workout || []).filter(r => !SKIP_KEYS.has(r.key));
+  return { app: 'arc', version: 3, exportedAt, entries, reference };
 }

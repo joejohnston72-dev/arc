@@ -1,4 +1,7 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+// Pinned to an exact version: `@2` silently pulled in every new 2.x release.
+// sw.js caches this URL (and the files it imports) so the app opens offline.
+// When bumping, change SUPABASE_JS in sw.js too.
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/+esm';
 
 // Exported so other modules (e.g. the coach proxy in workout/coach.js) can derive
 // the Edge Function URL and send the anon key without re-hardcoding these.

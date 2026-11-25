@@ -13,7 +13,7 @@ import { lifetimeTotals, weeklyVolumeHTML, muscleBalanceHTML,
          exerciseFrequency, progressionHTML, monthlyViewHTML, weeklySetsByCategory } from './stats.js';
 import { assembleContext, callCoach, validateRoutine, normName } from './coach.js';
 import { resolveRepRange, fetchAIRepRange, rangeFromSets } from './repRanges.js';
-import { buildSetRows, toCSV, buildBackup, SET_COLUMNS } from './exportData.js';
+import { buildSetRows, toCSV, buildBackup, SET_COLUMNS, SKIP_KEYS } from './exportData.js';
 import { makeCategoryResolver, wasLegacyGuess } from './categorize.js';
 import { icon, renderIcons } from '../shared/icons.js';
 import { dismissSuggestion } from '../shared/suggestions.js';
@@ -29,9 +29,15 @@ const refreshIcons = () => renderIcons(document);
 // ── Auth guard ────────────────────────────────────────────────────────────────
 // Auth lives in Arc itself now (the shared hub was retired). With no session we
 // show the in-app login overlay and wait for it, instead of redirecting away.
-let { data: { session } } = await supabase.auth.getSession();
+let { data: { session }, error: sessionErr } = await supabase.auth.getSession();
 const hadSessionAtImport = !!session;   // did db.js's import-time initialSync pull?
-if (!session) session = await showAuthGate();
+// Offline with an expired access token, getSession() can't refresh and returns
+// null even though you're signed in, which used to lock you out at the gym. If a
+// stored login exists and the refresh failed, run on local data: writes queue in
+// db.js and sync once the network is back.
+const hasStoredLogin = () => { try { return Object.keys(localStorage).some(k => /^sb-.+-auth-token$/.test(k)); } catch (_) { return false; } };
+const offlineSignedIn = !session && (sessionErr || !navigator.onLine) && hasStoredLogin();
+if (!session && !offlineSignedIn) session = await showAuthGate();
 
 // db.js kicks off the cloud pull (`initialSync`) at IMPORT time, but it only
 // pulls when a session already exists then. When the hub existed, auth happened
@@ -5437,13 +5443,12 @@ function downloadFile(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Download a JSON backup of every local store (workouts, ARC Fuel nutrition,
-// legacy habits) plus the resolved exercise library — a device-owned copy that
-// doesn't depend on the cloud. API keys are left out.
+// Download a JSON backup of the workout store plus the resolved exercise
+// library — a device-owned copy that doesn't depend on the cloud. API keys and
+// in-progress resume state are left out.
 document.getElementById('exportBtn').onclick = async () => {
   try {
-    const [workout, calories, habits, exercises] = await Promise.all(
-      [db.getAll(STORE), db.getAll('calories'), db.getAll('habits'), getAllExercises()]);
+    const [workout, exercises] = await Promise.all([db.getAll(STORE), getAllExercises()]);
     const reference = {
       exercises: exercises.map(e => {
         const logType = resolveLogType(e);
@@ -5451,7 +5456,7 @@ document.getElementById('exportBtn').onclick = async () => {
                  secondaryMuscles: Object.fromEntries(muscleContributions(e).filter(m => !m.primary).map(m => [m.muscle, m.frac])) };
       }),
     };
-    const backup = buildBackup({ stores: { workout, calories, habits }, reference });
+    const backup = buildBackup({ workout, reference });
     downloadFile(`arc-backup-${localYMD()}.json`, JSON.stringify(backup), 'application/json');
     showProgress(`✅ Exported ${backup.entries.length} items. Save the file somewhere safe.`, 6000);
   } catch (err) { showProgress('❌ Export failed: ' + err.message, 6000); }
@@ -5488,7 +5493,7 @@ document.getElementById('csvInput').onchange = async e => {
       const data = JSON.parse(text);
       const entries = Array.isArray(data) ? data : (data.entries || []);
       for (const { key, value } of entries) {
-        if (!key || value == null) continue;
+        if (!key || value == null || SKIP_KEYS.has(key)) continue;   // older backups held resume state
         await db.set(STORE, key, value);
         imported++;
       }
@@ -5656,10 +5661,16 @@ let coachThread = null;   // [{role, text, routine?}]
 let coachBusy = false;
 let lastCoachSend = null; // {text, forceTool} — for one-tap Retry after an error
 
-// Coach API key: workout-store key, falling back to any key previously saved
-// under the (now-removed) habits store so it carries over seamlessly.
+// Coach API key. Device-only: db.js never syncs it to the cloud. A key saved
+// under the retired habits store (still present on older installs) is moved over.
 async function coachGetKey() {
-  return (await db.get('workout', 'anthropic-key')) || (await db.get('habits', 'anthropic-key')) || '';
+  const key = await db.get('workout', 'anthropic-key');
+  if (key) return key;
+  try {
+    const old = await db.get('habits', 'anthropic-key');
+    if (old) { await db.set('workout', 'anthropic-key', old); return old; }
+  } catch (_) { /* no habits store on new installs */ }
+  return '';
 }
 
 // The coach can run if the user pasted a key OR is logged in (the Edge Function

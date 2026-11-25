@@ -42,14 +42,12 @@ const csv = toCSV(SET_COLUMNS, rows);
 eq(csv.split('\r\n')[0], SET_COLUMNS.join(','), 'header');
 eq(csv.includes('"felt ""good"", strong"'), true, 'quotes and commas escaped');
 
-const b = buildBackup({ stores: {
-  workout: [{ key: 'session-a', value: s1 }, { key: 'anthropic-key', value: 'sk-x' }],
-  habits: [{ key: 'anthropic-key', value: 'sk-x' }],
-  calories: [{ key: '2026-10-01', value: { kcal: 2000 } }],
-} });
-eq(b.entries.map(e => e.key), ['session-a'], 'entries keep import shape, no key');
-eq(b.stores.habits, [], 'habits key dropped');
-eq(b.stores.calories.length, 1, 'nutrition included');
+const b = buildBackup({ workout: [
+  { key: 'session-a', value: s1 }, { key: 'anthropic-key', value: 'sk-x' },
+  { key: 'active-session', value: { session: s1 } }, { key: 'active-rest', value: { endsAt: 1 } },
+] });
+eq(b.entries.map(e => e.key), ['session-a'], 'entries keep import shape, no key or resume state');
+eq(b.stores, undefined, 'no nutrition or habits');
 
 eq(rangeFromSets([{ type: 'warmup', reps: 12 }, { reps: 8 }, { reps: 10 }]), { min: 8, max: 10 }, 'coach range');
 eq(rangeFromSets([{ reps: 0 }]), null, 'no reps → no range');
