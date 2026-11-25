@@ -293,6 +293,9 @@
       transform-origin: top;
     }
     #activeWorkout.visible { transform: translateY(0); }
+    /* Keyboard up: drop Add Exercise so more set rows fit above the keypad */
+    #activeWorkout.kb-open .add-exercise-btn { display:none; }
+    #activeWorkout.kb-open .aw-footer { padding-bottom:10px; }
 
     .aw-header {
       display:flex; align-items:center; gap:10px;
@@ -350,7 +353,7 @@
     .ex-block { margin-bottom:20px; }
     /* Superset grouping — a purple rail down the left connects paired exercises */
     .ex-block.ss-member {
-      border-left:3px solid var(--purple);
+      border-left:3px solid var(--ss, var(--purple));
       padding-left:13px; margin-left:1px;
     }
     .ex-block.ss-member:not(.ss-last) { margin-bottom:8px; }   /* tighter within a group */
@@ -358,7 +361,7 @@
     .ss-label {
       display:inline-flex; align-items:center; gap:5px; margin-bottom:8px;
       font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
-      color:var(--purple);
+      color:var(--ss, var(--purple));
     }
     .ex-block-header {
       display:flex; align-items:center; gap:8px; margin-bottom:10px;
@@ -511,7 +514,7 @@
       background:var(--surface2); border:1px solid rgba(255,255,255,0.06);
       touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
     }
-    #activeWorkout.reordering .ex-block.ss-member { border-left:3px solid var(--purple); }
+    #activeWorkout.reordering .ex-block.ss-member { border-left:3px solid var(--ss, var(--purple)); }
     #activeWorkout.reordering .ex-block-header { margin-bottom:0; }
     #activeWorkout.reordering .ex-name { cursor:grab; }
     #activeWorkout.reordering .ex-chev,
@@ -522,7 +525,10 @@
     #activeWorkout.reordering .ex-reorder-sum {
       display:inline; flex:0 0 auto; font-size:0.72rem; color:var(--text-muted); white-space:nowrap;
     }
-    .ex-block.snapback { transition: transform .15s ease; }
+    .ex-block.snapback, .ss-unit.snapback { transition: transform .15s ease; }
+    .ss-unit { margin-bottom:8px; border-radius:12px; }
+    .ss-unit .ex-block.ss-last { margin-bottom:0; }
+    .ss-unit.dragging { position:relative; z-index:20; background:var(--bg); box-shadow:0 10px 28px rgba(0,0,0,0.6); }
     .ex-block.dragging {
       position:relative; z-index:20; border-color:rgba(var(--blue-rgb),0.5) !important;
       background:var(--surface2); box-shadow:0 10px 28px rgba(0,0,0,0.6);
@@ -619,7 +625,7 @@
       0%,100% { transform:scale(1); }
       50%     { transform:scale(1.03); }
     }
-    #restBar > * { position:relative; }
+    #restBar > *:not(#restBarFill) { position:relative; }   /* keep the fill absolute — else it eats the label's space */
     .rest-bar-name {
       flex:1; font-size:0.8rem; color:var(--text-muted);
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis;

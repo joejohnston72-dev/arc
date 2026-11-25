@@ -2,6 +2,7 @@
 // All functions take the array of saved session objects and return HTML strings.
 import { CATEGORY_COLORS, muscleContributions } from './exercises.js';
 import { e1RM } from './achievements.js';
+import { asWorkingSet } from './workingSet.js';
 // Local calendar day (YYYY-MM-DD). toISOString() is UTC, which files anything
 // between midnight and 1am BST (or evenings in the Americas) under the wrong day.
 const localYMD = (d = new Date()) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
@@ -305,7 +306,7 @@ export function progressionHTML(sessions, exName) {
   for (const s of sessions) {
     const ex = (s.exercises || []).find(e => e.name === exName);
     if (!ex) continue;
-    const sets = workingSets(ex).filter(st => (st.weight || 0) > 0);
+    const sets = (ex.sets || []).map(asWorkingSet).filter(st => st.done && st.type !== 'warmup' && (st.weight || 0) > 0);
     if (!sets.length) continue;
     const top = sets.reduce((a, b) => (b.weight > a.weight ? b : a));
     points.push({
